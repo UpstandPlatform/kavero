@@ -1,0 +1,3 @@
+{
+  "extends": "@Kavero/config/tsconfig.base.json"
+}

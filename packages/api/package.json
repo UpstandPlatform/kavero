@@ -1,0 +1,22 @@
+{
+  "name": "@Kavero/api",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./*": "./src/*.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@Kavero/auth": "workspace:*",
+    "@Kavero/db": "workspace:*",
+    "@trpc/client": "catalog:",
+    "@trpc/server": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@Kavero/config": "workspace:*",
+    "typescript": "catalog:"
+  }
+}
