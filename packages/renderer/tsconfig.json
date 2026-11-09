@@ -1,0 +1,5 @@
+{
+  "extends": "@Kavero/config/tsconfig.base.json",
+  "compilerOptions": { "noEmit": true, "jsx": "react-jsx", "lib": ["ESNext", "DOM"], "types": ["node"] },
+  "include": ["src"]
+}

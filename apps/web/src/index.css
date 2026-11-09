@@ -1,1 +1,11 @@
 @import "@Kavero/ui/globals.css";
+
+/* Native form controls (select dropdowns, color and number inputs) follow the app theme.
+   Without this, dark mode shows light option lists with light text. */
+:root { color-scheme: light; }
+.dark { color-scheme: dark; }
+select option,
+select optgroup {
+  background-color: var(--popover, var(--background));
+  color: var(--popover-foreground, var(--foreground));
+}

@@ -1,0 +1,97 @@
+"use client";
+
+import { buildTimeline } from "@Kavero/animation-engine";
+import type { CatalogDocument } from "@Kavero/catalog-engine";
+import { FrameView } from "@Kavero/renderer";
+import { Button } from "@Kavero/ui/components/button";
+import { Pause, Play, SkipBack, X } from "lucide-react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+
+import { VideoExportButton } from "./video-export";
+
+const fmt = (ms: number) => {
+  const s = Math.floor(ms / 1000);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+};
+
+/** Full-screen playback of the catalog timeline, exactly as the video export renders it. */
+export function PreviewPlayer({ doc, startSlide, assetUrls, onClose, openExport = false }: {
+  openExport?: boolean;
+  doc: CatalogDocument;
+  startSlide: number;
+  assetUrls: Record<string, string>;
+  onClose: () => void;
+}) {
+  const timeline = useMemo(() => buildTimeline(doc), [doc]);
+  const [time, setTime] = useState(timeline.segments[startSlide]?.startMs ?? 0);
+  const [playing, setPlaying] = useState(!openExport);
+  const [scale, setScale] = useState(0.5);
+  const box = useRef<HTMLDivElement>(null);
+  const { width: W, height: H } = doc.settings;
+
+  useLayoutEffect(() => {
+    const el = box.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([e]) => setScale(Math.min(e!.contentRect.width / W, e!.contentRect.height / H)));
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [W, H]);
+
+  useEffect(() => {
+    if (!playing) return;
+    let raf = 0;
+    let last = performance.now();
+    const tick = (now: number) => {
+      setTime((t) => {
+        const next = t + (now - last);
+        if (next >= timeline.totalMs) {
+          setPlaying(false);
+          return timeline.totalMs - 1;
+        }
+        return next;
+      });
+      last = now;
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, [playing, timeline.totalMs]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") onClose();
+      if (e.key === " ") { e.preventDefault(); setPlaying((p) => !p); }
+      const seg = timeline.segments.findIndex((s) => time >= s.startMs && time < s.endMs);
+      if (e.key === "ArrowRight" && timeline.segments[seg + 1]) setTime(timeline.segments[seg + 1]!.startMs);
+      if (e.key === "ArrowLeft") setTime(timeline.segments[Math.max(0, seg - (time - timeline.segments[seg]!.startMs < 500 ? 1 : 0))]!.startMs);
+    };
+    window.addEventListener("keydown", onKey, true);
+    return () => window.removeEventListener("keydown", onKey, true);
+  }, [onClose, time, timeline]);
+
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-label="Preview">
+      <div ref={box} className="flex min-h-0 flex-1 items-center justify-center p-4">
+        <FrameView doc={doc} timeline={timeline} timeMs={time} scale={scale} resolveAsset={(id) => assetUrls[id]} />
+      </div>
+      <div className="flex items-center gap-2 border-t border-white/10 px-4 py-2 text-xs">
+        <Button variant="ghost" size="icon-sm" className="text-white hover:bg-white/10" title="Restart" onClick={() => { setTime(0); setPlaying(true); }}><SkipBack /></Button>
+        <Button variant="ghost" size="icon-sm" className="text-white hover:bg-white/10" title={playing ? "Pause (Space)" : "Play (Space)"} onClick={() => { if (time >= timeline.totalMs - 1) setTime(0); setPlaying(!playing); }}>{playing ? <Pause /> : <Play />}</Button>
+        <span className="w-20 tabular-nums">{fmt(time)} / {fmt(timeline.totalMs)}</span>
+        <div className="relative flex-1">
+          <input
+            type="range" min={0} max={timeline.totalMs - 1} value={Math.round(time)} aria-label="Timeline"
+            onChange={(e) => { setPlaying(false); setTime(Number(e.target.value)); }}
+            className="w-full accent-sky-500"
+          />
+          {/* Slide boundaries */}
+          {timeline.segments.slice(1).map((s) => (
+            <span key={s.startMs} className="pointer-events-none absolute top-0 h-1.5 w-px bg-white/40" style={{ left: `${(s.startMs / timeline.totalMs) * 100}%` }} />
+          ))}
+        </div>
+        <VideoExportButton doc={doc} defaultOpen={openExport} />
+        <Button variant="ghost" size="icon-sm" className="text-white hover:bg-white/10" title="Close (Esc)" onClick={onClose}><X /></Button>
+      </div>
+    </div>
+  );
+}

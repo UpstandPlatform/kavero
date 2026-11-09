@@ -1,0 +1,261 @@
+import { resolveToken, type CatalogDocument, type CatalogElement, type Product } from "@Kavero/catalog-engine";
+import PptxGenJS from "pptxgenjs";
+
+/**
+ * Editable PowerPoint export. Every element becomes a native object (text box,
+ * shape, picture) rather than a screenshot, so it can be edited in PowerPoint.
+ *
+ * Capability mapping:
+ *   text          → editable text box (runs keep bold/italic/underline/color/links)
+ *   shape         → native shape (rect, rounded rect, ellipse, triangle, line, arrow)
+ *   image         → picture (cover/contain/fill, rounding)
+ *   product/grid  → picture + text boxes per card
+ *   button        → rounded shape with a hyperlink
+ *   html          → its text as an editable text box (styling is web-only)
+ *   video         → poster image or placeholder
+ *   transitions / animations → not supported by PptxGenJS; reported as warnings
+ */
+
+export interface PptxOptions {
+  /** assetId → data: URL for images. Missing images become placeholders. */
+  assets: Record<string, string>;
+  outputType?: "blob" | "nodebuffer" | "uint8array" | "arraybuffer";
+}
+
+export interface PptxResult<T> {
+  data: T;
+  warnings: string[];
+}
+
+const PX_PER_IN = 96;
+const inch = (px: number) => px / PX_PER_IN;
+const pt = (px: number) => Math.max(1, Math.round(px * 0.75 * 10) / 10);
+
+/** PowerPoint wants 6-digit hex without '#'. */
+export function toHex(color: string | undefined, fallback = "000000"): string {
+  if (!color) return fallback;
+  const c = color.trim();
+  let m = /^#?([0-9a-f]{6})$/i.exec(c);
+  if (m) return m[1]!.toUpperCase();
+  m = /^#?([0-9a-f])([0-9a-f])([0-9a-f])$/i.exec(c);
+  if (m) return `${m[1]}${m[1]}${m[2]}${m[2]}${m[3]}${m[3]}`.toUpperCase();
+  m = /^rgba?\(\s*(\d+)[\s,]+(\d+)[\s,]+(\d+)/i.exec(c);
+  if (m) return [m[1], m[2], m[3]].map((v) => Number(v).toString(16).padStart(2, "0")).join("").toUpperCase();
+  return fallback;
+}
+
+function htmlToText(html: string): string {
+  return html
+    .replace(/<(br|\/p|\/div|\/h[1-6]|\/li)\s*\/?>/gi, "\n")
+    .replace(/<[^>]+>/g, "")
+    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
+export async function exportPptx<T = Blob>(doc: CatalogDocument, opts: PptxOptions): Promise<PptxResult<T>> {
+  const warnings = new Set<string>();
+  const pptx = new PptxGenJS();
+  const { width: W, height: H } = doc.settings;
+  pptx.defineLayout({ name: "KAVERO", width: inch(W), height: inch(H) });
+  pptx.layout = "KAVERO";
+  pptx.title = doc.metadata.title;
+  if (doc.metadata.author) pptx.author = doc.metadata.author;
+  pptx.company = "Kavero";
+
+  const color = (v: string | undefined, fallback?: string) => toHex(v ? resolveToken(doc, v) : undefined, fallback);
+  const font = (v: string) => resolveToken(doc, v, "fonts");
+  const asset = (id: string | undefined) => (id ? opts.assets[id] : undefined);
+
+  if (doc.assets.some((a) => a.kind === "font")) {
+    warnings.add("Fonts saved in the catalog can't be embedded in PowerPoint. Install them on the computer that opens the file.");
+  }
+
+  function box(el: CatalogElement) {
+    const p = el.position;
+    return { x: inch(p.x), y: inch(p.y), w: inch(Math.max(1, p.width)), h: inch(Math.max(1, p.height)), rotate: p.rotation || undefined };
+  }
+  const transparency = (el: CatalogElement) => (el.opacity < 1 ? Math.round((1 - el.opacity) * 100) : undefined);
+
+  function addElement(s: PptxGenJS.Slide, el: CatalogElement) {
+    switch (el.type) {
+      case "text": {
+        const st = el.style;
+        const runs: PptxGenJS.TextProps[] = [];
+        el.content.paragraphs.forEach((para, i) => {
+          const last = i === el.content.paragraphs.length - 1;
+          const items = para.length ? para : [{ text: "" }];
+          items.forEach((r, j) => {
+            runs.push({
+              text: r.text,
+              options: {
+                bold: r.bold ?? st.fontWeight >= 600,
+                italic: r.italic ?? st.italic,
+                underline: r.underline || st.decoration === "underline" ? { style: "sng" } : undefined,
+                strike: st.decoration === "line-through" ? "sngStrike" : undefined,
+                color: r.color ? color(r.color) : undefined,
+                hyperlink: r.href ? { url: r.href } : undefined,
+                breakLine: j === items.length - 1 && !last,
+              },
+            });
+          });
+        });
+        s.addText(runs, {
+          ...box(el),
+          fontFace: font(st.fontFamily),
+          fontSize: pt(st.fontSize),
+          color: color(st.color),
+          align: st.align,
+          valign: "top",
+          lineSpacingMultiple: st.lineHeight,
+          charSpacing: st.letterSpacing ? st.letterSpacing * 0.75 : undefined,
+          margin: 0,
+          transparency: transparency(el),
+          fit: "none",
+        });
+        return;
+      }
+      case "shape": {
+        const st = el.style;
+        const b = box(el);
+        const line = st.stroke && st.strokeWidth > 0 ? { color: color(st.stroke), width: pt(st.strokeWidth) } : undefined;
+        const fill = { color: color(st.fill), transparency: transparency(el) };
+        switch (el.content.shape) {
+          case "rect": {
+            const r = st.borderRadius > 0 ? Math.min(1, st.borderRadius / (Math.min(el.position.width, el.position.height) / 2)) : 0;
+            s.addShape(r ? pptx.ShapeType.roundRect : pptx.ShapeType.rect, { ...b, fill, line, rectRadius: r || undefined });
+            return;
+          }
+          case "ellipse": s.addShape(pptx.ShapeType.ellipse, { ...b, fill, line }); return;
+          case "triangle": s.addShape(pptx.ShapeType.triangle, { ...b, fill, line }); return;
+          case "line":
+          case "arrow": {
+            const y = b.y + b.h / 2;
+            s.addShape(pptx.ShapeType.line, {
+              x: b.x, y, w: b.w, h: 0, rotate: b.rotate,
+              line: { color: color(st.stroke ?? st.fill), width: pt(Math.max(st.strokeWidth, 2)), endArrowType: el.content.shape === "arrow" ? "triangle" : undefined },
+            });
+            return;
+          }
+        }
+        return;
+      }
+      case "image": {
+        const data = asset(el.content.assetId);
+        if (!data) return placeholder(s, el, "Missing image");
+        const b = box(el);
+        s.addImage({
+          data, ...b, altText: el.content.alt || undefined, transparency: transparency(el),
+          rounding: el.style.borderRadius >= Math.min(el.position.width, el.position.height) / 2 ? true : undefined,
+          sizing: el.style.fit === "fill" ? undefined : { type: el.style.fit === "cover" ? "cover" : "contain", w: b.w, h: b.h },
+        });
+        if (el.style.borderRadius > 0 && el.style.borderRadius < Math.min(el.position.width, el.position.height) / 2) warnings.add("Rounded image corners are square in PowerPoint (fully round images are kept).");
+        return;
+      }
+      case "product": {
+        const product = doc.products.find((p) => p.id === el.content.productId);
+        productCard(s, el.position, product, el.style);
+        return;
+      }
+      case "product-grid": {
+        const { columns, products } = el.content;
+        const gap = el.style.gap;
+        const p = el.position;
+        const cw = (p.width - gap * (columns - 1)) / columns;
+        const rows = Math.max(1, Math.ceil(products.length / columns));
+        const ch = Math.min(cw * 1.4, (p.height - gap * (rows - 1)) / rows);
+        if (p.rotation) warnings.add("Rotated product grids are exported unrotated.");
+        products.forEach((ref, i) => {
+          const product = doc.products.find((x) => x.id === ref.productId);
+          const pos = { x: p.x + (i % columns) * (cw + gap), y: p.y + Math.floor(i / columns) * (ch + gap), width: cw, height: ch, rotation: 0 };
+          productCard(s, pos, product, el.style);
+        });
+        return;
+      }
+      case "button": {
+        s.addText(el.content.label, {
+          ...box(el), shape: pptx.ShapeType.roundRect,
+          rectRadius: Math.min(1, el.style.borderRadius / (Math.min(el.position.width, el.position.height) / 2)),
+          fill: { color: color(el.style.background) }, color: color(el.style.color),
+          align: "center", valign: "middle", bold: true, fontSize: pt(Math.min(28, el.position.height * 0.4)),
+          hyperlink: { url: el.content.href }, margin: 0,
+        });
+        return;
+      }
+      case "html": {
+        warnings.add("HTML blocks become plain editable text in PowerPoint; their CSS styling is web/PDF/video only.");
+        const text = htmlToText(el.content.html);
+        if (text) s.addText(text, { ...box(el), fontFace: font("token:body"), fontSize: 18, color: color("token:text"), valign: "top", margin: 0.1, fit: "shrink" });
+        return;
+      }
+      case "video": {
+        const poster = asset(el.content.posterAssetId);
+        warnings.add("Videos are exported as their poster image.");
+        if (poster) s.addImage({ data: poster, ...box(el), sizing: { type: "cover", w: box(el).w, h: box(el).h } });
+        else placeholder(s, el, "Video");
+        return;
+      }
+      case "icon":
+        placeholder(s, el, el.content.name);
+        return;
+    }
+  }
+
+  function productCard(
+    s: PptxGenJS.Slide,
+    p: { x: number; y: number; width: number; height: number; rotation: number },
+    product: Product | undefined,
+    style: { layout: string; showPrice: boolean; showDescription: boolean; background?: string; borderRadius: number },
+  ) {
+    if (!product) {
+      warnings.add("Some product cards had no product selected and were left out.");
+      return;
+    }
+    const horizontal = style.layout === "horizontal";
+    const textH = Math.min(p.height * 0.4, 110);
+    const img = { x: p.x, y: p.y, width: horizontal ? p.width * 0.45 : p.width, height: horizontal ? p.height : p.height - textH - 8 };
+    const txt = horizontal
+      ? { x: p.x + p.width * 0.45 + 12, y: p.y, width: p.width * 0.55 - 12, height: p.height }
+      : { x: p.x, y: p.y + img.height + 8, width: p.width, height: textH };
+    if (style.background) s.addShape(pptx.ShapeType.rect, { x: inch(p.x), y: inch(p.y), w: inch(p.width), h: inch(p.height), fill: { color: color(style.background) } });
+    const data = asset(product.imageAssetIds[0]);
+    if (data) s.addImage({ data, x: inch(img.x), y: inch(img.y), w: inch(img.width), h: inch(img.height), sizing: { type: "cover", w: inch(img.width), h: inch(img.height) }, altText: product.name });
+    else s.addShape(pptx.ShapeType.rect, { x: inch(img.x), y: inch(img.y), w: inch(img.width), h: inch(img.height), fill: { color: "EEEEEE" } });
+
+    const price = product.price !== undefined
+      ? new Intl.NumberFormat(doc.metadata.language, { style: "currency", currency: product.currency ?? doc.metadata.currency }).format(product.price)
+      : null;
+    const runs: PptxGenJS.TextProps[] = [{ text: product.name, options: { bold: true, fontSize: 16, fontFace: font("token:heading"), breakLine: true } }];
+    if (style.showDescription && product.description) runs.push({ text: product.description, options: { fontSize: 11, color: color("token:muted"), breakLine: true } });
+    if (style.showPrice && price) runs.push({ text: price, options: { bold: true, fontSize: 13, color: color("token:primary") } });
+    s.addText(runs, { x: inch(txt.x), y: inch(txt.y), w: inch(txt.width), h: inch(txt.height), valign: "top", color: color("token:text"), fontFace: font("token:body"), margin: 0, hyperlink: product.url ? { url: product.url } : undefined });
+  }
+
+  function placeholder(s: PptxGenJS.Slide, el: CatalogElement, label: string) {
+    s.addText(label, { ...box(el), fill: { color: "EEEEEE" }, color: "888888", align: "center", valign: "middle", fontSize: 14 });
+  }
+
+  for (const slide of doc.slides) {
+    const s = pptx.addSlide();
+    const bg = slide.background;
+    if (bg.kind === "color") s.background = { color: color(bg.color, "FFFFFF") };
+    else if (bg.kind === "gradient") {
+      s.background = { color: color(bg.from, "FFFFFF") };
+      warnings.add("Gradient backgrounds use their first color in PowerPoint.");
+    } else {
+      const data = asset(bg.assetId);
+      if (data) s.background = { data };
+    }
+    if (slide.transition && slide.transition.type !== "none") warnings.add("Slide transitions aren't exported to PowerPoint yet; add them in PowerPoint if needed.");
+
+    const elements = [...slide.elements].sort((a, b) => a.zIndex - b.zIndex);
+    for (const el of elements) {
+      if (el.hidden) continue;
+      if (el.animations.length) warnings.add("Element animations aren't exported to PowerPoint yet.");
+      addElement(s, el);
+    }
+  }
+
+  const data = (await pptx.write({ outputType: opts.outputType ?? "blob", compression: true })) as T;
+  return { data, warnings: [...warnings] };
+}

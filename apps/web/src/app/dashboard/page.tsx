@@ -1,23 +1,10 @@
-import { headers } from "next/headers";
-import { redirect } from "next/navigation";
+import type { Metadata } from "next";
 
-import { auth } from "../../services";
-import Dashboard from "./dashboard";
+import { CatalogDashboard } from "@/modules/catalog/catalog-dashboard";
 
-export default async function DashboardPage() {
-  const session = await auth.api.getSession({
-    headers: await headers(),
-  });
+export const metadata: Metadata = { title: "Catalogs · Kavero" };
 
-  if (!session?.user) {
-    redirect("/login");
-  }
-
-  return (
-    <div>
-      <h1>Dashboard</h1>
-      <p>Welcome {session.user.name}</p>
-      <Dashboard session={session} />
-    </div>
-  );
+// Local-first: no sign-in needed. Catalogs live in IndexedDB on this device.
+export default function DashboardPage() {
+  return <CatalogDashboard />;
 }

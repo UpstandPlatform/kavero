@@ -1,0 +1,8 @@
+{
+  "name": "@Kavero/editor-core",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "check-types": "tsc --noEmit", "test": "bun test" },
+  "dependencies": { "@Kavero/catalog-engine": "workspace:*", "zod": "catalog:" },
+  "devDependencies": { "@Kavero/config": "workspace:*", "@types/bun": "^1.3.0", "typescript": "catalog:" }
+}

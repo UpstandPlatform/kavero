@@ -1,0 +1,22 @@
+{
+  "name": "@Kavero/export-chromium",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@Kavero/animation-engine": "workspace:*",
+    "@Kavero/catalog-engine": "workspace:*",
+    "@ffmpeg-installer/ffmpeg": "^1.1.0",
+    "playwright-core": "^1.65.0"
+  },
+  "devDependencies": {
+    "@Kavero/config": "workspace:*",
+    "@types/bun": "^1.3.0",
+    "typescript": "catalog:"
+  }
+}

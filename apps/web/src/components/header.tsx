@@ -1,10 +1,15 @@
 "use client";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 
 import { ModeToggle } from "./mode-toggle";
 import UserMenu from "./user-menu";
 
 export default function Header() {
+  // The editor is full-screen and has its own top bar.
+  const pathname = usePathname();
+  if (pathname.startsWith("/editor/") || pathname === "/render") return null;
+
   const links = [
     { to: "/", label: "Home" },
     { to: "/dashboard", label: "Dashboard" },

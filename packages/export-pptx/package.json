@@ -1,0 +1,20 @@
+{
+  "name": "@Kavero/export-pptx",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@Kavero/catalog-engine": "workspace:*",
+    "pptxgenjs": "^4.0.1"
+  },
+  "devDependencies": {
+    "@Kavero/config": "workspace:*",
+    "@types/bun": "^1.3.0",
+    "typescript": "catalog:"
+  }
+}

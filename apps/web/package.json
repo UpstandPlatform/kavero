@@ -11,9 +11,16 @@
     "auth:generate": "varlock run -- bun x auth@latest generate --config src/services.ts --output ../../packages/db/src/schema/auth.ts --yes"
   },
   "dependencies": {
+    "@Kavero/animation-engine": "workspace:*",
     "@Kavero/api": "workspace:*",
     "@Kavero/auth": "workspace:*",
+    "@Kavero/catalog-engine": "workspace:*",
     "@Kavero/db": "workspace:*",
+    "@Kavero/editor-core": "workspace:*",
+    "@Kavero/export-chromium": "workspace:*",
+    "@Kavero/export-pptx": "workspace:*",
+    "@Kavero/local-storage": "workspace:*",
+    "@Kavero/renderer": "workspace:*",
     "@Kavero/ui": "workspace:*",
     "@swc/helpers": "^0.5.23",
     "@tanstack/react-form": "^1.33.5",
