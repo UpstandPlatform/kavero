@@ -8,4 +8,5 @@ export const relations = {
   ...schema.catalogRelations,
   ...schema.publicationRelations,
   ...schema.integrationRelations,
+  ...schema.workspaceRelations,
 };

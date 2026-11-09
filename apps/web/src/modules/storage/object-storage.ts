@@ -1,6 +1,8 @@
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve, sep } from "node:path";
 
+import { S3Storage } from "./s3-storage";
+
 /** Where binary assets live. Swap in an S3-compatible driver for hosted deployments. */
 export interface ObjectStorage {
   put(key: string, data: Uint8Array): Promise<void>;
@@ -45,7 +47,30 @@ export class FileSystemStorage implements ObjectStorage {
 
 let storage: ObjectStorage | null = null;
 
+/** Which driver `objectStorage()` uses, from `STORAGE_DRIVER` (filesystem | s3). */
+export function storageDriver(): "filesystem" | "s3" {
+  const driver = (process.env.STORAGE_DRIVER || "filesystem").toLowerCase();
+  if (driver !== "filesystem" && driver !== "s3") throw new Error(`Unknown STORAGE_DRIVER "${driver}" (expected filesystem or s3)`);
+  return driver;
+}
+
+function createStorage(): ObjectStorage {
+  if (storageDriver() === "s3") {
+    const bucket = process.env.S3_BUCKET;
+    if (!bucket) throw new Error("STORAGE_DRIVER=s3 requires S3_BUCKET");
+    return new S3Storage({
+      bucket,
+      region: process.env.S3_REGION,
+      endpoint: process.env.S3_ENDPOINT,
+      accessKeyId: process.env.S3_ACCESS_KEY_ID,
+      secretAccessKey: process.env.S3_SECRET_ACCESS_KEY,
+      forcePathStyle: /^(1|true|yes)$/i.test(process.env.S3_FORCE_PATH_STYLE ?? ""),
+    });
+  }
+  return new FileSystemStorage(process.env.KAVERO_STORAGE_DIR || join(process.cwd(), ".storage"));
+}
+
 export function objectStorage(): ObjectStorage {
-  storage ??= new FileSystemStorage(process.env.KAVERO_STORAGE_DIR ?? join(process.cwd(), ".storage"));
+  storage ??= createStorage();
   return storage;
 }

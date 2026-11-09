@@ -3,7 +3,9 @@ import { createHash } from "node:crypto";
 import { CatalogService } from "@Kavero/api/services/catalog-service";
 import { fetchImageAsDataUrl } from "@Kavero/api/services/safe-fetch";
 import { TokenService, audit } from "@Kavero/api/services/token-service";
-import { renderSlideImage } from "@Kavero/export-chromium";
+import { providerFromEnv, type AiEnv } from "@Kavero/ai";
+import type { CatalogDocument } from "@Kavero/catalog-engine";
+import { renderPdf, renderSlideImage } from "@Kavero/export-chromium";
 import { createKaveroMcpServer } from "@Kavero/mcp-server";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 
@@ -13,6 +15,7 @@ import { db } from "@/services";
 export const runtime = "nodejs";
 
 const LIMIT_PER_MINUTE = 120;
+const aiProvider = providerFromEnv(process.env as AiEnv);
 const hits = new Map<string, { n: number; resetAt: number }>();
 function rateLimited(tokenId: string) {
   const now = Date.now();
@@ -44,6 +47,17 @@ export async function POST(request: Request) {
 
   const origin = new URL(request.url).origin;
   const catalogs = new CatalogService(db);
+  /** The catalog's stored images and fonts as data: URLs (access-checked per file). */
+  const loadAssets = async (doc: CatalogDocument) => {
+    const assets: Record<string, string> = {};
+    for (const a of doc.assets) {
+      if (a.kind === "video") continue;
+      const file = await catalogs.findAsset(principal.userId, doc.id, a.id);
+      const bytes = file && (await objectStorage().get(file.storageKey));
+      if (bytes) assets[a.id] = `data:${file.mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
+    }
+    return assets;
+  };
   const server = createKaveroMcpServer({
     db,
     principal,
@@ -61,16 +75,10 @@ export async function POST(request: Request) {
         await catalogs.recordAsset({ catalogId: catalogRowId, assetId, mimeType, bytes: bytes.byteLength, hash, storageKey });
         return { id: assetId, mimeType, bytes: bytes.byteLength, hash };
       },
-      renderPreview: async (doc, slideIndex) => {
-        const assets: Record<string, string> = {};
-        for (const a of doc.assets) {
-          if (a.kind === "video") continue;
-          const file = await catalogs.findAsset(principal.userId, doc.id, a.id);
-          const bytes = file && (await objectStorage().get(file.storageKey));
-          if (bytes) assets[a.id] = `data:${file.mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
-        }
-        return renderSlideImage({ doc, assets, baseUrl: origin, slideIndex, width: 1280 });
-      },
+      loadAssets,
+      renderPreview: async (doc, slideIndex) => renderSlideImage({ doc, assets: await loadAssets(doc), baseUrl: origin, slideIndex, width: 1280 }),
+      renderPdf: async (doc) => renderPdf({ doc, assets: await loadAssets(doc), baseUrl: origin }),
+      ai: aiProvider,
     },
   });
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });

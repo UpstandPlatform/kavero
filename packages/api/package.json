@@ -10,6 +10,7 @@
     "test": "bun test"
   },
   "dependencies": {
+    "@Kavero/ai": "workspace:*",
     "@Kavero/auth": "workspace:*",
     "@Kavero/catalog-engine": "workspace:*",
     "@Kavero/db": "workspace:*",

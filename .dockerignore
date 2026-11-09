@@ -31,3 +31,7 @@ docker-compose.yml
 local.db
 local.db-*
 .data
+
+# Local asset storage and dev artefacts
+**/.storage
+.claude

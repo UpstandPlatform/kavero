@@ -7,7 +7,7 @@ const nextConfig: NextConfig = {
   typedRoutes: true,
   reactCompiler: true,
   output: "standalone",
-  transpilePackages: ["@Kavero/catalog-engine", "@Kavero/local-storage", "@Kavero/editor-core", "@Kavero/renderer", "@Kavero/animation-engine", "@Kavero/export-chromium", "@Kavero/export-pptx", "@Kavero/mcp-server"],
+  transpilePackages: ["@Kavero/catalog-engine", "@Kavero/local-storage", "@Kavero/editor-core", "@Kavero/renderer", "@Kavero/animation-engine", "@Kavero/export-chromium", "@Kavero/export-pptx", "@Kavero/mcp-server", "@Kavero/ai"],
   // Native/binary packages used by video export must stay outside the bundle.
   serverExternalPackages: ["playwright-core", "@ffmpeg-installer/ffmpeg"],
 };

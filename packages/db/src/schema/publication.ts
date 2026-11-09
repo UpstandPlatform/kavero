@@ -1,5 +1,5 @@
 import { defineRelationsPart } from "drizzle-orm";
-import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { date, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "./auth";
 import { catalog } from "./catalog";
@@ -59,3 +59,14 @@ export const publicationRelations = defineRelationsPart({ catalog, publication, 
   },
   publicationAsset: { publication: r.one.publication({ from: r.publicationAsset.publicationId, to: r.publication.id }) },
 }));
+
+/** Views per published catalog per day (simple, privacy-friendly analytics: no visitor data). */
+export const publicationViewDaily = pgTable(
+  "publication_view_daily",
+  {
+    publicationId: text("publication_id").notNull().references(() => publication.id, { onDelete: "cascade" }),
+    day: date("day", { mode: "string" }).notNull(),
+    views: integer("views").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.publicationId, t.day] })],
+);

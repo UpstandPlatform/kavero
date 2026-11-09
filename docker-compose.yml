@@ -17,22 +17,48 @@ services:
       BETTER_AUTH_URL: http://localhost:3001
       CORS_ORIGIN: http://localhost:3001
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/Kavero
+      KAVERO_STORAGE_DIR: /data/storage
+    volumes:
+      - Kavero_storage_data:/data/storage
+    # Chromium needs more shared memory than Docker's 64 MB default for PDF/video export.
+    shm_size: 1gb
     depends_on:
       postgres:
         condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
     healthcheck:
       test:
         [
           "CMD",
           "node",
           "-e",
-          "fetch('http://localhost:3001/').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+          "fetch('http://127.0.0.1:3001/api/health').then((r) => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
         ]
-      interval: 10s
+      interval: 30s
       timeout: 5s
-      retries: 5
-      start_period: 10s
+      retries: 3
+      start_period: 20s
     restart: unless-stopped
+
+  # One-shot: applies packages/db/src/migrations, then exits. Reuses the web image's builder stage
+  # (full workspace + drizzle-kit). Run on its own with: docker compose run --rm migrate
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      target: builder
+      secrets:
+        - web_env
+    working_dir: /app/packages/db
+    command: ["bunx", "drizzle-kit", "migrate"]
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/Kavero
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
 
   postgres:
     image: postgres:18
@@ -54,6 +80,7 @@ services:
 
 volumes:
   Kavero_postgres_data:
+  Kavero_storage_data:
 
 # BuildKit makes these available only while install/build commands run.
 secrets:

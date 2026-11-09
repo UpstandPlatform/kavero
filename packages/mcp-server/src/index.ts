@@ -13,6 +13,8 @@ import {
 } from "@Kavero/catalog-engine";
 import type { Database } from "@Kavero/db";
 import type { EditorCommand, NewElement } from "@Kavero/editor-core";
+import { generateCatalog, type LlmProvider } from "@Kavero/ai";
+import { exportPptx } from "@Kavero/export-pptx";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { TRPCError } from "@trpc/server";
@@ -28,7 +30,15 @@ export interface McpHost {
    * SSRF protection). Returns the asset to add to the document. Optional.
    */
   importImage?: (catalogRowId: string, url: string, name: string) => Promise<{ id: string; mimeType: string; bytes: number; hash: string; width?: number; height?: number }>;
+  /** Configured LLM for catalog_generate; null uses the offline planner. */
+  ai?: LlmProvider | null;
+  /** PDF of a catalog (headless Chrome). Optional. */
+  renderPdf?: (doc: CatalogDocument) => Promise<Uint8Array>;
+  /** Image/font files of a cloud catalog as data: URLs, for exporters. */
+  loadAssets?: (doc: CatalogDocument) => Promise<Record<string, string>>;
 }
+
+const MAX_EXPORT_BYTES = 25 * 1024 * 1024;
 
 const ELEMENT_HELP = `Element JSON (positions in document pixels; see catalog_get for page size):
 - text:    {"type":"text","position":{"x":80,"y":80,"width":800,"height":120},"content":{"paragraphs":[[{"text":"Hello","bold":true}]]},"style":{"fontSize":64,"fontWeight":700,"color":"token:text","fontFamily":"token:heading","align":"left"}}
@@ -113,7 +123,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
 
   server.registerTool("catalog_list", {
     title: "List catalogs", description: "List the user's cloud catalogs.", annotations: { readOnlyHint: true },
-  }, guard("catalog_list", "catalogs:read", async () => ok({ catalogs: (await catalogs.list(uid)).map((c) => ({ catalogId: c.id, title: c.title, slides: c.slideCount, revision: c.revision, updatedAt: c.updatedAt })) })));
+  }, guard("catalog_list", "catalogs:read", async () => ok({ catalogs: (await catalogs.list(uid)).map((c) => ({ catalogId: c.id, title: c.title, slides: c.slideCount, revision: c.revision, updatedAt: c.updatedAt, workspace: c.workspaceName, role: c.role })) })));
 
   server.registerTool("catalog_get", {
     title: "Get catalog", description: "Outline of a catalog: page size, theme, products, assets and every slide's elements with ids. Set full=true for the complete JSON document.",
@@ -131,11 +141,12 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
       template: z.enum(["blank", ...TEMPLATES.map((t) => t.id)] as [string, ...string[]]).optional(),
       page: z.enum(Object.keys(PAGE_PRESETS) as [string, ...string[]]).optional(),
       language: z.string().max(10).optional(), currency: z.string().length(3).optional(),
+      workspaceId: z.string().max(100).optional().describe("Create inside this workspace (see catalog_list); default: personal"),
     },
   }, guard("catalog_create", "catalogs:write", async (a) => {
     const input = { title: a.title, description: a.description, language: a.language, currency: a.currency?.toUpperCase(), page: a.page as keyof typeof PAGE_PRESETS | undefined };
     const doc = a.template && a.template !== "blank" ? createFromTemplate(a.template, input) : createCatalog(input);
-    const r = await catalogs.create(uid, doc);
+    const r = await catalogs.create(uid, doc, a.workspaceId);
     return ok({ catalogId: r.id, revision: r.revision, slideIds: doc.slides.map((s) => s.id), page: { width: doc.settings.width, height: doc.settings.height } });
   }));
 
@@ -300,6 +311,81 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     }
     const r = await edit(catalogId, commands);
     return ok({ ...r, productIds: ids, imagesImported: imageFor.size, warnings });
+  }));
+
+  // ---------- AI generation ----------
+
+  server.registerTool("catalog_generate", {
+    title: "Generate catalog",
+    description: "Plan and build a complete, editable catalog from a brief and products (cover, categories, product grids, featured product, comparison, closing). Uses Kavero's configured AI model, or its built-in planner when none is configured. Product imageUrl values are downloaded and stored.",
+    inputSchema: {
+      brief: z.string().max(4000),
+      products: z.array(productInput).max(500).optional(),
+      template: z.enum(TEMPLATES.map((t) => t.id) as [string, ...string[]]).optional(),
+      page: z.enum(Object.keys(PAGE_PRESETS) as [string, ...string[]]).optional(),
+      language: z.string().max(10).optional(), currency: z.string().length(3).optional(),
+      workspaceId: z.string().max(100).optional(),
+    },
+  }, guard("catalog_generate", "catalogs:write", async (a) => {
+    const products = (a.products ?? []).map((p) => ({ ...p, id: p.id ?? createId("prd"), currency: p.currency?.toUpperCase(), imageAssetIds: [] as string[], attributes: p.attributes ?? {} }));
+    const result = await generateCatalog(host.ai ?? null, {
+      brief: a.brief, products: products.map(({ imageUrl: _u, ...p }) => p), templateId: a.template,
+      page: a.page as keyof typeof PAGE_PRESETS | undefined, language: a.language, currency: a.currency?.toUpperCase(),
+    });
+    const created = await catalogs.create(uid, result.document, a.workspaceId);
+    const warnings: string[] = [];
+    const withImages = products.filter((p) => p.imageUrl);
+    if (withImages.length && host.importImage) {
+      const commands: EditorCommand[] = [];
+      for (const p of withImages.slice(0, 60)) {
+        try {
+          const asset = await host.importImage(created.id, p.imageUrl!, p.name);
+          if (!commands.some((c) => c.type === "asset.add" && c.asset.id === asset.id)) {
+            commands.push({ type: "asset.add", asset: { id: asset.id, kind: "image", mimeType: asset.mimeType, name: p.name, uri: `cloud://${asset.id}`, bytes: asset.bytes, hash: asset.hash } });
+          }
+          commands.push({ type: "product.upsert", product: { id: p.id, name: p.name, imageAssetIds: [asset.id] } });
+        } catch (e) {
+          warnings.push(`${p.name}: image not imported (${(e as Error).message})`);
+        }
+      }
+      if (commands.length) await catalogs.applyCommands(uid, created.id, commands);
+    }
+    return ok({
+      catalogId: created.id, source: result.source, model: result.model, template: result.plan.templateId,
+      slides: result.document.slides.map((s, i) => ({ index: i, id: s.id, name: s.name })), warnings,
+    });
+  }));
+
+  // ---------- Exports ----------
+
+  const fileResult = (name: string, mimeType: string, bytes: Uint8Array, note: string): CallToolResult => {
+    if (bytes.byteLength > MAX_EXPORT_BYTES) return fail("The exported file is larger than 25 MB; export it from the Kavero app instead.");
+    return {
+      content: [
+        { type: "resource", resource: { uri: `kavero://exports/${encodeURIComponent(name)}`, mimeType, blob: Buffer.from(bytes).toString("base64") } },
+        { type: "text", text: `${name} (${(bytes.byteLength / 1024).toFixed(0)} KB). ${note}` },
+      ],
+    };
+  };
+  const fileName = (doc: CatalogDocument, ext: string) => `${doc.metadata.title.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "catalog"}.${ext}`;
+
+  server.registerTool("catalog_export_pdf", {
+    title: "Export PDF", description: "Export the catalog as a print-ready PDF (one page per slide). Returned as an embedded file.",
+    inputSchema: { catalogId: id }, annotations: { readOnlyHint: true },
+  }, guard("catalog_export_pdf", "catalogs:read", async ({ catalogId }) => {
+    if (!host.renderPdf) return fail("PDF export isn't available on this server (no Chrome).");
+    const { document } = await catalogs.get(uid, catalogId);
+    return fileResult(fileName(document, "pdf"), "application/pdf", await host.renderPdf(document), "Animations are shown in their finished state.");
+  }));
+
+  server.registerTool("catalog_export_pptx", {
+    title: "Export PowerPoint", description: "Export the catalog as an editable PowerPoint file (text, shapes and images stay editable). Returned as an embedded file with compatibility notes.",
+    inputSchema: { catalogId: id }, annotations: { readOnlyHint: true },
+  }, guard("catalog_export_pptx", "catalogs:read", async ({ catalogId }) => {
+    const { document } = await catalogs.get(uid, catalogId);
+    const assets = host.loadAssets ? await host.loadAssets(document) : {};
+    const { data, warnings } = await exportPptx<Uint8Array>(document, { assets, outputType: "uint8array" });
+    return fileResult(fileName(document, "pptx"), "application/vnd.openxmlformats-officedocument.presentationml.presentation", data, warnings.join(" ") || "No compatibility issues.");
   }));
 
   // ---------- Preview & publishing ----------

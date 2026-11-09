@@ -11,7 +11,7 @@ import {
 } from "@Kavero/ui/components/dropdown-menu";
 import { Input } from "@Kavero/ui/components/input";
 import { Skeleton } from "@Kavero/ui/components/skeleton";
-import { Cloud, CloudOff, CloudUpload, Copy, Download, HardDrive, RefreshCw, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Sparkles, Cloud, CloudOff, CloudUpload, Copy, Download, HardDrive, RefreshCw, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -28,8 +28,9 @@ import {
   renameLocalCatalog,
   useLocalCatalogs,
 } from "./local-catalogs";
-import { SyncConflictError, deleteCloudCopy, listCloudCatalogs, pushCatalog, refreshFromCloud } from "./cloud-sync";
+import { SyncConflictError, deleteCloudCopy, listCloudCatalogs, listWorkspaces, pushCatalog, refreshFromCloud } from "./cloud-sync";
 import { CloudOnlyList, ConflictDialog } from "./cloud-ui";
+import { AiGenerateDialog } from "./ai-generate-dialog";
 import { NewCatalogDialog } from "./new-catalog-dialog";
 
 type Sort = "updated" | "created" | "title";
@@ -50,8 +51,17 @@ export function CatalogDashboard() {
   const [query, setQuery] = useState("");
   const [sort, setSort] = useState<Sort>("updated");
   const [creating, setCreating] = useState(false);
+  const [generating, setGenerating] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
   const [conflicts, setConflicts] = useState<Set<string>>(new Set());
+  const [workspaces, setWorkspaces] = useState<{ id: string; name: string; role: string }[]>([]);
+  const [cloudInfo, setCloudInfo] = useState<Map<string, { workspaceName: string | null; role: string }>>(new Map());
+
+  useEffect(() => {
+    if (!session) return;
+    void listWorkspaces().then(setWorkspaces, () => undefined);
+    void listCloudCatalogs().then((list) => setCloudInfo(new Map(list.map((c) => [c.id, { workspaceName: c.workspaceName, role: c.role }]))), () => undefined);
+  }, [session, catalogs?.length]);
   const refreshed = useRef(false);
 
   // Pull catalogs that changed in the cloud (another device, or an AI agent via MCP).
@@ -115,6 +125,9 @@ export function CatalogDashboard() {
           <Button variant="outline" size="lg" onClick={() => fileInput.current?.click()}>
             <Upload /> Import
           </Button>
+          <Button variant="outline" size="lg" onClick={() => setGenerating(true)}>
+            <Sparkles /> Generate with AI
+          </Button>
           <Button size="lg" onClick={() => setCreating(true)}>
             <Plus /> New catalog
           </Button>
@@ -161,12 +174,14 @@ export function CatalogDashboard() {
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {visible.map((c) => <CatalogCard key={c.id} catalog={c} userId={session?.user.id ?? null} cloudConflict={conflicts.has(c.id)} />)}
+        {visible.map((c) => <CatalogCard key={c.id} catalog={c} userId={session?.user.id ?? null} cloudConflict={conflicts.has(c.id)} workspaces={workspaces} cloud={c.cloud ? cloudInfo.get(c.cloud.id) : undefined} />)}
       </div>
 
       {session && catalogs && (
         <CloudOnlyList key={catalogs.map((c) => c.id + c.location).join()} userId={session.user.id} localDocumentIds={new Set(catalogs.map((c) => c.id))} />
       )}
+
+      {generating && <AiGenerateDialog onClose={() => setGenerating(false)} />}
 
       <NewCatalogDialog
         open={creating}
@@ -185,7 +200,13 @@ export function CatalogDashboard() {
   );
 }
 
-function CatalogCard({ catalog: c, userId, cloudConflict = false }: { catalog: CatalogSummary; userId: string | null; cloudConflict?: boolean }) {
+function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [], cloud }: {
+  catalog: CatalogSummary;
+  userId: string | null;
+  cloudConflict?: boolean;
+  workspaces?: { id: string; name: string; role: string }[];
+  cloud?: { workspaceName: string | null; role: string };
+}) {
   const [renaming, setRenaming] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -201,12 +222,12 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false }: { catalog: C
     }
   }
 
-  async function sync() {
+  async function sync(workspace?: { id: string; name: string }) {
     if (!userId) return;
     setSyncing(true);
     await act(async () => {
-      const r = await pushCatalog(c.id, userId);
-      toast.success(r.status === "unchanged" ? "Already up to date" : c.cloud ? "Synced to cloud" : "Saved to your cloud");
+      const r = await pushCatalog(c.id, userId, { workspaceId: workspace?.id });
+      toast.success(r.status === "unchanged" ? "Already up to date" : c.cloud ? "Synced to cloud" : workspace ? `Saved to ${workspace.name}` : "Saved to your cloud");
     });
     setSyncing(false);
   }
@@ -251,6 +272,7 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false }: { catalog: C
             <span title={status.title} className="inline-flex items-center gap-1 border px-1 py-px text-[10px] uppercase tracking-wide">
               {syncing ? <RefreshCw className="size-2.5 animate-spin" /> : status.icon} {status.label}
             </span>
+            {cloud?.workspaceName && <span className="truncate" title={`Workspace · your role: ${cloud.role}`}>{cloud.workspaceName}{cloud.role === "viewer" ? " (view only)" : ""} ·</span>}
             {c.slideCount} slide{c.slideCount === 1 ? "" : "s"} · {timeAgo(c.updatedAt)}
           </p>
         </div>
@@ -265,7 +287,16 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false }: { catalog: C
             {userId && !linkedElsewhere && (
               <>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={sync}>{c.cloud ? <><RefreshCw /> Sync now</> : <><CloudUpload /> Save to cloud</>}</DropdownMenuItem>
+                {c.cloud ? (
+                  <DropdownMenuItem onClick={() => sync()}><RefreshCw /> Sync now</DropdownMenuItem>
+                ) : (
+                  <>
+                    <DropdownMenuItem onClick={() => sync()}><CloudUpload /> Save to my cloud</DropdownMenuItem>
+                    {workspaces.filter((w) => w.role !== "viewer").map((w) => (
+                      <DropdownMenuItem key={w.id} onClick={() => sync(w)}><CloudUpload /> Save to {w.name}</DropdownMenuItem>
+                    ))}
+                  </>
+                )}
                 {c.cloud && (
                   <DropdownMenuItem
                     onClick={() => {

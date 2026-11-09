@@ -1,0 +1,146 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "3c1e3a40-50e8-4b32-8c1c-a556b4977b1b",
+  "prevIds": [
+    "a8accb92-7d2a-40e0-bde0-6ba72dd0cabb"
+  ],
+  "footprints": [
+    {
+      "statementType": "create_table",
+      "statementTarget": [
+        "table",
+        "public",
+        "publication_view_daily"
+      ],
+      "writes": [
+        "s|tbl|public.publication_view_daily",
+        "n|tbl|public.publication_view_daily",
+        "e|tbl|public.publication_view_daily",
+        "n|rel|public.publication_view_daily",
+        "n|type|public.publication_view_daily",
+        "n|rel|public.publication_view_daily_pkey"
+      ],
+      "reads": [
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "publication_view_daily"
+      ],
+      "writes": [
+        "s|fk|public.publication_view_daily.publication_view_daily_publication_id_publication_id_fkey",
+        "n|fk|public.publication_view_daily.publication_view_daily_publication_id_publication_id_fkey",
+        "e|fk|public.publication_view_daily.publication_view_daily_publication_id_publication_id_fkey",
+        "n|con|public.publication_view_daily.publication_view_daily_publication_id_publication_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.publication_view_daily",
+        "n|sch|public",
+        "n|tbl|public.publication",
+        "n|sch|public",
+        "n|col|public.publication_view_daily.publication_id",
+        "n|col|public.publication.id",
+        "e|uniqueness|public.publication.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "name": "publication_view_daily",
+        "isRlsEnabled": false,
+        "entityType": "tables"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "publication_view_daily",
+        "name": "publication_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "publication_view_daily",
+        "name": "day",
+        "type": "date",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "publication_view_daily",
+        "name": "views",
+        "type": "integer",
+        "typeSchema": null,
+        "notNull": true,
+        "dimensions": 0,
+        "default": "0",
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "publication_view_daily",
+        "name": "publication_view_daily_publication_id_publication_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "publication_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "publication",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "publication_view_daily",
+        "name": "publication_view_daily_pkey",
+        "columns": [
+          "publication_id",
+          "day"
+        ],
+        "nameExplicit": false,
+        "entityType": "pks"
+      }
+    }
+  ]
+}

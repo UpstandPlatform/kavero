@@ -2,7 +2,7 @@
 
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
-import { Check, Copy, KeyRound, Loader2, Plug, RefreshCw, ScrollText, Trash2 } from "lucide-react";
+import { Check, Copy, KeyRound, Loader2, Plug, RefreshCw, ScrollText, Sparkles, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -10,14 +10,16 @@ import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { makeTRPCClient } from "@/utils/trpc";
 
+import { WorkspacesTab } from "./workspaces-tab";
+
 let client: ReturnType<typeof makeTRPCClient> | null = null;
 export const api = () => (client ??= makeTRPCClient());
 
-type Tab = "tokens" | "connections" | "activity";
+type Tab = "workspaces" | "tokens" | "connections" | "ai" | "activity";
 
 export function SettingsPage() {
   const { data: session, isPending } = authClient.useSession();
-  const [tab, setTab] = useState<Tab>("tokens");
+  const [tab, setTab] = useState<Tab>(() => (typeof window !== "undefined" && (["workspaces", "tokens", "connections", "ai", "activity"] as const).find((t) => window.location.hash === `#${t}`)) || "workspaces");
   if (isPending) return <p className="p-8 text-sm text-muted-foreground">Loading…</p>;
   if (!session) {
     return (
@@ -28,8 +30,10 @@ export function SettingsPage() {
     );
   }
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
+    { id: "workspaces", label: "Workspaces", icon: <Users /> },
     { id: "tokens", label: "API tokens & AI agents", icon: <KeyRound /> },
     { id: "connections", label: "MCP connections", icon: <Plug /> },
+    { id: "ai", label: "AI", icon: <Sparkles /> },
     { id: "activity", label: "Activity", icon: <ScrollText /> },
   ];
   return (
@@ -48,8 +52,10 @@ export function SettingsPage() {
           </button>
         ))}
       </div>
+      {tab === "workspaces" && <WorkspacesTab />}
       {tab === "tokens" && <TokensTab />}
       {tab === "connections" && <ConnectionsTab />}
+      {tab === "ai" && <AiTab />}
       {tab === "activity" && <ActivityTab />}
     </div>
   );
@@ -287,6 +293,45 @@ function ActivityTab() {
           ))}
         </tbody>
       </table>
+    </div>
+  );
+}
+
+// ---------- AI ----------
+
+type AiRow = Awaited<ReturnType<ReturnType<typeof api>["ai"]["history"]["query"]>>[number];
+
+function AiTab() {
+  const [status, setStatus] = useState<{ configured: boolean; provider: string | null; model: string | null } | null>(null);
+  const [rows, setRows] = useState<AiRow[] | null>(null);
+  useEffect(() => {
+    void api().ai.status.query().then(setStatus);
+    void api().ai.history.query().then(setRows);
+  }, []);
+  return (
+    <div className="grid gap-6 text-xs">
+      <section className="grid gap-1 border p-4">
+        <p className="font-medium">{status?.configured ? `AI model: ${status.model} (${status.provider})` : "No AI model configured"}</p>
+        <p className="text-muted-foreground">
+          {status?.configured
+            ? "Generation and AI edits send your brief, product list and slide outline to this provider."
+            : "Catalog generation still works with Kavero’s built-in planner. To use a model, set ANTHROPIC_API_KEY (or AI_BASE_URL + AI_MODEL for a local OpenAI-compatible server such as Ollama) on the server and restart."}
+        </p>
+      </section>
+      <section>
+        <h2 className="mb-2 text-sm font-semibold">History</h2>
+        {!rows ? <p className="text-muted-foreground">Loading…</p> : !rows.length ? <p className="text-muted-foreground">Nothing yet.</p> : (
+          <ul className="divide-y border">
+            {rows.map((r) => (
+              <li key={r.id} className="grid gap-0.5 p-3">
+                <p><span className="font-medium capitalize">{r.kind}</span> <span className="text-muted-foreground">· {new Date(r.createdAt).toLocaleString()} · {r.source === "offline" ? "built-in planner" : r.model ?? ""}</span></p>
+                <p className="truncate">{r.prompt || "(no brief)"}</p>
+                <p className={r.status === "ok" ? "text-muted-foreground" : "text-destructive"}>{r.status === "ok" ? r.summary : r.error}</p>
+              </li>
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

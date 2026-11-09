@@ -21,7 +21,7 @@ test("exports editable slides with warnings", async () => {
   expect(data.byteLength).toBeGreaterThan(10_000);
   // .pptx is a zip; slide XML is deflated, so check the zip directory for 4 slides.
   const names = new TextDecoder("latin1").decode(data);
-  expect(names.match(/ppt\/slides\/slide\d+\.xml/g)?.filter((v, i, a) => a.indexOf(v) === i).length).toBe(4);
+  expect(names.match(/ppt\/slides\/slide\d+\.xml/g)?.filter((v, i, a) => a.indexOf(v) === i).length).toBe(doc.slides.length);
   expect(warnings.some((w) => w.includes("HTML blocks"))).toBe(true);
   expect(warnings.some((w) => w.includes("transitions"))).toBe(true);
 });

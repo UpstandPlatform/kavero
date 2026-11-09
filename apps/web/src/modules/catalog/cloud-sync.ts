@@ -23,7 +23,7 @@ export type PushResult = { status: "synced"; revision: number; uploaded: number 
  * First push creates the cloud copy; later pushes send the cloud revision they
  * are based on, and the server refuses with a conflict if it moved on.
  */
-export async function pushCatalog(localId: string, userId: string, opts: { force?: boolean } = {}): Promise<PushResult> {
+export async function pushCatalog(localId: string, userId: string, opts: { force?: boolean; workspaceId?: string | null } = {}): Promise<PushResult> {
   const repo = localCatalogs();
   const doc = await repo.get(localId);
   if (!doc) throw new Error("Catalog not found");
@@ -42,9 +42,10 @@ export async function pushCatalog(localId: string, userId: string, opts: { force
 
   let res;
   try {
-    res = await api().catalog.save.mutate({ document: doc, baseRevision, thumbnail: summary?.thumbnail });
+    res = await api().catalog.save.mutate({ document: doc, baseRevision, thumbnail: summary?.thumbnail, workspaceId: link ? undefined : opts.workspaceId });
   } catch (e) {
     if (e instanceof TRPCClientError && e.data?.code === "CONFLICT") throw new SyncConflictError(localId);
+    if (e instanceof TRPCClientError && e.data?.code === "FORBIDDEN") throw new Error(`${e.message}. Your changes are kept in this browser.`);
     if (e instanceof TRPCClientError && e.data?.code === "NOT_FOUND" && link) {
       // The cloud copy was deleted: unlink so the next push creates a fresh one.
       await repo.setCloudLink(localId, null);
@@ -140,4 +141,8 @@ export async function refreshFromCloud(localId: string, userId: string, cloudRev
   if (summary.syncedRevision !== summary.revision) return "conflict";
   await pullCatalog(link.id, userId);
   return "pulled";
+}
+
+export async function listWorkspaces() {
+  return api().workspace.list.query();
 }

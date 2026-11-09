@@ -3,10 +3,12 @@ import { promisify } from "node:util";
 
 import { parseCatalogDocument, type CatalogDocument } from "@Kavero/catalog-engine";
 import type { Database } from "@Kavero/db";
-import { catalog, catalogAsset } from "@Kavero/db/schema/catalog";
-import { publication, publicationAsset } from "@Kavero/db/schema/publication";
+import { catalogAsset } from "@Kavero/db/schema/catalog";
+import { publication, publicationAsset, publicationViewDaily } from "@Kavero/db/schema/publication";
 import { TRPCError } from "@trpc/server";
-import { and, eq, ne, sql } from "drizzle-orm";
+import { and, eq, gte, ne, sql } from "drizzle-orm";
+
+import { requireCatalog, type CatalogPermission } from "./access";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
@@ -57,29 +59,30 @@ export interface PublishInput {
 export class PublicationService {
   constructor(private readonly db: Database) {}
 
-  private async ownedCatalog(userId: string, catalogId: string) {
-    const [row] = await this.db
-      .select({ id: catalog.id, revision: catalog.revision, document: catalog.document, title: catalog.title })
-      .from(catalog)
-      .where(and(eq(catalog.ownerId, userId), eq(catalog.id, catalogId)))
-      .limit(1);
-    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Save this catalog to the cloud before publishing" });
-    return row;
+  private async ownedCatalog(userId: string, catalogId: string, need: CatalogPermission = "publish") {
+    try {
+      const { row } = await requireCatalog(this.db, userId, catalogId, need);
+      return row;
+    } catch (e) {
+      if (e instanceof TRPCError && e.code === "NOT_FOUND") throw new TRPCError({ code: "NOT_FOUND", message: "Save this catalog to the cloud before publishing" });
+      throw e;
+    }
   }
 
   /** Publication settings for the editor's Publish dialog (no document). */
   async status(userId: string, catalogId: string) {
-    const cat = await this.ownedCatalog(userId, catalogId);
+    const cat = await this.ownedCatalog(userId, catalogId, "read");
     const [pub] = await this.db
       .select({
         slug: publication.slug, visibility: publication.visibility, version: publication.version,
         sourceRevision: publication.sourceRevision, seoTitle: publication.seoTitle, seoDescription: publication.seoDescription,
-        hasPassword: sql<boolean>`${publication.passwordHash} is not null`, views: publication.views, publishedAt: publication.publishedAt,
+        id: publication.id, hasPassword: sql<boolean>`${publication.passwordHash} is not null`, views: publication.views, publishedAt: publication.publishedAt,
       })
       .from(publication)
       .where(eq(publication.catalogId, catalogId))
       .limit(1);
-    return { catalogRevision: cat.revision, suggestedSlug: pub?.slug ?? (await this.freeSlug(userId, catalogId, slugify(cat.title))), publication: pub ?? null };
+    const daily = pub ? await this.viewsByDay(pub.id, 30) : [];
+    return { catalogRevision: cat.revision, daily, suggestedSlug: pub?.slug ?? (await this.freeSlug(userId, catalogId, slugify(cat.title))), publication: pub ?? null };
   }
 
   /** The given slug if available, otherwise the slug with a short random suffix. */
@@ -93,10 +96,12 @@ export class PublicationService {
   }
 
   async isSlugAvailable(userId: string, catalogId: string, slug: string) {
+    await this.ownedCatalog(userId, catalogId, "read");
     const problem = validateSlug(slug);
     if (problem) return { available: false, reason: problem };
     const [taken] = await this.db.select({ catalogId: publication.catalogId, ownerId: publication.ownerId }).from(publication).where(eq(publication.slug, slug)).limit(1);
-    if (taken && !(taken.catalogId === catalogId && taken.ownerId === userId)) return { available: false, reason: "That address is taken." };
+    // Access to catalogId is checked by the caller; its own address is always "available".
+    if (taken && taken.catalogId !== catalogId) return { available: false, reason: "That address is taken." };
     return { available: true, reason: null };
   }
 
@@ -172,6 +177,21 @@ export class PublicationService {
 
   async countView(publicationId: string) {
     await this.db.update(publication).set({ views: sql`${publication.views} + 1` }).where(eq(publication.id, publicationId));
+    const day = new Date().toISOString().slice(0, 10);
+    await this.db.insert(publicationViewDaily).values({ publicationId, day, views: 1 })
+      .onConflictDoUpdate({ target: [publicationViewDaily.publicationId, publicationViewDaily.day], set: { views: sql`${publicationViewDaily.views} + 1` } });
+  }
+
+  /** Daily views for the last `days` days, oldest first (zero-filled). */
+  async viewsByDay(publicationId: string, days = 30) {
+    const since = new Date(Date.now() - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+    const rows = await this.db.select({ day: publicationViewDaily.day, views: publicationViewDaily.views }).from(publicationViewDaily)
+      .where(and(eq(publicationViewDaily.publicationId, publicationId), gte(publicationViewDaily.day, since)));
+    const byDay = new Map(rows.map((r) => [r.day, r.views]));
+    return Array.from({ length: days }, (_, i) => {
+      const d = new Date(Date.now() - (days - 1 - i) * 86_400_000).toISOString().slice(0, 10);
+      return { day: d, views: byDay.get(d) ?? 0 };
+    });
   }
 
   async setOgImage(publicationId: string, version: number, key: string) {

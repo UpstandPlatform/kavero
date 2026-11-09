@@ -64,10 +64,11 @@ check("agent fetched store products", storeProducts.length === 6);
 // --- …and builds a catalog in Kavero over MCP ---
 const kavero = await mcp(`${BASE}/api/mcp`, { Authorization: `Bearer ${full.token}` });
 const tools = (await kavero.listTools()).tools.map((t) => t.name);
-check("Kavero exposes 20 tools", tools.length === 20, tools.join(","));
+check("Kavero exposes 23 tools", tools.length === 23, tools.join(","));
 
 const created = json(await kavero.callTool({ name: "catalog_create", arguments: { title: "Leather Goods 2027", template: "dark-luxury", page: "16:9", currency: "EUR" } }));
-check("catalog_create", !!created.catalogId && created.slideIds.length === 4);
+check("catalog_create", !!created.catalogId && created.slideIds.length >= 6);
+const templateSlides = created.slideIds.length as number;
 const catalogId = created.catalogId as string;
 
 const imported = json(await kavero.callTool({ name: "catalog_import_products", arguments: { catalogId, products: storeProducts, addSlides: "per-category", source: "fake-store" } }));
@@ -75,21 +76,21 @@ check("catalog_import_products (per-category slides)", imported.productIds.lengt
 check("product images downloaded and stored", imported.imagesImported === 6, JSON.stringify(imported.warnings));
 
 let outline = json(await kavero.callTool({ name: "catalog_get", arguments: { catalogId } }));
-check("outline shows 3 category slides added", outline.slides.length === 7 && outline.products.length === 6, `${outline.slides.length} slides`);
+check("outline shows 3 category slides added", outline.slides.length === templateSlides + 3 && outline.products.length === 6, `${outline.slides.length} slides`);
 
 const cover = outline.slides[0];
 const added = json(await kavero.callTool({ name: "slide_add_element", arguments: { catalogId, slideId: cover.id, elements: [{ type: "text", position: { x: 80, y: 860, width: 900, height: 80 }, content: { paragraphs: [[{ text: "Made by hand in Florence" }]] }, style: { fontSize: 36, color: "token:primary" } }] } }));
 check("slide_add_element", added.createdIds.length === 1);
 const anim = await kavero.callTool({ name: "catalog_animate_element", arguments: { catalogId, elementId: added.createdIds[0], category: "entrance", preset: "slide", direction: "up", durationMs: 800 } });
 check("catalog_animate_element", !anim.isError);
-const tr = await kavero.callTool({ name: "catalog_set_transition", arguments: { catalogId, slideId: outline.slides[4].id, type: "push", direction: "left" } });
+const tr = await kavero.callTool({ name: "catalog_set_transition", arguments: { catalogId, slideId: outline.slides[templateSlides].id, type: "push", direction: "left" } });
 check("catalog_set_transition", !tr.isError);
 const upd = await kavero.callTool({ name: "slide_update_element", arguments: { catalogId, elementId: added.createdIds[0], changes: { style: { fontSize: 40 }, position: { x: 96 } } } });
 check("slide_update_element", !upd.isError);
 const bad = await kavero.callTool({ name: "slide_update_element", arguments: { catalogId, elementId: added.createdIds[0], changes: { opacity: 7 } } });
 check("invalid edit rejected by schema", !!bad.isError);
 
-const preview = await kavero.callTool({ name: "catalog_preview", arguments: { catalogId, slideIndex: 4 } });
+const preview = await kavero.callTool({ name: "catalog_preview", arguments: { catalogId, slideIndex: templateSlides } });
 const img = (preview.content as { type: string; data?: string }[]).find((c) => c.type === "image");
 check("catalog_preview returns PNG", !!img?.data && Buffer.from(img.data, "base64").subarray(1, 4).toString() === "PNG");
 if (img?.data && process.argv[2]) await Bun.write(process.argv[2], Buffer.from(img.data, "base64"));

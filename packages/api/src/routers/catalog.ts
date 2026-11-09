@@ -12,7 +12,7 @@ export const catalogRouter = router({
   get: protectedProcedure.input(z.object({ id })).query(({ ctx, input }) => new CatalogService(ctx.db).get(ctx.session.user.id, input.id)),
 
   save: protectedProcedure
-    .input(z.object({ document: z.unknown(), baseRevision: z.number().int().positive().optional(), thumbnail: z.string().max(200_000).optional() }))
+    .input(z.object({ document: z.unknown(), baseRevision: z.number().int().positive().optional(), thumbnail: z.string().max(200_000).optional(), workspaceId: z.string().max(100).nullish() }))
     .mutation(({ ctx, input }) => new CatalogService(ctx.db).save(ctx.session.user.id, input)),
 
   delete: protectedProcedure.input(z.object({ id })).mutation(async ({ ctx, input }) => {

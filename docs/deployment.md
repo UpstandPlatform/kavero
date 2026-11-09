@@ -1,0 +1,118 @@
+# Deploying Kavero
+
+Kavero ships as one Next.js server (`apps/web`, standalone output) plus Postgres. Binary assets live in object storage (a local folder or an S3-compatible bucket). PDF, video and preview exports need headless Chromium and ffmpeg on the server.
+
+## Environment
+
+Declared in `apps/web/.env.schema` (varlock). Values come from the process environment, `apps/web/.env`, or `.env.local`. Run `bunx varlock load` in `apps/web` to check what resolves.
+
+| Variable | Required | Default | Notes |
+| --- | --- | --- | --- |
+| `NODE_ENV` | yes | `development` | `production` in deployments. |
+| `DATABASE_URL` | yes | — | Postgres connection string. Sensitive. |
+| `BETTER_AUTH_SECRET` | yes | — | ≥ 32 random chars (`openssl rand -base64 48`). Signs sessions **and** derives the key that encrypts stored MCP connection credentials: rotating it signs everyone out and makes saved connection tokens unreadable (they must be re-entered). |
+| `BETTER_AUTH_URL` | yes | — | Public origin, e.g. `https://kavero.example.com`. Public. Used for auth, trusted origins, sitemap and robots. |
+| `STORAGE_DRIVER` | no | `filesystem` | `filesystem` or `s3`. |
+| `KAVERO_STORAGE_DIR` | no | `<cwd>/.storage` | Folder for the filesystem driver. `/data/storage` in the Docker image. |
+| `S3_BUCKET` | with `s3` | — | Bucket name. |
+| `S3_REGION` | no | `us-east-1`, or `auto` when `S3_ENDPOINT` is set | Use `auto` for Cloudflare R2. |
+| `S3_ENDPOINT` | no | AWS | R2: `https://<account>.r2.cloudflarestorage.com`; MinIO: `http://minio:9000`. |
+| `S3_ACCESS_KEY_ID` / `S3_SECRET_ACCESS_KEY` | no | SDK default chain | Sensitive. Omit both to use an IAM role / `AWS_*` env / shared config. |
+| `S3_FORCE_PATH_STYLE` | no | `false` | `true` for MinIO. |
+| `KAVERO_CHROME_PATH` | no | auto-detect | Chrome/Chromium binary. `/usr/bin/chromium` in the image. |
+| `FFMPEG_PATH` | no | bundled `@ffmpeg-installer` binary | `/usr/bin/ffmpeg` in the image. |
+
+AI and other feature variables are documented in the schema next to their definitions.
+
+## Docker
+
+```sh
+# create apps/web/.env with at least BETTER_AUTH_SECRET (see table above)
+docker compose up -d --build              # postgres → migrate → web
+docker compose logs -f web
+```
+
+- `apps/web/.env` is mounted as a BuildKit secret during build (never baked into layers) and loaded as `env_file` at runtime. Values in `environment:` in `docker-compose.yml` override it — change `BETTER_AUTH_URL` there for a real domain.
+- `web` listens on `3001`. Postgres is published on host port `5436` for local tools.
+- Volumes: `Kavero_postgres_data` (database), `Kavero_storage_data` → `/data/storage` (assets, OG images).
+- `shm_size: 1gb` gives Chromium enough shared memory; keep it if you run the image elsewhere (`--shm-size=1g`).
+- The image runs as the unprivileged `node` user and has a `HEALTHCHECK` on `/api/health`.
+
+Standalone `docker build` (from the repo root):
+
+```sh
+docker build -f apps/web/Dockerfile --secret id=web_env,src=apps/web/.env -t kavero-web .
+docker run -p 3001:3001 --shm-size=1g --env-file apps/web/.env -v kavero-storage:/data/storage kavero-web
+```
+
+## Migrations
+
+Migrations live in `packages/db/src/migrations` (drizzle-kit). Apply them before starting a new version:
+
+```sh
+# compose: runs automatically before web starts; on demand:
+docker compose run --rm migrate
+
+# anywhere else (needs the repo + bun install):
+cd packages/db && DATABASE_URL=postgres://... bunx drizzle-kit migrate
+```
+
+Create new migrations in development with `bun run db:generate` after changing `packages/db/src/schema`.
+
+## Storage
+
+| Option | When | Setup |
+| --- | --- | --- |
+| Filesystem (default) | single server | Mount a persistent volume at `KAVERO_STORAGE_DIR`. Not shared between instances. |
+| AWS S3 | multi-instance / managed | `STORAGE_DRIVER=s3`, `S3_BUCKET`, `S3_REGION`, keys or IAM role. |
+| Cloudflare R2 | cheap egress | `STORAGE_DRIVER=s3`, `S3_ENDPOINT=https://<account>.r2.cloudflarestorage.com`, `S3_REGION=auto`, R2 API token keys. |
+| MinIO | self-hosted S3 | `STORAGE_DRIVER=s3`, `S3_ENDPOINT=http://minio:9000`, `S3_FORCE_PATH_STYLE=true`. |
+
+The bucket stays private: assets are always served through the app (`/api/catalogs/:id/assets/*`, `/c/:slug/assets/*`), which enforces access. The credentials need `GetObject`, `PutObject`, `DeleteObject` on the bucket. Keys look like `catalogs/<id>/<sha256>` and `publications/<id>/og-v<n>.png`. Switching drivers does not migrate data — copy the folder into the bucket with the same keys (e.g. `aws s3 sync ./storage s3://bucket/`).
+
+## Chrome and ffmpeg
+
+Needed for PDF export, video export, slide previews (MCP `catalog_preview`) and social preview images. The Docker image installs Debian `chromium`, `ffmpeg` and fonts (Liberation, Noto, Noto Color Emoji). Outside Docker, install Chrome/Chromium and either ffmpeg or rely on the bundled npm binary; set `KAVERO_CHROME_PATH` / `FFMPEG_PATH` if they are not in a standard location.
+
+Rendering loads the app's own `/render` page over HTTP at the **request's origin**, so the server must be able to reach the URL users reach it on (behind a proxy: make sure the public hostname resolves from inside the container, or route it back internally).
+
+Video exports render in-process (max 3 concurrent jobs), write to the OS temp dir, and are tracked in memory: a restart drops running jobs, and with several instances a user must hit the same instance to download (use sticky sessions).
+
+## Backup and recovery
+
+Back up the database and the asset storage together; the database references storage keys.
+
+```sh
+# Database
+docker compose exec -T postgres pg_dump -U postgres -Fc Kavero > kavero-$(date +%F).dump
+docker compose exec -T postgres pg_restore -U postgres -d Kavero --clean --if-exists < kavero-2026-11-09.dump
+
+# Filesystem storage volume
+docker run --rm -v kavero_Kavero_storage_data:/data -v "$PWD":/backup alpine tar czf /backup/storage-$(date +%F).tgz -C /data .
+docker run --rm -v kavero_Kavero_storage_data:/data -v "$PWD":/backup alpine tar xzf /backup/storage-2026-11-09.tgz -C /data
+```
+
+(`docker volume ls` shows the exact volume name.) For S3/R2, enable bucket versioning or replicate the bucket (`aws s3 sync s3://bucket s3://backup-bucket`). Restore order: storage, then database, then run migrations, then start `web`. Keep `BETTER_AUTH_SECRET` with the backups — without it stored MCP credentials cannot be decrypted.
+
+Local-only catalogs live in each user's browser (IndexedDB) and are not on the server; users can export `.kavero` project files.
+
+## Monitoring
+
+`GET /api/health` (never cached):
+
+```json
+{ "status": "ok", "db": true, "storage": true, "chrome": true, "ffmpeg": true, "version": "0.1.0" }
+```
+
+- `200` when the database answers `select 1`; `503` otherwise. `status` is `ok`, `degraded` (storage probe failed) or `error` (database down).
+- `storage` writes, reads and deletes a tiny `health/probe-*` object. `chrome`/`ffmpeg` only check the binaries exist.
+- Point load-balancer/uptime checks here; alert on `503` and on `storage: false` or `chrome: false` (exports will fail).
+
+## Security notes
+
+- `BETTER_AUTH_SECRET`: ≥ 32 random characters, unique per environment, stored as a secret.
+- Serve only over HTTPS (terminate TLS at a reverse proxy) and set `BETTER_AUTH_URL` to the `https://` origin; secure cookies and trusted origins depend on it.
+- Rate limits (MCP API: 120 req/min per token; AI requests; publication password attempts) are in-memory per instance. With several instances the effective limit multiplies — add limits at the proxy/WAF if that matters.
+- Keep Postgres off the public internet (compose publishes `5436` for local use; remove the `ports:` mapping in production) and change the default `POSTGRES_PASSWORD`.
+- MCP API tokens are scoped (`catalogs:read|write|delete`, `publish`) and audited in `audit_log`; revoke unused tokens in Settings.
+- `robots.txt` disallows `/api/`, `/editor/`, `/render`, `/settings`, `/dashboard`; only `public` publications appear in `/sitemap.xml`.

@@ -162,6 +162,17 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
                 </Button>
                 <a href={url} target="_blank" rel="noreferrer" title="Open"><Button variant="ghost" size="icon-xs"><ExternalLink /></Button></a>
               </div>
+              {status && status.daily.length > 0 && (
+                <div className="grid gap-1">
+                  <div className="flex h-8 items-end gap-px" role="img" aria-label={`Views over the last 30 days: ${status.daily.reduce((n, d) => n + d.views, 0)}`}>
+                    {status.daily.map((d) => {
+                      const max = Math.max(1, ...status.daily.map((x) => x.views));
+                      return <div key={d.day} title={`${d.day}: ${d.views}`} className="flex-1 bg-foreground/60" style={{ height: `${Math.max(4, (d.views / max) * 100)}%`, opacity: d.views ? 1 : 0.2 }} />;
+                    })}
+                  </div>
+                  <p className="text-muted-foreground">{status.daily.slice(-7).reduce((n, d) => n + d.views, 0)} views in the last 7 days · {status.daily.reduce((n, d) => n + d.views, 0)} in 30 days</p>
+                </div>
+              )}
               {hasUnpublished && <p className="text-amber-600 dark:text-amber-400">You have changes that aren’t published yet. Click Update to publish them.</p>}
             </div>
           )}

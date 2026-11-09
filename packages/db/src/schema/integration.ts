@@ -1,5 +1,5 @@
 import { defineRelationsPart } from "drizzle-orm";
-import { index, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "./auth";
 
@@ -72,3 +72,24 @@ export const integrationRelations = defineRelationsPart({ user, apiToken, mcpCon
   apiToken: { user: r.one.user({ from: r.apiToken.userId, to: r.user.id }) },
   mcpConnection: { user: r.one.user({ from: r.mcpConnection.userId, to: r.user.id }) },
 }));
+
+/** AI generation and edit requests (history, cost tracking, debugging). */
+export const aiJob = pgTable(
+  "ai_job",
+  {
+    id: text("id").primaryKey(),
+    userId: text("user_id").references(() => user.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["generate", "edit"] }).notNull(),
+    prompt: text("prompt").notNull(),
+    status: text("status", { enum: ["ok", "error"] }).notNull(),
+    source: text("source"),
+    model: text("model"),
+    inputTokens: integer("input_tokens"),
+    outputTokens: integer("output_tokens"),
+    summary: text("summary"),
+    error: text("error"),
+    durationMs: integer("duration_ms"),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [index("ai_job_user_created_idx").on(t.userId, t.createdAt)],
+);

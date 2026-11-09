@@ -1,0 +1,23 @@
+{
+  "name": "@Kavero/ai",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./browser": "./src/browser.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@Kavero/catalog-engine": "workspace:*",
+    "@Kavero/editor-core": "workspace:*",
+    "@anthropic-ai/sdk": "^1.6.0",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@Kavero/config": "workspace:*",
+    "@types/bun": "^1.3.0",
+    "typescript": "catalog:"
+  }
+}

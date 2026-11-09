@@ -1,4 +1,5 @@
 import type { Session } from "@Kavero/auth";
+import type { LlmProvider } from "@Kavero/ai";
 import type { Database } from "@Kavero/db";
 
 import type { SecretBox } from "./services/secret-box";
@@ -12,4 +13,6 @@ export type Context = {
   secretBox?: SecretBox;
   /** Allow server-side requests to localhost/private addresses (development only). */
   allowLocalUrls?: boolean;
+  /** Configured LLM provider, or null for the offline planner only. */
+  ai?: LlmProvider | null;
 };

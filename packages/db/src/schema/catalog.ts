@@ -2,6 +2,7 @@ import { defineRelationsPart } from "drizzle-orm";
 import { bigint, index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "./auth";
+import { workspace } from "./workspace";
 
 /**
  * A cloud copy of a catalog. `documentId` is the id inside the catalog JSON
@@ -13,6 +14,8 @@ export const catalog = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    /** Shared workspace, or null for a personal catalog. */
+    workspaceId: text("workspace_id").references(() => workspace.id, { onDelete: "set null" }),
     documentId: text("document_id").notNull(),
     title: text("title").notNull(),
     slideCount: integer("slide_count").notNull().default(0),
@@ -27,6 +30,7 @@ export const catalog = pgTable(
   (t) => [
     uniqueIndex("catalog_owner_document_idx").on(t.ownerId, t.documentId),
     index("catalog_owner_updated_idx").on(t.ownerId, t.updatedAt),
+    index("catalog_workspace_idx").on(t.workspaceId),
   ],
 );
 

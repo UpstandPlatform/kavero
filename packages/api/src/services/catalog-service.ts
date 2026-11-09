@@ -4,8 +4,11 @@ import { checkIntegrity, parseCatalogDocument, type CatalogDocument } from "@Kav
 import { applyCommand, type EditorCommand } from "@Kavero/editor-core";
 import type { Database } from "@Kavero/db";
 import { catalog, catalogAsset, catalogRevision } from "@Kavero/db/schema/catalog";
+import { workspace, workspaceMember, type WorkspaceRole } from "@Kavero/db/schema/workspace";
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, lt, notInArray } from "drizzle-orm";
+
+import { ROLE_PERMISSIONS, memberJoin, requireCatalog, visibleTo, workspaceRole, type CatalogPermission } from "./access";
 
 /** How many earlier versions to keep per catalog. */
 const KEEP_REVISIONS = 20;
@@ -21,6 +24,10 @@ export interface CloudCatalogSummary {
   revision: number;
   updatedAt: Date;
   createdAt: Date;
+  workspaceId: string | null;
+  workspaceName: string | null;
+  /** Your role: "owner" for personal catalogs. */
+  role: WorkspaceRole;
 }
 
 const summaryColumns = {
@@ -32,36 +39,40 @@ const summaryColumns = {
   revision: catalog.revision,
   updatedAt: catalog.updatedAt,
   createdAt: catalog.createdAt,
+  workspaceId: catalog.workspaceId,
 };
 
 /**
  * Server-side catalog operations. Every method takes the acting user id and
- * enforces ownership itself, so tRPC, MCP tools and route handlers can share it.
+ * enforces access itself (personal ownership or workspace role, see access.ts),
+ * so tRPC, MCP tools and route handlers share one set of rules.
  */
 export class CatalogService {
   constructor(private readonly db: Database) {}
 
+  /** Personal catalogs plus catalogs in the user's workspaces. */
   async list(userId: string): Promise<CloudCatalogSummary[]> {
-    return this.db.select(summaryColumns).from(catalog).where(eq(catalog.ownerId, userId)).orderBy(desc(catalog.updatedAt));
+    const rows = await this.db
+      .select({ ...summaryColumns, memberRole: workspaceMember.role, workspaceName: workspace.name })
+      .from(catalog)
+      .leftJoin(workspaceMember, memberJoin(userId))
+      .leftJoin(workspace, eq(workspace.id, catalog.workspaceId))
+      .where(visibleTo(userId))
+      .orderBy(desc(catalog.updatedAt));
+    return rows.map(({ memberRole, ...r }) => ({ ...r, role: r.workspaceId ? (memberRole ?? "viewer") : "owner" }));
   }
 
-  /** Row id or the document id of one of the user's catalogs. */
-  private async findOwned(userId: string, idOrDocumentId: string) {
-    const [row] = await this.db
-      .select()
-      .from(catalog)
-      .where(and(eq(catalog.ownerId, userId), idOrDocumentId.startsWith("cat_") ? eq(catalog.documentId, idOrDocumentId) : eq(catalog.id, idOrDocumentId)))
-      .limit(1);
-    return row ?? null;
+  /** Access-checked lookup by row id or document id. */
+  async access(userId: string, id: string, need: CatalogPermission) {
+    return requireCatalog(this.db, userId, id, need);
   }
 
   async get(userId: string, id: string) {
-    const row = await this.findOwned(userId, id);
-    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Catalog not found" });
+    const { row, role } = await requireCatalog(this.db, userId, id, "read");
     const parsed = parseCatalogDocument(row.document);
     if (!parsed.ok) throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: "Stored catalog is invalid" });
     const assets = await this.db.select({ assetId: catalogAsset.assetId, hash: catalogAsset.hash }).from(catalogAsset).where(eq(catalogAsset.catalogId, row.id));
-    return { id: row.id, revision: row.revision, document: parsed.document, uploadedAssets: assets };
+    return { id: row.id, revision: row.revision, document: parsed.document, uploadedAssets: assets, workspaceId: row.workspaceId, role };
   }
 
   /**
@@ -70,7 +81,7 @@ export class CatalogService {
    * moved on since, the save is rejected with CONFLICT instead of overwriting.
    * Omit it only to create a new cloud copy.
    */
-  async save(userId: string, input: { document: unknown; baseRevision?: number; thumbnail?: string }) {
+  async save(userId: string, input: { document: unknown; baseRevision?: number; thumbnail?: string; workspaceId?: string | null }) {
     const parsed = parseCatalogDocument(input.document);
     if (!parsed.ok) {
       throw new TRPCError({ code: "BAD_REQUEST", message: `Invalid catalog: ${parsed.issues.slice(0, 3).map((i) => `${i.path} ${i.message}`).join("; ")}` });
@@ -81,13 +92,18 @@ export class CatalogService {
     }
     const thumbnail = input.thumbnail && input.thumbnail.length < 200_000 && input.thumbnail.startsWith("data:image/") ? input.thumbnail : null;
 
+    if (input.workspaceId) {
+      const role = await workspaceRole(this.db, userId, input.workspaceId);
+      if (!role || !ROLE_PERMISSIONS[role].includes("write")) throw new TRPCError({ code: "FORBIDDEN", message: "You can't add catalogs to that workspace" });
+    }
+
     const result = await this.db.transaction(async (tx) => {
-      const [existing] = await tx
-        .select({ id: catalog.id, revision: catalog.revision, document: catalog.document })
-        .from(catalog)
-        .where(and(eq(catalog.ownerId, userId), eq(catalog.documentId, doc.id)))
-        .for("update")
-        .limit(1);
+      // Existing cloud copy this user can see (own or workspace), locked for the update.
+      const found = await requireCatalog(tx as unknown as Database, userId, doc.id, "read", { forUpdate: true }).catch((e) => {
+        if (e instanceof TRPCError && e.code === "NOT_FOUND") return null;
+        throw e;
+      });
+      const existing = found?.row;
 
       if (!existing) {
         if (input.baseRevision !== undefined) {
@@ -95,10 +111,13 @@ export class CatalogService {
         }
         const id = randomUUID();
         await tx.insert(catalog).values({
-          id, ownerId: userId, documentId: doc.id, title: doc.metadata.title, slideCount: doc.slides.length,
+          id, ownerId: userId, workspaceId: input.workspaceId ?? null, documentId: doc.id, title: doc.metadata.title, slideCount: doc.slides.length,
           thumbnail, revision: 1, schemaVersion: doc.schemaVersion, document: doc,
         });
         return { id, revision: 1, created: true };
+      }
+      if (!ROLE_PERMISSIONS[found!.role].includes("write")) {
+        throw new TRPCError({ code: "FORBIDDEN", message: `Your role (${found!.role}) can't edit this catalog` });
       }
 
       if (input.baseRevision === undefined || input.baseRevision !== existing.revision) {
@@ -132,8 +151,19 @@ export class CatalogService {
   }
 
   /** Create a new cloud catalog from a full document (fresh document id is the caller's job). */
-  async create(userId: string, doc: CatalogDocument) {
-    return this.save(userId, { document: doc });
+  async create(userId: string, doc: CatalogDocument, workspaceId?: string | null) {
+    return this.save(userId, { document: doc, workspaceId });
+  }
+
+  /** Move a catalog into a workspace (or back to personal). Needs delete rights where it is now and edit rights where it goes. */
+  async moveToWorkspace(userId: string, id: string, workspaceId: string | null) {
+    const { row } = await requireCatalog(this.db, userId, id, "delete");
+    if (workspaceId) {
+      const role = await workspaceRole(this.db, userId, workspaceId);
+      if (!role || !ROLE_PERMISSIONS[role].includes("write")) throw new TRPCError({ code: "FORBIDDEN", message: "You can't add catalogs to that workspace" });
+    }
+    await this.db.update(catalog).set({ workspaceId, ownerId: workspaceId ? row.ownerId : userId }).where(eq(catalog.id, row.id));
+    return { ok: true };
   }
 
   /**
@@ -143,6 +173,7 @@ export class CatalogService {
    */
   async applyCommands(userId: string, id: string, commands: EditorCommand[]) {
     for (let attempt = 0; ; attempt++) {
+      await requireCatalog(this.db, userId, id, "write");
       const { id: rowId, revision, document } = await this.get(userId, id);
       const draft = structuredClone(document);
       let createdIds: string[];
@@ -165,16 +196,14 @@ export class CatalogService {
   }
 
   async delete(userId: string, id: string) {
-    const row = await this.findOwned(userId, id);
-    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Catalog not found" });
+    const { row } = await requireCatalog(this.db, userId, id, "delete");
     const keys = await this.db.select({ storageKey: catalogAsset.storageKey }).from(catalogAsset).where(eq(catalogAsset.catalogId, row.id));
     await this.db.delete(catalog).where(eq(catalog.id, row.id));
     return { storageKeys: keys.map((k) => k.storageKey) };
   }
 
   async revisions(userId: string, id: string) {
-    const row = await this.findOwned(userId, id);
-    if (!row) throw new TRPCError({ code: "NOT_FOUND", message: "Catalog not found" });
+    const { row } = await requireCatalog(this.db, userId, id, "read");
     return this.db
       .select({ revision: catalogRevision.revision, createdAt: catalogRevision.createdAt })
       .from(catalogRevision)
@@ -182,10 +211,11 @@ export class CatalogService {
       .orderBy(desc(catalogRevision.revision));
   }
 
-  /** Ownership check for asset routes; returns the catalog row and whether the asset is referenced. */
+  /** Access check for uploads (needs edit rights); returns the catalog row and the referenced asset. */
   async assetTarget(userId: string, id: string, assetId: string) {
-    const row = await this.findOwned(userId, id);
-    if (!row) return null;
+    const found = await requireCatalog(this.db, userId, id, "write").catch(() => null);
+    if (!found) return null;
+    const row = found.row;
     const doc = row.document as CatalogDocument;
     const meta = doc.assets?.find((a) => a.id === assetId);
     return { catalogId: row.id, asset: meta ?? null };
@@ -199,8 +229,9 @@ export class CatalogService {
   }
 
   async findAsset(userId: string, id: string, assetId: string) {
-    const row = await this.findOwned(userId, id);
-    if (!row) return null;
+    const found = await requireCatalog(this.db, userId, id, "read").catch(() => null);
+    if (!found) return null;
+    const row = found.row;
     const [asset] = await this.db.select().from(catalogAsset).where(and(eq(catalogAsset.catalogId, row.id), eq(catalogAsset.assetId, assetId))).limit(1);
     return asset ?? null;
   }

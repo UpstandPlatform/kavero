@@ -1,5 +1,6 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
+import { requireCatalog } from "@Kavero/api/services/access";
 import { PublicationService } from "@Kavero/api/services/publication-service";
 
 import { auth, db } from "@/services";
@@ -34,7 +35,8 @@ export async function resolveAccess(slug: string, headers: Headers, cookie: (nam
   const pub = await publications().findBySlug(slug);
   if (!pub) return { kind: "missing" };
   const session = await auth.api.getSession({ headers }).catch(() => null);
-  const isOwner = session?.user.id === pub.ownerId;
+  // "Owner" here = anyone who can read the source catalog (its owner or workspace members).
+  const isOwner = !!session && (session.user.id === pub.ownerId || !!(await requireCatalog(db, session.user.id, pub.catalogId, "read").catch(() => null)));
   if (isOwner) return { kind: "ok", pub, isOwner };
   switch (pub.visibility) {
     case "public":

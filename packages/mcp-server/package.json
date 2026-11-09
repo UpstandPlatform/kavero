@@ -11,10 +11,12 @@
     "e2e": "bun e2e/scenario-c.ts"
   },
   "dependencies": {
+    "@Kavero/ai": "workspace:*",
     "@Kavero/api": "workspace:*",
     "@Kavero/catalog-engine": "workspace:*",
     "@Kavero/db": "workspace:*",
     "@Kavero/editor-core": "workspace:*",
+    "@Kavero/export-pptx": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@trpc/server": "catalog:",
     "zod": "catalog:"

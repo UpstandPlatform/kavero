@@ -1,0 +1,239 @@
+"use client";
+
+import { buildCatalog, heuristicPlan } from "@Kavero/ai/browser";
+import { PAGE_PRESETS, TEMPLATES, createId, type CatalogDocument, type PagePreset, type Product } from "@Kavero/catalog-engine";
+import { SlideView } from "@Kavero/renderer";
+import { Button } from "@Kavero/ui/components/button";
+import { Loader2, Sparkles, X } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { toast } from "sonner";
+
+import { authClient } from "@/lib/auth-client";
+import { makeTRPCClient } from "@/utils/trpc";
+
+import { localCatalogs, saveLocalCatalog } from "./local-catalogs";
+
+let client: ReturnType<typeof makeTRPCClient> | null = null;
+const api = () => (client ??= makeTRPCClient());
+
+type SourceProduct = Product & { imageUrl?: string };
+type Conn = Awaited<ReturnType<ReturnType<typeof api>["integrations"]["connections"]["list"]["query"]>>[number];
+
+/** "Name, price, category" per line (comma, tab or semicolon separated). */
+export function parsePastedProducts(text: string): SourceProduct[] {
+  return text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean).slice(0, 500).map((line) => {
+    const [name = "", price = "", category = "", ...rest] = line.split(/\t|;|,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map((c) => c.trim().replace(/^"|"$/g, ""));
+    const n = Number(price.replace(/[^0-9.]/g, ""));
+    const url = rest.find((r) => /^https?:\/\//.test(r));
+    return { id: createId("prd"), name: name.slice(0, 200), price: price && Number.isFinite(n) ? n : undefined, category: category || undefined, imageAssetIds: [], attributes: {}, imageUrl: url };
+  }).filter((p) => p.name);
+}
+
+const PAGE_LABELS: Record<PagePreset, string> = { "16:9": "Widescreen 16:9", "4:3": "Standard 4:3", "a4-portrait": "A4 portrait", "a4-landscape": "A4 landscape", "letter-portrait": "US Letter", square: "Square" };
+
+export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const router = useRouter();
+  const { data: session } = authClient.useSession();
+  const [aiStatus, setAiStatus] = useState<{ configured: boolean; model: string | null } | null>(null);
+  const [brief, setBrief] = useState("");
+  const [templateId, setTemplateId] = useState("auto");
+  const [page, setPage] = useState<PagePreset>("16:9");
+  const [language, setLanguage] = useState("en");
+  const [currency, setCurrency] = useState("USD");
+  const [source, setSource] = useState<"none" | "paste" | "mcp">("none");
+  const [pasted, setPasted] = useState("");
+  const [conns, setConns] = useState<Conn[]>([]);
+  const [connId, setConnId] = useState("");
+  const [tool, setTool] = useState("");
+  const [mcpProducts, setMcpProducts] = useState<SourceProduct[]>([]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [result, setResult] = useState<{ document: CatalogDocument; source: "ai" | "offline"; model?: string } | null>(null);
+
+  const briefRef = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    ref.current?.showModal();
+    // showModal focuses the first control (the close button); start in the brief instead.
+    briefRef.current?.focus();
+  }, []);
+  useEffect(() => void api().ai.status.query().then(setAiStatus, () => setAiStatus({ configured: false, model: null })), []);
+  useEffect(() => {
+    if (!session) return;
+    api().integrations.connections.list.query().then((list) => {
+      setConns(list);
+      const c = list.find((x) => x.tools.length) ?? list[0];
+      if (c) setConnId(c.id);
+    }, () => undefined);
+  }, [session]);
+  const conn = conns.find((c) => c.id === connId);
+  useEffect(() => setTool(conn?.tools.find((t) => /product|catalog|item|search/i.test(t.name))?.name ?? conn?.tools[0]?.name ?? ""), [conn]);
+
+  const products: SourceProduct[] = source === "paste" ? parsePastedProducts(pasted) : source === "mcp" ? mcpProducts : [];
+  const usesModel = !!session && !!aiStatus?.configured;
+
+  async function fetchMcp() {
+    setBusy("mcp");
+    try {
+      const r = await api().integrations.connections.importProducts.mutate({ id: connId, tool, args: {} });
+      setMcpProducts(r.products.map((p) => ({
+        id: p.id ? `ext_${p.id}`.replace(/[^\w-]/g, "_").slice(0, 100) : createId("prd"), name: p.name, description: p.description, sku: p.sku, price: p.price, currency: p.currency,
+        url: p.url?.startsWith("http") ? p.url : undefined, category: p.category, attributes: p.attributes, imageAssetIds: [], imageUrl: p.imageUrl, source: conn?.name,
+      })));
+      if (!r.products.length) toast.error("No products found in that tool's result");
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function generate() {
+    setBusy("generate");
+    setResult(null);
+    const plainProducts: Product[] = products.map(({ imageUrl: _u, ...p }) => p);
+    const input = { brief, products: plainProducts, templateId: templateId === "auto" ? undefined : templateId, page, language, currency };
+    try {
+      if (session) {
+        const r = await api().ai.generate.mutate(input);
+        setResult({ document: r.document as CatalogDocument, source: r.source, model: r.model });
+      } else {
+        const plan = heuristicPlan(input);
+        setResult({ document: buildCatalog(plan, input), source: "offline" });
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  async function create() {
+    if (!result) return;
+    setBusy("create");
+    try {
+      const doc = structuredClone(result.document);
+      // Product images: downloaded by the server (safely), stored locally with the catalog.
+      const withImages = products.filter((p) => p.imageUrl);
+      if (session && withImages.length) {
+        for (let i = 0; i < withImages.length; i += 30) {
+          const part = withImages.slice(i, i + 30);
+          const res = await api().integrations.fetchImages.mutate({ urls: part.map((p) => p.imageUrl!) });
+          for (const [k, r] of res.entries()) {
+            if (!("dataUrl" in r) || !r.dataUrl) continue;
+            const blob = await (await fetch(r.dataUrl)).blob();
+            const assetId = createId("ast");
+            await localCatalogs().putAsset({ id: assetId, catalogId: doc.id, blob, hash: "" });
+            doc.assets.push({ id: assetId, kind: "image", mimeType: blob.type, name: part[k]!.name, uri: `local://${assetId}`, bytes: blob.size });
+            const product = doc.products.find((p) => p.id === part[k]!.id);
+            if (product) product.imageAssetIds = [assetId];
+          }
+        }
+      }
+      await saveLocalCatalog(doc);
+      router.push(`/editor/${doc.id}`);
+    } catch (e) {
+      toast.error((e as Error).message);
+      setBusy(null);
+    }
+  }
+
+  const field = "h-8 w-full border border-input bg-transparent px-2 text-xs";
+  const thumb = result ? 150 / result.document.settings.width : 0;
+
+  return (
+    <dialog ref={ref} onClose={onClose} className="m-auto w-[min(820px,calc(100vw-32px))] border bg-background p-0 text-foreground backdrop:bg-black/50">
+      <div className="flex items-center justify-between border-b px-5 py-3">
+        <h2 className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="size-4" /> Generate a catalog</h2>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><X /></Button>
+      </div>
+      <div className="grid max-h-[78vh] gap-4 overflow-y-auto p-5 text-xs">
+        {!result ? (
+          <>
+            <label className="grid gap-1">Describe the catalog
+              <textarea ref={briefRef} className="h-24 w-full border border-input bg-transparent p-2 text-sm" value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000}
+                placeholder="e.g. Autumn 2027 lookbook for our handmade leather goods: warm, premium, for wholesale buyers." />
+            </label>
+            <div className="grid gap-3 sm:grid-cols-4">
+              <label className="grid gap-1">Style
+                <select className={field} value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
+                  <option value="auto">Pick for me</option>
+                  {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.category})</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1">Page
+                <select className={field} value={page} onChange={(e) => setPage(e.target.value as PagePreset)}>
+                  {(Object.keys(PAGE_PRESETS) as PagePreset[]).map((p) => <option key={p} value={p}>{PAGE_LABELS[p]}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1">Language
+                <select className={field} value={language} onChange={(e) => setLanguage(e.target.value)}>
+                  {[["en", "English"], ["de", "German"], ["fr", "French"], ["es", "Spanish"], ["it", "Italian"], ["fa", "Persian"], ["ar", "Arabic"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </select>
+              </label>
+              <label className="grid gap-1">Currency
+                <select className={field} value={currency} onChange={(e) => setCurrency(e.target.value)}>
+                  {["USD", "EUR", "GBP", "CHF", "JPY", "AED", "IRR"].map((c) => <option key={c}>{c}</option>)}
+                </select>
+              </label>
+            </div>
+
+            <fieldset className="grid gap-2">
+              <legend className="mb-1 font-medium">Products</legend>
+              <div className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-1.5"><input type="radio" checked={source === "none"} onChange={() => setSource("none")} /> None (add later)</label>
+                <label className="flex items-center gap-1.5"><input type="radio" checked={source === "paste"} onChange={() => setSource("paste")} /> Paste a list</label>
+                <label className="flex items-center gap-1.5"><input type="radio" checked={source === "mcp"} disabled={!session || !conns.length} onChange={() => setSource("mcp")} /> From a connected source {!session ? "(sign in)" : !conns.length ? "(none connected)" : ""}</label>
+              </div>
+              {source === "paste" && (
+                <>
+                  <textarea className="h-28 w-full border border-input bg-transparent p-2 font-mono text-[11px]" value={pasted} onChange={(e) => setPasted(e.target.value)}
+                    placeholder={"One product per line: name, price, category, image URL (optional)\nWeekender Bag, 640, Bags\nCard Holder, 85, Small leather goods"} />
+                  <span className="text-muted-foreground">{products.length} product{products.length === 1 ? "" : "s"} recognised</span>
+                </>
+              )}
+              {source === "mcp" && (
+                <div className="flex flex-wrap items-end gap-2">
+                  <label className="grid gap-1">Source<select className={field} value={connId} onChange={(e) => setConnId(e.target.value)}>{conns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+                  <label className="grid gap-1">Tool<select className={field} value={tool} onChange={(e) => setTool(e.target.value)}>{conn?.tools.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}</select></label>
+                  <Button variant="outline" size="sm" onClick={fetchMcp} disabled={!tool || !!busy}>{busy === "mcp" && <Loader2 className="animate-spin" />} Fetch</Button>
+                  <span className="text-muted-foreground">{mcpProducts.length} products loaded</span>
+                </div>
+              )}
+            </fieldset>
+
+            <p className="text-muted-foreground">
+              {usesModel ? `Planned by ${aiStatus?.model}. Your brief and product list are sent to the AI provider.`
+                : session ? "No AI model is configured on this server, so Kavero’s built-in planner arranges your products (no data leaves the server)."
+                : "Signed out: Kavero’s built-in planner runs in your browser. Sign in to use an AI model when one is configured."}
+            </p>
+            <div className="flex justify-end">
+              <Button onClick={generate} disabled={!!busy || (!brief.trim() && !products.length)}>{busy === "generate" ? <Loader2 className="animate-spin" /> : <Sparkles />} Generate</Button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="text-muted-foreground">
+              Review the {result.document.slides.length} slides below. {result.source === "ai" ? `Planned by ${result.model}.` : "Arranged by the built-in planner."} Everything stays editable after you create it.
+            </p>
+            <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
+              {result.document.slides.map((s, i) => (
+                <figure key={s.id} className="grid gap-1">
+                  <div className="ring-1 ring-border"><SlideView doc={result.document} slide={s} scale={thumb} mode="edit" /></div>
+                  <figcaption className="truncate text-muted-foreground">{i + 1}. {s.name}</figcaption>
+                </figure>
+              ))}
+            </div>
+            <div className="flex justify-between gap-2">
+              <Button variant="ghost" onClick={() => setResult(null)} disabled={!!busy}>Back</Button>
+              <div className="flex gap-2">
+                <Button variant="outline" onClick={generate} disabled={!!busy}>{busy === "generate" && <Loader2 className="animate-spin" />} Try again</Button>
+                <Button onClick={create} disabled={!!busy}>{busy === "create" && <Loader2 className="animate-spin" />} Create catalog</Button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </dialog>
+  );
+}

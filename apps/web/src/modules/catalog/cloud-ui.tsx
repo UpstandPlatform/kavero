@@ -78,7 +78,7 @@ export function CloudOnlyList({ userId, localDocumentIds }: { userId: string; lo
             <div className="flex items-center gap-2 p-3">
               <div className="min-w-0 flex-1">
                 <p className="truncate text-sm font-medium">{c.title}</p>
-                <p className="text-xs text-muted-foreground">{c.slideCount} slides · cloud revision {c.revision}</p>
+                <p className="text-xs text-muted-foreground">{c.workspaceName ? `${c.workspaceName} · ` : ""}{c.slideCount} slides · revision {c.revision}</p>
               </div>
               <Button
                 variant="outline"
