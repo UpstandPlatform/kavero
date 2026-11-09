@@ -1,6 +1,7 @@
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 
 import { launchBrowser } from "./browser";
+import { openRenderPage } from "./network";
 
 export interface PdfOptions {
   doc: CatalogDocument;
@@ -19,9 +20,8 @@ export async function renderPdf(opts: PdfOptions): Promise<Uint8Array> {
   const { width, height } = opts.doc.settings;
   const browser = await launchBrowser();
   try {
-    const page = await browser.newPage({ viewport: { width: Math.round(width), height: Math.round(height) } });
+    const page = await openRenderPage(browser, opts.baseUrl, { viewport: { width: Math.round(width), height: Math.round(height) } });
     await page.emulateMedia({ media: "screen" });
-    await page.goto(`${opts.baseUrl}/render`, { waitUntil: "networkidle" });
     await page.waitForFunction(() => typeof (window as unknown as { __kaveroPrint?: unknown }).__kaveroPrint === "function", null, { timeout: 30_000 });
     await page.evaluate(
       async ({ doc, assets, pageNumbers }) => {

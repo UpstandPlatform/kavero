@@ -11,11 +11,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@Kavero/ui/components/dropdown-menu";
-import { ChevronDown, FileCode, FileDown, FileText, Film, Loader2, Package, Presentation } from "lucide-react";
+import { ChevronDown, FileCode, FileDown, FileImage, FileText, Film, Loader2, Package, Presentation } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
 import { downloadProjectFile, localCatalogs } from "@/modules/catalog/local-catalogs";
+
+import { flushEditorSave } from "./use-catalog-editor";
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -116,6 +118,18 @@ export function ExportMenu({ doc, onVideo }: { doc: CatalogDocument; onVideo: ()
       showWarnings("PDF exported", checkExportCompatibility(doc, "pdf").map((w) => w.message));
     });
 
+  const exportImages = (width: 1920 | 3840) =>
+    run("jpg", async () => {
+      const res = await fetch("/api/export/images", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ document: doc, assets: await collectAssets(doc), width, quality: 90 }),
+      });
+      if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Image export failed");
+      download(await res.blob(), fileName(doc, "zip"));
+      showWarnings(`${doc.slides.length} slide image${doc.slides.length === 1 ? "" : "s"} exported`, checkExportCompatibility(doc, "pdf").map((w) => w.message.replace("PDF is static", "Images are static")));
+    });
+
   const exportPowerPoint = () =>
     run("pptx", async () => {
       // Built in the browser, so it also works offline.
@@ -151,12 +165,14 @@ export function ExportMenu({ doc, onVideo }: { doc: CatalogDocument; onVideo: ()
           <DropdownMenuLabel>Export as</DropdownMenuLabel>
           <DropdownMenuItem onClick={() => exportPdf(false)}><FileText /> PDF</DropdownMenuItem>
           <DropdownMenuItem onClick={() => exportPdf(true)}><FileText /> PDF with page numbers</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => exportImages(1920)}><FileImage /> JPG images (.zip)</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => exportImages(3840)}><FileImage /> JPG images, 4K (.zip)</DropdownMenuItem>
           <DropdownMenuItem onClick={exportPowerPoint}><Presentation /> PowerPoint (.pptx)</DropdownMenuItem>
           <DropdownMenuItem onClick={onVideo}><Film /> Video (MP4)…</DropdownMenuItem>
           <DropdownMenuItem onClick={exportHtml}><FileCode /> Website (single HTML file)</DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => run("file", () => downloadProjectFile(doc.id, doc.metadata.title))}><Package /> Kavero project file</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => run("file", () => flushEditorSave(doc.id).then(() => downloadProjectFile(doc.id, doc.metadata.title)))}><Package /> Kavero project file</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -6,7 +6,7 @@ import { SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
 import { Loader2, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { authClient } from "@/lib/auth-client";
@@ -49,7 +49,8 @@ export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
   const [tool, setTool] = useState("");
   const [mcpProducts, setMcpProducts] = useState<SourceProduct[]>([]);
   const [busy, setBusy] = useState<string | null>(null);
-  const [result, setResult] = useState<{ document: CatalogDocument; source: "ai" | "offline"; model?: string } | null>(null);
+  // `products` are the exact ones sent to generate(), so create() can match their ids to fetch images.
+  const [result, setResult] = useState<{ document: CatalogDocument; source: "ai" | "offline"; model?: string; products: SourceProduct[] } | null>(null);
 
   const briefRef = useRef<HTMLTextAreaElement>(null);
   useEffect(() => {
@@ -69,7 +70,9 @@ export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
   const conn = conns.find((c) => c.id === connId);
   useEffect(() => setTool(conn?.tools.find((t) => /product|catalog|item|search/i.test(t.name))?.name ?? conn?.tools[0]?.name ?? ""), [conn]);
 
-  const products: SourceProduct[] = source === "paste" ? parsePastedProducts(pasted) : source === "mcp" ? mcpProducts : [];
+  // Parse once per text change: parsing assigns fresh product ids.
+  const pastedProducts = useMemo(() => parsePastedProducts(pasted), [pasted]);
+  const products: SourceProduct[] = source === "paste" ? pastedProducts : source === "mcp" ? mcpProducts : [];
   const usesModel = !!session && !!aiStatus?.configured;
 
   async function fetchMcp() {
@@ -91,15 +94,16 @@ export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
   async function generate() {
     setBusy("generate");
     setResult(null);
-    const plainProducts: Product[] = products.map(({ imageUrl: _u, ...p }) => p);
+    const used = products;
+    const plainProducts: Product[] = used.map(({ imageUrl: _u, ...p }) => p);
     const input = { brief, products: plainProducts, templateId: templateId === "auto" ? undefined : templateId, page, language, currency };
     try {
       if (session) {
         const r = await api().ai.generate.mutate(input);
-        setResult({ document: r.document as CatalogDocument, source: r.source, model: r.model });
+        setResult({ document: r.document as CatalogDocument, source: r.source, model: r.model, products: used });
       } else {
         const plan = heuristicPlan(input);
-        setResult({ document: buildCatalog(plan, input), source: "offline" });
+        setResult({ document: buildCatalog(plan, input), source: "offline", products: used });
       }
     } catch (e) {
       toast.error((e as Error).message);
@@ -114,7 +118,7 @@ export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
     try {
       const doc = structuredClone(result.document);
       // Product images: downloaded by the server (safely), stored locally with the catalog.
-      const withImages = products.filter((p) => p.imageUrl);
+      const withImages = result.products.filter((p) => p.imageUrl);
       if (session && withImages.length) {
         for (let i = 0; i < withImages.length; i += 30) {
           const part = withImages.slice(i, i + 30);

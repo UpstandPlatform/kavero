@@ -10,7 +10,11 @@ import { AiError, type GenerateObjectOptions, type GenerateObjectResult, type Ll
 export class OpenAICompatibleProvider implements LlmProvider {
   readonly id = "openai-compatible" as const;
 
-  constructor(private readonly opts: { baseUrl: string; apiKey?: string; model: string; strictSchema?: boolean; headers?: Record<string, string>; label?: string }) {}
+  constructor(private readonly opts: {
+    baseUrl: string; apiKey?: string; model: string; strictSchema?: boolean; headers?: Record<string, string>; label?: string;
+    /** Custom fetch, e.g. an SSRF-guarded one for user-supplied base URLs. */
+    fetch?: (url: string, init: RequestInit) => Promise<Response>;
+  }) {}
 
   /** Human-readable service name for errors, e.g. "OpenRouter". */
   private get label() {
@@ -36,8 +40,10 @@ export class OpenAICompatibleProvider implements LlmProvider {
     };
     let res: Response;
     try {
-      res = await fetch(`${this.opts.baseUrl.replace(/\/$/, "")}/chat/completions`, {
+      res = await (this.opts.fetch ?? fetch)(`${this.opts.baseUrl.replace(/\/$/, "")}/chat/completions`, {
         method: "POST",
+        // Never follow redirects: the API key must not be replayed to another host.
+        redirect: "manual",
         headers: { "Content-Type": "application/json", ...this.opts.headers, ...(this.opts.apiKey ? { Authorization: `Bearer ${this.opts.apiKey}` } : {}) },
         body: JSON.stringify(body),
         signal: opts.signal ?? AbortSignal.timeout(180_000),
@@ -45,6 +51,7 @@ export class OpenAICompatibleProvider implements LlmProvider {
     } catch (e) {
       throw new AiError(`Couldn't reach the AI server: ${(e as Error).message}`, "unavailable");
     }
+    if (res.status >= 300 && res.status < 400) throw new AiError(`${this.label} redirected the request (${res.status}); check the server URL.`, "bad_request");
     if (res.status === 401 || res.status === 403) throw new AiError(`${this.label}: the API key is missing or invalid.`, "auth");
     if (res.status === 402) throw new AiError(`${this.label}: the account has no credits left.`, "auth");
     if (res.status === 429) throw new AiError(`${this.label} is busy (rate limited). Try again in a minute.`, "rate_limited");

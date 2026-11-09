@@ -1,6 +1,6 @@
 import { verifyPassword } from "@Kavero/api/services/publication-service";
 
-import { allowAttempt, publications, unlockCookieName, unlockToken } from "@/modules/publishing/access";
+import { attemptAllowed, clientIp, publications, recordFailure, unlockCookieName, unlockToken } from "@/modules/publishing/access";
 
 export const runtime = "nodejs";
 
@@ -17,12 +17,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   const pub = await publications().findBySlug(slug);
   if (!pub || pub.visibility !== "password" || !pub.passwordHash) return redirect(back());
 
-  const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "local";
-  if (!allowAttempt(`${pub.id}:${ip}`)) return redirect(back("locked"));
+  const ip = clientIp(request.headers);
+  if (!attemptAllowed(pub.id, ip)) return redirect(back("locked"));
 
   const form = await request.formData();
-  const password = String(form.get("password") ?? "");
-  if (!password || !(await verifyPassword(password, pub.passwordHash))) return redirect(back("wrong"));
+  const password = String(form.get("password") ?? "").slice(0, 200);
+  if (!password || !(await verifyPassword(password, pub.passwordHash))) {
+    recordFailure(pub.id, ip);
+    return redirect(back("wrong"));
+  }
 
   const secure = new URL(request.url).protocol === "https:" ? "; Secure" : "";
   return redirect(back(), `${unlockCookieName(pub.id)}=${unlockToken(pub)}; Path=/c/${encodeURIComponent(slug)}; HttpOnly; SameSite=Lax; Max-Age=2592000${secure}`);

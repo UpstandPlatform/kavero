@@ -5,6 +5,12 @@ export const CURRENT_SCHEMA_VERSION = 1;
 
 const id = z.string().min(1);
 const color = z.string().min(1); // hex, rgb() or a theme token like "token:primary"
+/** Links viewers can follow: never javascript:, data: or other schemes. */
+const linkUrl = z.url().refine((u) => /^(https?|mailto|tel):/i.test(u), { message: "Links must use https, http, mailto or tel" });
+/** Media the renderer (and headless Chrome on the server) loads itself: https only. */
+const mediaUrl = z.url().refine((u) => /^https:/i.test(u), { message: "Media URLs must use https" });
+/** Page size bounds keep exports (Chrome viewports, PDF pages) reasonable. */
+const pageSize = z.number().min(100).max(10_000);
 
 export const easingSchema = z.enum(["linear", "ease-in", "ease-out", "ease-in-out", "spring"]);
 export const directionSchema = z.enum(["left", "right", "up", "down"]);
@@ -88,7 +94,7 @@ export const textRunSchema = z.object({
   italic: z.boolean().optional(),
   underline: z.boolean().optional(),
   color: color.optional(),
-  href: z.url().optional(),
+  href: linkUrl.optional(),
 });
 
 export const textElementSchema = z.object({
@@ -168,7 +174,7 @@ export const iconElementSchema = z.object({
 export const videoElementSchema = z.object({
   ...elementBase,
   type: z.literal("video"),
-  content: z.object({ assetId: id.optional(), url: z.url().optional(), posterAssetId: id.optional() }),
+  content: z.object({ assetId: id.optional(), url: mediaUrl.optional(), posterAssetId: id.optional() }),
   style: z.object({ autoplay: z.boolean().default(false), loop: z.boolean().default(false), muted: z.boolean().default(true) })
     .default({ autoplay: false, loop: false, muted: true }),
 });
@@ -176,7 +182,7 @@ export const videoElementSchema = z.object({
 export const buttonElementSchema = z.object({
   ...elementBase,
   type: z.literal("button"),
-  content: z.object({ label: z.string(), href: z.url() }),
+  content: z.object({ label: z.string(), href: linkUrl }),
   style: z.object({ background: color.default("token:primary"), color: color.default("token:on-primary"), borderRadius: z.number().default(6) })
     .default({ background: "token:primary", color: "token:on-primary", borderRadius: 6 }),
 });
@@ -251,7 +257,7 @@ export const productSchema = z.object({
   price: z.number().optional(),
   currency: z.string().length(3).optional(),
   imageAssetIds: z.array(id).default([]),
-  url: z.url().optional(),
+  url: linkUrl.optional(),
   category: z.string().optional(),
   attributes: z.record(z.string(), z.string()).default({}),
   source: z.string().optional(),
@@ -269,8 +275,8 @@ export const catalogDocumentSchema = z.object({
     currency: z.string().length(3).default("USD"),
   }),
   settings: z.object({
-    width: z.number().positive(),
-    height: z.number().positive(),
+    width: pageSize,
+    height: pageSize,
     unit: z.enum(["px"]).default("px"),
     background: color.default("token:background"),
   }),
@@ -278,7 +284,7 @@ export const catalogDocumentSchema = z.object({
     colors: z.record(z.string(), z.string()),
     fonts: z.record(z.string(), z.string()),
   }),
-  slides: z.array(catalogSlideSchema),
+  slides: z.array(catalogSlideSchema).min(1, { message: "A catalog needs at least one slide" }),
   assets: z.array(catalogAssetSchema).default([]),
   products: z.array(productSchema).default([]),
 });

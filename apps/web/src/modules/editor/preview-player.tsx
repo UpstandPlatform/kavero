@@ -59,18 +59,24 @@ export function PreviewPlayer({ doc, startSlide, assetUrls, onClose, openExport 
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      // Let the timeline slider and export form controls handle their own keys.
+      const inField = !!(e.target as HTMLElement | null)?.closest?.("input, select, textarea");
+      if (e.key !== "Escape" && inField) return;
+      if (!["Escape", " ", "ArrowLeft", "ArrowRight"].includes(e.key)) return;
+      // The preview owns these keys: keep them from the editor behind it.
+      e.stopPropagation();
       if (e.key === "Escape") onClose();
       if (e.key === " ") { e.preventDefault(); setPlaying((p) => !p); }
-      const seg = timeline.segments.findIndex((s) => time >= s.startMs && time < s.endMs);
+      const seg = Math.max(0, timeline.segments.findIndex((s) => time >= s.startMs && time < s.endMs));
       if (e.key === "ArrowRight" && timeline.segments[seg + 1]) setTime(timeline.segments[seg + 1]!.startMs);
-      if (e.key === "ArrowLeft") setTime(timeline.segments[Math.max(0, seg - (time - timeline.segments[seg]!.startMs < 500 ? 1 : 0))]!.startMs);
+      if (e.key === "ArrowLeft" && timeline.segments[seg]) setTime(timeline.segments[Math.max(0, seg - (time - timeline.segments[seg]!.startMs < 500 ? 1 : 0))]!.startMs);
     };
     window.addEventListener("keydown", onKey, true);
     return () => window.removeEventListener("keydown", onKey, true);
   }, [onClose, time, timeline]);
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-label="Preview">
+    <div className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-modal="true" aria-label="Preview">
       <div ref={box} className="flex min-h-0 flex-1 items-center justify-center p-4">
         <FrameView doc={doc} timeline={timeline} timeMs={time} scale={scale} resolveAsset={(id) => assetUrls[id]} />
       </div>

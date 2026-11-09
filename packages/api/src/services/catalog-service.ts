@@ -8,7 +8,7 @@ import { workspace, workspaceMember, type WorkspaceRole } from "@Kavero/db/schem
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq, lt, notInArray } from "drizzle-orm";
 
-import { ROLE_PERMISSIONS, memberJoin, requireCatalog, visibleTo, workspaceRole, type CatalogPermission } from "./access";
+import { ROLE_PERMISSIONS, isUniqueViolation, memberJoin, requireCatalog, visibleTo, workspaceRole, type CatalogPermission } from "./access";
 
 /** How many earlier versions to keep per catalog. */
 const KEEP_REVISIONS = 20;
@@ -99,7 +99,7 @@ export class CatalogService {
 
     const result = await this.db.transaction(async (tx) => {
       // Existing cloud copy this user can see (own or workspace), locked for the update.
-      const found = await requireCatalog(tx as unknown as Database, userId, doc.id, "read", { forUpdate: true }).catch((e) => {
+      const found = await requireCatalog(tx as unknown as Database, userId, doc.id, "read", { forUpdate: true, byDocumentId: true }).catch((e) => {
         if (e instanceof TRPCError && e.code === "NOT_FOUND") return null;
         throw e;
       });
@@ -139,6 +139,10 @@ export class CatalogService {
       const ids = doc.assets.map((a) => a.id);
       await tx.delete(catalogAsset).where(ids.length ? and(eq(catalogAsset.catalogId, existing.id), notInArray(catalogAsset.assetId, ids)) : eq(catalogAsset.catalogId, existing.id));
       return { id: existing.id, revision, created: false };
+    }).catch((e) => {
+      // Two first saves of the same document raced; the other one created the cloud copy.
+      if (isUniqueViolation(e)) throw new TRPCError({ code: "CONFLICT", message: "This catalog was just saved from somewhere else. Reload it and try again." });
+      throw e;
     });
     return { ...result, missingAssetIds: await this.missingAssets(result.id, doc) };
   }
@@ -162,7 +166,10 @@ export class CatalogService {
       const role = await workspaceRole(this.db, userId, workspaceId);
       if (!role || !ROLE_PERMISSIONS[role].includes("write")) throw new TRPCError({ code: "FORBIDDEN", message: "You can't add catalogs to that workspace" });
     }
-    await this.db.update(catalog).set({ workspaceId, ownerId: workspaceId ? row.ownerId : userId }).where(eq(catalog.id, row.id));
+    await this.db.update(catalog).set({ workspaceId, ownerId: workspaceId ? row.ownerId : userId }).where(eq(catalog.id, row.id)).catch((e) => {
+      if (isUniqueViolation(e)) throw new TRPCError({ code: "CONFLICT", message: "You already have a personal copy of this catalog" });
+      throw e;
+    });
     return { ok: true };
   }
 

@@ -123,6 +123,16 @@ export class Editor {
     this.emit();
   }
 
+  /**
+   * Continue numbering revisions after `revision`, e.g. when keeping this
+   * editor's document over a newer stored copy. Unsaved changes stay unsaved.
+   */
+  rebase(revision: number) {
+    if (this.doc.revision > revision) return;
+    this.doc = { ...this.doc, revision: revision + 1 };
+    this.emit();
+  }
+
   private pruneSelection() {
     const ids = new Set(this.doc.slides.flatMap((s) => s.elements.map((e) => e.id)));
     this.selection = this.selection.filter((id) => ids.has(id));

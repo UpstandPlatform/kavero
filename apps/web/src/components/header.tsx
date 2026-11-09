@@ -1,7 +1,7 @@
 "use client";
 import { Button } from "@Kavero/ui/components/button";
 import { cn } from "@Kavero/ui/lib/utils";
-import { LayoutGrid, Menu, Plus, Settings, Sparkles, X } from "lucide-react";
+import { LayoutGrid, Menu, Plus, Settings, Shield, Sparkles, X } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -31,6 +31,7 @@ const LINKS = [
 export default function Header() {
   const pathname = usePathname();
   const { data: session } = authClient.useSession();
+  const isAdmin = session?.user.role === "admin";
   const [open, setOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => setOpen(false), [pathname]);
@@ -76,6 +77,7 @@ export default function Header() {
 
         <nav className="hidden items-center gap-1 sm:flex" aria-label="Main">
           {LINKS.map((l) => navLink(l.to, l.label, l.icon))}
+          {isAdmin && navLink("/admin" as Route, "Admin", Shield)}
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
@@ -99,6 +101,7 @@ export default function Header() {
         <nav className="grid gap-1 border-t px-4 py-3 sm:hidden" aria-label="Main">
           {navLink("/", "Home", Sparkles, true)}
           {LINKS.map((l) => navLink(l.to, l.label, l.icon, true))}
+          {isAdmin && navLink("/admin" as Route, "Admin", Shield, true)}
           <div className="mt-2 grid grid-cols-2 gap-2">
             <Link href="/dashboard?generate=1" onClick={dashboardAction("generate")}><Button variant="outline" className="w-full"><Sparkles /> Generate</Button></Link>
             <Link href="/dashboard?new=1" onClick={dashboardAction("new")}><Button className="w-full"><Plus /> New catalog</Button></Link>

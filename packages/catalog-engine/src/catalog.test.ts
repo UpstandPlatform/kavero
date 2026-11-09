@@ -117,6 +117,41 @@ test("html elements are sanitized", async () => {
   expect(el.type === "html" && el.content.html).toBe("<b>ok</b>");
 });
 
+test("sanitizer is not fooled by nested tags", async () => {
+  const { sanitizeHtml } = await import("./index");
+  expect(sanitizeHtml("<scr<script>ipt>alert(1)</scr</script>ipt>")).not.toMatch(/<script/i);
+  expect(sanitizeHtml('<ifr<iframe>ame src="//evil"></iframe>')).not.toMatch(/<iframe/i);
+  expect(sanitizeHtml("<scr<scr<script>ipt>ipt>x")).not.toMatch(/<script/i);
+});
+
+test("URL fields only accept safe schemes; page size and slide count are bounded", async () => {
+  const { catalogElementSchema, catalogDocumentSchema, createCatalog } = await import("./index");
+  const pos = { x: 0, y: 0, width: 1, height: 1 };
+  const button = (href: string) => catalogElementSchema.safeParse({ id: "b", type: "button", position: pos, content: { label: "x", href } }).success;
+  expect(button("https://shop.test")).toBe(true);
+  expect(button("tel:+15551234")).toBe(true);
+  expect(button("javascript:alert(1)")).toBe(false);
+  const video = (url: string) => catalogElementSchema.safeParse({ id: "v", type: "video", position: pos, content: { url } }).success;
+  expect(video("https://cdn.test/a.mp4")).toBe(true);
+  expect(video("http://169.254.169.254/latest")).toBe(false);
+  expect(video("file:///etc/passwd")).toBe(false);
+  const doc = createCatalog({ title: "T" });
+  expect(catalogDocumentSchema.safeParse(doc).success).toBe(true);
+  expect(catalogDocumentSchema.safeParse({ ...doc, slides: [] }).success).toBe(false);
+  expect(catalogDocumentSchema.safeParse({ ...doc, settings: { ...doc.settings, width: 100_000 } }).success).toBe(false);
+});
+
+test("private address detection covers embedded IPv4 forms", async () => {
+  const { isPrivateAddress, isLoopbackAddress } = await import("./index");
+  for (const ip of ["127.0.0.1", "10.0.0.1", "100.64.0.1", "169.254.169.254", "192.168.1.1", "0.0.0.0", "224.0.0.1", "255.255.255.255",
+    "::", "::1", "::ffff:10.0.0.1", "::ffff:a00:1", "::ffff:7f00:1", "::a00:1", "64:ff9b::a00:1", "64:ff9b::169.254.169.254", "2002:a00:1::1",
+    "fd00::1", "fe80::1%eth0", "ff02::1", "2001:db8::1", "2001::1", "not-an-ip"]) expect(`${ip}: ${isPrivateAddress(ip)}`).toBe(`${ip}: true`);
+  for (const ip of ["8.8.8.8", "172.32.0.1", "2606:4700::1", "::ffff:8.8.8.8", "64:ff9b::808:808", "2002:808:808::1"]) expect(`${ip}: ${isPrivateAddress(ip)}`).toBe(`${ip}: false`);
+  expect(isLoopbackAddress("::ffff:127.0.0.1")).toBe(true);
+  expect(isLoopbackAddress("::1")).toBe(true);
+  expect(isLoopbackAddress("64:ff9b::7f00:1")).toBe(false);
+});
+
 test("file names keep non-Latin titles", async () => {
   const { safeFileName, attachmentHeader } = await import("./index");
   expect(safeFileName("کاتالوگ محصولات آبان گستر البرز", "pdf")).toBe("کاتالوگ-محصولات-آبان-گستر-البرز.pdf");

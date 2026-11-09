@@ -12,6 +12,8 @@ import { SyncConflictError, pushCatalog } from "@/modules/catalog/cloud-sync";
 import { localCatalogs } from "@/modules/catalog/local-catalogs";
 import { makeTRPCClient } from "@/utils/trpc";
 
+import { flushEditorSave } from "./use-catalog-editor";
+
 type Visibility = "public" | "unlisted" | "password" | "private";
 type Status = Awaited<ReturnType<ReturnType<typeof makeTRPCClient>["publication"]["status"]["query"]>>;
 
@@ -49,6 +51,8 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
     let cancelled = false;
     (async () => {
       try {
+        // Publish what's on screen: store pending edits before pushing.
+        await flushEditorSave(doc.id);
         await pushCatalog(doc.id, session.user.id);
         const summary = (await localCatalogs().list()).find((s) => s.id === doc.id);
         if (!summary?.cloud) throw new Error("Could not save this catalog to the cloud");
@@ -91,7 +95,7 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
   const pub = status?.publication;
   const url = typeof window !== "undefined" && pub ? `${window.location.origin}/c/${pub.slug}` : "";
   const hasUnpublished = !!pub && !!status && status.catalogRevision > pub.sourceRevision;
-  const needsPassword = visibility === "password" && !pub?.hasPassword && password.length < 4;
+  const needsPassword = visibility === "password" && !pub?.hasPassword && password.length < 8;
 
   async function publish() {
     if (!cloudId) return;
@@ -201,7 +205,7 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
           {visibility === "password" && (
             <label className="grid gap-1 text-xs">
               <span className="font-medium">Password {pub?.hasPassword && <span className="font-normal text-muted-foreground">(leave empty to keep the current one)</span>}</span>
-              <input type="password" className={input} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={4} />
+              <input type="password" className={input} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={8} />
             </label>
           )}
 

@@ -29,11 +29,38 @@ export interface CloudLink {
   /** Account that owns the cloud copy, so another sign-in never syncs it by mistake. */
   userId: string;
   syncedAt: number;
+  /** Files the cloud copy still lacks (a previous upload failed); sent on the next push. */
+  pendingAssetIds?: string[];
 }
 
-/** True when the local copy has edits the cloud doesn't have yet. */
+/** True when the local copy has edits (or files) the cloud doesn't have yet. */
 export function hasUnsyncedChanges(s: CatalogSummary) {
-  return !!s.cloud && s.syncedRevision !== s.revision;
+  return !!s.cloud && (s.syncedRevision !== s.revision || !!s.cloud.pendingAssetIds?.length);
+}
+
+/** Identifies one stored version of a document; changes on every save. */
+export interface DocVersion {
+  revision: number;
+  updatedAt: number;
+}
+
+export const versionOf = (s: Pick<CatalogSummary, "revision" | "updatedAt">): DocVersion => ({ revision: s.revision, updatedAt: s.updatedAt });
+
+/** A compare-and-swap save found a different version stored than the caller expected. */
+export class StaleWriteError extends Error {
+  constructor(public readonly catalogId: string) {
+    super("This catalog was changed in another tab or synced from the cloud.");
+  }
+}
+
+export interface SaveOptions extends Partial<Pick<CatalogSummary, "thumbnail">> {
+  /** Only write if the stored version is still this one (throws StaleWriteError otherwise). */
+  expect?: DocVersion;
+}
+
+export function assertExpected(id: string, stored: CatalogSummary | null | undefined, expect: DocVersion | undefined) {
+  if (!expect) return;
+  if (!stored || stored.revision !== expect.revision || stored.updatedAt !== expect.updatedAt) throw new StaleWriteError(id);
 }
 
 export interface StoredAsset {
@@ -46,8 +73,11 @@ export interface StoredAsset {
 export interface CatalogRepository {
   list(): Promise<CatalogSummary[]>;
   get(id: string): Promise<CatalogDocument | null>;
+  getSummary(id: string): Promise<CatalogSummary | null>;
+  /** Document and summary read together, so the version matches the document. */
+  getWithSummary(id: string): Promise<{ document: CatalogDocument; summary: CatalogSummary } | null>;
   /** Validates before writing; throws on an invalid document. */
-  save(doc: CatalogDocument, extra?: Partial<Pick<CatalogSummary, "thumbnail">>): Promise<CatalogSummary>;
+  save(doc: CatalogDocument, options?: SaveOptions): Promise<CatalogSummary>;
   delete(id: string): Promise<void>;
   /** Update (or clear, with null) the cloud link without touching the document. */
   setCloudLink(id: string, link: CloudLink | null, syncedRevision?: number): Promise<void>;
@@ -57,6 +87,8 @@ export interface CatalogRepository {
 }
 
 export function summarize(doc: CatalogDocument, prev: CatalogSummary | null, now = Date.now()): CatalogSummary {
+  // Strictly increasing per catalog, so two saves within one millisecond still get distinct versions.
+  if (prev && now <= prev.updatedAt) now = prev.updatedAt + 1;
   return {
     id: doc.id,
     title: doc.metadata.title,
@@ -101,8 +133,18 @@ export class MemoryCatalogRepository implements CatalogRepository {
     const d = this.docs.get(id);
     return d ? structuredClone(d) : null;
   }
-  async save(doc: CatalogDocument, extra: Partial<Pick<CatalogSummary, "thumbnail">> = {}) {
+  async getSummary(id: string) {
+    const s = this.summaries.get(id);
+    return s ? structuredClone(s) : null;
+  }
+  async getWithSummary(id: string) {
+    const document = await this.get(id);
+    const summary = await this.getSummary(id);
+    return document && summary ? { document, summary } : null;
+  }
+  async save(doc: CatalogDocument, { expect, ...extra }: SaveOptions = {}) {
     const valid = assertValid(doc);
+    assertExpected(doc.id, this.summaries.get(doc.id), expect);
     const summary = { ...summarize(valid, this.summaries.get(doc.id) ?? null), ...extra };
     this.docs.set(doc.id, structuredClone(valid));
     this.summaries.set(doc.id, summary);

@@ -6,6 +6,9 @@ import { useEffect } from "react";
 import type { EditorActions } from "./editor-actions";
 
 const isTyping = (t: EventTarget | null) => !!(t as HTMLElement | null)?.closest?.("input, textarea, select, [contenteditable=true], [data-kv-menu], dialog");
+/** A modal (native <dialog>, Preview, font picker…) owns the keyboard while it's open, wherever focus is. */
+const modalOpen = () => !!document.querySelector("dialog[open], [aria-modal='true']");
+const ignore = (t: EventTarget | null) => isTyping(t) || modalOpen();
 
 /**
  * Editor shortcuts. Copy/cut/paste use the native clipboard events so pasting
@@ -17,9 +20,9 @@ export function useEditorKeyboard(editor: Editor, a: EditorActions, view: { zoom
     // from other apps). Some hosts never fire them (an Electron window without an Edit menu,
     // automation), so the keydown schedules a fallback that a native event cancels.
     let expect: "copy" | "cut" | "paste" | null = null;
-    const onCopy = (e: ClipboardEvent) => { expect = null; if (!isTyping(e.target) && a.copy(e)) e.preventDefault(); };
-    const onCut = (e: ClipboardEvent) => { expect = null; if (!isTyping(e.target) && a.hasSelection()) a.cut(e); };
-    const onPaste = (e: ClipboardEvent) => { expect = null; if (!isTyping(e.target)) void a.paste(e); };
+    const onCopy = (e: ClipboardEvent) => { expect = null; if (!ignore(e.target) && a.copy(e)) e.preventDefault(); };
+    const onCut = (e: ClipboardEvent) => { expect = null; if (!ignore(e.target) && a.hasSelection()) a.cut(e); };
+    const onPaste = (e: ClipboardEvent) => { expect = null; if (!ignore(e.target)) void a.paste(e); };
     const fallback = (kind: "copy" | "cut" | "paste") => {
       expect = kind;
       setTimeout(() => {
@@ -32,7 +35,7 @@ export function useEditorKeyboard(editor: Editor, a: EditorActions, view: { zoom
     };
 
     const onKey = (e: KeyboardEvent) => {
-      if (isTyping(e.target)) return;
+      if (ignore(e.target)) return;
       const mod = e.metaKey || e.ctrlKey;
       const k = e.key.toLowerCase();
       const has = a.hasSelection();

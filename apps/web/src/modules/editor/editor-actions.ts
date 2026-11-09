@@ -4,6 +4,8 @@ import { createBlankSlide, createId, type CatalogElement, type CatalogSlide } fr
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { toast } from "sonner";
 
+import { FALLBACK_IMAGE_SIZE } from "./use-catalog-editor";
+
 /** Platform-aware shortcut labels: ⌘ on macOS, Ctrl elsewhere. */
 export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
 export const kbd = (combo: string) => (isMac ? combo.replace(/Ctrl\+/g, "⌘").replace(/Alt\+/g, "⌥").replace(/Shift\+/g, "⇧") : combo);
@@ -144,7 +146,10 @@ export function createActions({ editor, run, uploadImage }: ActionDeps) {
         event?.preventDefault();
         for (const file of files) {
           try {
-            const { assetId, width, height } = await uploadImage(file);
+            const r0 = await uploadImage(file);
+            const { assetId } = r0;
+            // Some images (e.g. SVGs without a size) report 0×0.
+            const width = r0.width || FALLBACK_IMAGE_SIZE.width, height = r0.height || FALLBACK_IMAGE_SIZE.height;
             const k = Math.min((W * 0.5) / width, (H * 0.6) / height, 1);
             const w = Math.round(width * k), h = Math.round(height * k);
             const pos = at ?? { x: Math.round((W - w) / 2), y: Math.round((H - h) / 2) };

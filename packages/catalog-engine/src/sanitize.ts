@@ -16,13 +16,24 @@ function isSafeUrl(raw: string): boolean {
   return !/^[a-z][a-z0-9+.-]*:/.test(v) || /^(https?|mailto|tel):/.test(v);
 }
 
-export function sanitizeHtml(input: string): string {
+/** One pass of comment and dangerous-tag removal. */
+function stripTags(input: string): string {
   let html = input.replace(/<!--[\s\S]*?-->/g, "");
   for (const tag of DROP_WITH_CONTENT) {
     html = html.replace(new RegExp(String.raw`<${tag}\b[\s\S]*?<\/${tag}\s*>`, "gi"), "");
     html = html.replace(new RegExp(String.raw`<\/?${tag}\b[^>]*>`, "gi"), "");
   }
   for (const tag of DROP_TAG_ONLY) html = html.replace(new RegExp(String.raw`<\/?${tag}\b[^>]*>`, "gi"), "");
+  return html;
+}
+
+export function sanitizeHtml(input: string): string {
+  // Repeat until stable: one pass over "<scr<script>ipt>" would leave a new <script> behind.
+  let html = input;
+  for (let prev = ""; prev !== html; ) {
+    prev = html;
+    html = stripTags(html);
+  }
 
   // Clean attributes inside every remaining tag.
   return html.replace(/<([a-z][a-z0-9-]*)(\s[^>]*?)?(\/?)>/gi, (_m, tag: string, attrs = "", selfClose: string) => {

@@ -5,7 +5,7 @@ import { TRPCError } from "@trpc/server";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { assertPublicUrl } from "./safe-fetch";
+import { assertPublicUrl, safeFetch } from "./safe-fetch";
 import type { SecretBox } from "./secret-box";
 
 export const PROVIDER_LABEL: Record<PersonalProvider, string> = {
@@ -74,7 +74,10 @@ export class AiCredentialService {
     const [row] = await this.db.select().from(aiCredential).where(eq(aiCredential.userId, userId)).limit(1);
     if (!row) return null;
     const apiKey = row.encryptedKey ? this.box.open(row.encryptedKey) : "";
-    return providerFromCredential({ provider: row.provider, apiKey, model: row.model, baseUrl: row.baseUrl, appUrl: this.opts.appUrl });
+    // The URL was checked when saved, but DNS can change since: check again, and on every connection.
+    if (row.provider === "openai-compatible" && row.baseUrl) await assertPublicUrl(row.baseUrl, this.opts);
+    const guarded = (url: string, init: RequestInit) => safeFetch(url, init, this.opts);
+    return providerFromCredential({ provider: row.provider, apiKey, model: row.model, baseUrl: row.baseUrl, appUrl: this.opts.appUrl, fetch: guarded });
   }
 
   /** A tiny structured request to prove the key and model work. */

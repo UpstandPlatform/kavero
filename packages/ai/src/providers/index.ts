@@ -39,7 +39,11 @@ export type PersonalProvider = "anthropic" | "openrouter" | "openai" | "openai-c
 export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 
 /** A provider from a user's own key (Settings → AI). */
-export function providerFromCredential(c: { provider: PersonalProvider; apiKey: string; model?: string | null; baseUrl?: string | null; appUrl?: string }): LlmProvider {
+export function providerFromCredential(c: {
+  provider: PersonalProvider; apiKey: string; model?: string | null; baseUrl?: string | null; appUrl?: string;
+  /** Fetch for the user-supplied server URL (SSRF-guarded by the caller). */
+  fetch?: (url: string, init: RequestInit) => Promise<Response>;
+}): LlmProvider {
   switch (c.provider) {
     case "anthropic":
       return new AnthropicProvider({ apiKey: c.apiKey, model: c.model || undefined });
@@ -55,7 +59,7 @@ export function providerFromCredential(c: { provider: PersonalProvider; apiKey: 
       return new OpenAICompatibleProvider({ baseUrl: "https://api.openai.com/v1", apiKey: c.apiKey, model: c.model, label: "OpenAI" });
     case "openai-compatible":
       if (!c.baseUrl || !c.model) throw new Error("Enter the server URL and model id");
-      return new OpenAICompatibleProvider({ baseUrl: c.baseUrl, apiKey: c.apiKey || undefined, model: c.model, strictSchema: false, label: "The AI server" });
+      return new OpenAICompatibleProvider({ baseUrl: c.baseUrl, apiKey: c.apiKey || undefined, model: c.model, strictSchema: false, label: "The AI server", fetch: c.fetch });
   }
 }
 

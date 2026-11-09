@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { CatalogService } from "@Kavero/api/services/catalog-service";
+import { readLimited } from "@Kavero/api/services/safe-fetch";
 
 import { db, auth } from "@/services";
 import { objectStorage } from "@/modules/storage/object-storage";
@@ -32,8 +33,13 @@ export async function PUT(request: Request, { params }: Ctx) {
   const length = Number(request.headers.get("content-length") ?? 0);
   if (length > MAX_BYTES) return Response.json({ error: "File too large" }, { status: 413 });
 
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength > MAX_BYTES) return Response.json({ error: "File too large" }, { status: 413 });
+  // Streamed with a running total, so a body without Content-Length can't make us buffer more than the limit.
+  let bytes: Uint8Array;
+  try {
+    bytes = await readLimited(request.body, MAX_BYTES);
+  } catch {
+    return Response.json({ error: "File too large" }, { status: 413 });
+  }
   const hash = createHash("sha256").update(bytes).digest("hex");
   const storageKey = `catalogs/${target.catalogId}/${hash}`;
   await objectStorage().put(storageKey, bytes);

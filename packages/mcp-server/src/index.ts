@@ -1,3 +1,4 @@
+import { AiService } from "@Kavero/api/services/ai-service";
 import { CatalogService } from "@Kavero/api/services/catalog-service";
 import { PublicationService, slugify } from "@Kavero/api/services/publication-service";
 import { audit, type Scope, type TokenPrincipal } from "@Kavero/api/services/token-service";
@@ -14,7 +15,7 @@ import {
 } from "@Kavero/catalog-engine";
 import type { Database } from "@Kavero/db";
 import type { EditorCommand, NewElement } from "@Kavero/editor-core";
-import { generateCatalog, type LlmProvider } from "@Kavero/ai";
+import type { LlmProvider } from "@Kavero/ai";
 import { exportPptx } from "@Kavero/export-pptx";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
@@ -41,6 +42,8 @@ export interface McpHost {
   renderPdf?: (doc: CatalogDocument) => Promise<Uint8Array>;
   /** Image/font files of a cloud catalog as data: URLs, for exporters. */
   loadAssets?: (doc: CatalogDocument) => Promise<Record<string, string>>;
+  /** Remove stored files (storage keys) of a deleted catalog. Optional. */
+  deleteObjects?: (storageKeys: string[]) => Promise<void>;
 }
 
 const MAX_EXPORT_BYTES = 25 * 1024 * 1024;
@@ -167,7 +170,8 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     inputSchema: { catalogId: id, confirm: z.literal(true).describe("Must be true; confirms the user approved this deletion") },
     annotations: { destructiveHint: true },
   }, guard("catalog_delete", "catalogs:delete", async ({ catalogId }) => {
-    await catalogs.delete(uid, catalogId);
+    const { storageKeys } = await catalogs.delete(uid, catalogId);
+    await host.deleteObjects?.(storageKeys).catch(() => undefined);
     return ok({ deleted: catalogId });
   }));
 
@@ -276,6 +280,8 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     description: "Add or update products in a catalog (matching on id), with optional image URLs that Kavero downloads and stores. Optionally add slides with product grids: one slide per category, or one slide for all (max 6 products per slide).",
     inputSchema: { catalogId: id, products: z.array(productInput).min(1).max(500), addSlides: z.enum(["none", "single", "per-category"]).optional(), columns: z.number().int().min(1).max(6).optional(), source: z.string().max(100).optional() },
   }, guard("catalog_import_products", "catalogs:write", async ({ catalogId, products, addSlides = "none", columns = 3, source }) => {
+    // Check edit rights before storing any files, not only when the edit is applied.
+    await catalogs.access(uid, catalogId, "write");
     const { id: rowId, document } = await catalogs.get(uid, catalogId);
     const ids = products.map((p) => p.id ?? createId("prd"));
     const commands: EditorCommand[] = [];
@@ -334,6 +340,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     },
   }, guard("asset_import", "catalogs:write", async ({ catalogId, url, data, mimeType, name }) => {
     if (!!url === !!data) return fail("Pass either url or data (base64), not both.");
+    await catalogs.access(uid, catalogId, "write");
     const { id: rowId, document } = await catalogs.get(uid, catalogId);
     let asset;
     if (url) {
@@ -368,7 +375,8 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     },
   }, guard("catalog_generate", "catalogs:write", async (a) => {
     const products = (a.products ?? []).map((p) => ({ ...p, id: p.id ?? createId("prd"), currency: p.currency?.toUpperCase(), imageAssetIds: [] as string[], attributes: p.attributes ?? {} }));
-    const result = await generateCatalog(host.ai ?? null, {
+    // Same per-user rate limit and AI job log as the web app.
+    const result = await new AiService(db, host.ai ?? null).generate(uid, {
       brief: a.brief, products: products.map(({ imageUrl: _u, ...p }) => p), templateId: a.template,
       page: a.page as keyof typeof PAGE_PRESETS | undefined, language: a.language, currency: a.currency?.toUpperCase(),
     });

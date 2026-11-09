@@ -13,6 +13,7 @@ Kavero turns product information into designed, animated catalogs and presentati
 - [Cloud sync, conflicts and workspaces](#cloud-sync-conflicts-and-workspaces)
 - [Publishing a website](#publishing-a-website)
 - [Settings](#settings)
+- [Administering a server](#administering-a-server)
 - [Keyboard shortcuts](#keyboard-shortcuts)
 - [Troubleshooting](#troubleshooting)
 
@@ -120,8 +121,9 @@ Elements are matched when one is a copy of the other (duplicated slides, or copy
   - **PowerPoint** — text, shapes and images stay editable; you're told what can't be carried over (transitions, HTML styling, embedded fonts).
   - **Video (MP4)** — 720p to 4K at 24/30/60 fps, rendered frame by frame on the server.
   - **Website (single HTML file)** — one `.html` file with the catalog, its images, fonts and videos built in, plus the player (animations, transitions, Morph, keyboard/touch navigation, full screen, `#3` slide links). Upload it to any web host or your own site, attach it to an email, or open it straight from disk — no Kavero server needed. Google Fonts load from the internet when online; embedded fonts always work.
+  - **JPG images (.zip)** — every slide as a JPEG (1920 px wide, or 3840 px for 4K) in one zip, named in slide order (`01-cover.jpg`, `02-…`). Slides show their finished state; good for social posts, marketplaces and email.
   - **Kavero project file** — the whole catalog with its images and fonts, for backup or moving between browsers.
-- PDF and video need Chrome (or Chromium) on the machine running the Kavero server. PowerPoint and the HTML file are built in your browser and work offline.
+- PDF, JPG and video need Chrome (or Chromium) on the machine running the Kavero server. PowerPoint and the HTML file are built in your browser and work offline.
 
 ## Cloud sync, conflicts and workspaces
 
@@ -157,6 +159,22 @@ The website shows the version you published. Later edits stay private until you 
 - **MCP connections** — product sources (Streamable HTTP or SSE, with bearer or header auth). Credentials are encrypted.
 - **AI** — connect your own model: **Claude** (Anthropic API key), **OpenRouter** (key plus any model id from openrouter.ai/models), **OpenAI**, or an **OpenAI-compatible server** such as Ollama or LM Studio. **Save and test** checks the connection. The key is encrypted on the server and never shown again (only its last 4 characters). Your key is used for generation, AI edits and the MCP `catalog_generate` tool, in preference to the server's key. Also shows your generation history.
 - **Activity** — audit log of API and agent actions.
+
+## Administering a server
+
+The **first account created on a new Kavero server is its admin**. Admins see **Admin** in the header and account menu.
+
+- **Overview** — accounts, admins, cloud catalogs, published sites and views, stored files, AI requests in the last 30 days.
+- **Users** — search accounts and, from each row's menu:
+  - **Make admin / Remove admin**. You can't remove your own admin role, and the last admin can't be removed.
+  - **Suspend** (until lifted, or for 1, 7 or 30 days, with a reason). A suspended account is signed out, can't sign in, its API tokens stop working and its published sites go offline. **Lift suspension** restores everything.
+  - **Sign out everywhere** — ends all sessions and revokes the account's API tokens.
+  - **Delete account** — removes the account with its cloud catalogs, published sites and tokens (type the email to confirm). Workspaces it created stay with their other members.
+- **Published sites** — every site on the server with its owner and views; **Unpublish** takes one offline (the owner keeps the catalog).
+- **Activity** — the server-wide audit log; filter to admin actions or MCP/agent actions.
+- **Sign-ups** — **Open** (anyone), **Invite-only** (only email addresses with a pending workspace invitation) or **Closed**. Existing accounts are never affected.
+
+Every admin action is recorded in the activity log. Lost admin access? See [Deployment → Admin accounts](deployment.md#admin-accounts).
 
 ## Keyboard shortcuts
 

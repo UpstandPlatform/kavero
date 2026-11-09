@@ -37,6 +37,7 @@
     "babel-plugin-react-compiler": "^1.0.0",
     "better-auth": "catalog:",
     "drizzle-orm": "catalog:",
+    "fflate": "^0.8.3",
     "lucide-react": "catalog:",
     "next": "^16.3.4",
     "next-themes": "catalog:",

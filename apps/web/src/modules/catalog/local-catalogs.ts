@@ -7,6 +7,8 @@ import {
   importProjectFile,
   type CatalogRepository,
   type CatalogSummary,
+  type DocVersion,
+  versionOf,
 } from "@Kavero/local-storage";
 import { createFromTemplate, createCatalog, duplicateCatalogWithAssets, safeFileName, type CreateCatalogInput } from "@Kavero/catalog-engine";
 import { useCallback, useEffect, useState } from "react";
@@ -29,7 +31,8 @@ export function notifyCatalogsChanged() {
   for (const l of listeners) l();
   channel?.postMessage("changed");
 }
-function onChange(l: () => void) {
+/** Subscribe to catalog changes made in this tab or any other. */
+export function onCatalogsChanged(l: () => void) {
   if (!channel && typeof BroadcastChannel !== "undefined") {
     channel = new BroadcastChannel(CHANNEL);
     channel.onmessage = () => listeners.forEach((fn) => fn());
@@ -40,9 +43,9 @@ function onChange(l: () => void) {
   };
 }
 
-/** Save with a fresh dashboard thumbnail. */
-export async function saveLocalCatalog(doc: CatalogDocument) {
-  const summary = await localCatalogs().save(doc, { thumbnail: slideThumbnail(doc) });
+/** Save with a fresh dashboard thumbnail. `expect` makes it a compare-and-swap (see CatalogRepository.save). */
+export async function saveLocalCatalog(doc: CatalogDocument, opts: { expect?: DocVersion } = {}) {
+  const summary = await localCatalogs().save(doc, { thumbnail: slideThumbnail(doc), expect: opts.expect });
   notifyCatalogsChanged();
   return summary;
 }
@@ -63,7 +66,7 @@ export function useLocalCatalogs() {
 
   useEffect(() => {
     refresh();
-    return onChange(refresh);
+    return onCatalogsChanged(refresh);
   }, [refresh]);
 
   return { catalogs, error, refresh };
@@ -76,11 +79,13 @@ export async function createLocalCatalog(input: CreateCatalogInput & { templateI
 }
 
 export async function renameLocalCatalog(id: string, title: string) {
-  const doc = await localCatalogs().get(id);
-  if (!doc) throw new Error("Catalog not found");
+  const entry = await localCatalogs().getWithSummary(id);
+  if (!entry) throw new Error("Catalog not found");
+  const { document: doc, summary } = entry;
   doc.metadata.title = title.trim();
   doc.revision += 1;
-  await saveLocalCatalog(doc);
+  // Compare-and-swap, so a rename never overwrites an editor's save that landed in between.
+  await saveLocalCatalog(doc, { expect: versionOf(summary) });
 }
 
 export async function duplicateLocalCatalog(id: string) {

@@ -9,7 +9,7 @@ import {
   DropdownMenuTrigger,
 } from "@Kavero/ui/components/dropdown-menu";
 import { Skeleton } from "@Kavero/ui/components/skeleton";
-import { Bot, KeyRound, LayoutGrid, LogOut, Plug, Users } from "lucide-react";
+import { Bot, KeyRound, LayoutGrid, LogOut, Plug, Shield, Users } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -62,6 +62,7 @@ export default function UserMenu() {
           <DropdownMenuItem onClick={go("/settings#ai" as Route)}><Bot /> AI model</DropdownMenuItem>
           <DropdownMenuItem onClick={go("/settings#tokens" as Route)}><KeyRound /> API tokens &amp; MCP</DropdownMenuItem>
           <DropdownMenuItem onClick={go("/settings#connections" as Route)}><Plug /> Product sources</DropdownMenuItem>
+          {session.user.role === "admin" && <DropdownMenuItem onClick={go("/admin" as Route)}><Shield /> Admin</DropdownMenuItem>}
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem

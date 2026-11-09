@@ -35,8 +35,9 @@ export async function resolveAccess(slug: string, headers: Headers, cookie: (nam
   const pub = await publications().findBySlug(slug);
   if (!pub) return { kind: "missing" };
   const session = await auth.api.getSession({ headers }).catch(() => null);
-  // "Owner" here = anyone who can read the source catalog (its owner or workspace members).
-  const isOwner = !!session && (session.user.id === pub.ownerId || !!(await requireCatalog(db, session.user.id, pub.catalogId, "read").catch(() => null)));
+  // "Owner" = anyone who can read the source catalog *now* (its owner or workspace members);
+  // pub.ownerId is only who published it, and they may have lost access since.
+  const isOwner = !!session && !!(await requireCatalog(db, session.user.id, pub.catalogId, "read").catch(() => null));
   if (isOwner) return { kind: "ok", pub, isOwner };
   switch (pub.visibility) {
     case "public":
@@ -49,13 +50,62 @@ export async function resolveAccess(slug: string, headers: Headers, cookie: (nam
   }
 }
 
-// Simple in-memory brute-force guard for password attempts (per publication + IP).
-const attempts = new Map<string, { n: number; until: number }>();
-export function allowAttempt(key: string): boolean {
+// ---------- Password brute-force guard (in memory, per server process) ----------
+
+const WINDOW_MS = 15 * 60_000;
+/** Failed attempts allowed per client per publication, and per publication from everyone together. */
+const PER_CLIENT = 10;
+const PER_PUBLICATION = 100;
+const MAX_KEYS = 50_000;
+
+type Bucket = { n: number; until: number };
+const g = globalThis as unknown as { __kaveroUnlockFailures?: Map<string, Bucket> };
+const failures = (g.__kaveroUnlockFailures ??= new Map());
+
+function prune(now: number) {
+  for (const [k, b] of failures) if (b.until <= now) failures.delete(k);
+  // Still too many (e.g. a spray of fake IPs): drop the oldest client buckets, never the per-publication ones.
+  for (const k of failures.keys()) {
+    if (failures.size <= MAX_KEYS) break;
+    if (!k.startsWith("pub:")) failures.delete(k);
+  }
+}
+
+const count = (key: string, now: number) => {
+  const b = failures.get(key);
+  return b && b.until > now ? b.n : 0;
+};
+
+/**
+ * Client address for rate limiting. X-Forwarded-For is only trusted behind a
+ * proxy we control (TRUST_PROXY=1, or the number of proxy hops); then the
+ * entry that proxy appended is used, not the client-supplied first one.
+ * Without it there is no trustworthy per-client address, so null.
+ */
+export function clientIp(headers: Headers): string | null {
+  const hops = Number(process.env.TRUST_PROXY === "true" ? 1 : process.env.TRUST_PROXY ?? 0);
+  if (!(hops >= 1)) return null;
+  const chain = (headers.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  return chain[chain.length - Math.floor(hops)] ?? null;
+}
+
+function keys(pubId: string, ip: string | null) {
+  return ip ? [`pub:${pubId}`, `ip:${pubId}:${ip}`] : [`pub:${pubId}`];
+}
+
+/** False while this client (or the publication as a whole) has too many recent failures. */
+export function attemptAllowed(pubId: string, ip: string | null): boolean {
   const now = Date.now();
-  const a = attempts.get(key);
-  if (a && a.until > now && a.n >= 10) return false;
-  if (!a || a.until <= now) attempts.set(key, { n: 1, until: now + 15 * 60_000 });
-  else a.n += 1;
-  return true;
+  if (count(`pub:${pubId}`, now) >= PER_PUBLICATION) return false;
+  return !ip || count(`ip:${pubId}:${ip}`, now) < PER_CLIENT;
+}
+
+export function recordFailure(pubId: string, ip: string | null) {
+  const now = Date.now();
+  if (failures.size > MAX_KEYS) prune(now);
+  for (const key of keys(pubId, ip)) {
+    const b = failures.get(key);
+    if (!b || b.until <= now) failures.set(key, { n: 1, until: now + WINDOW_MS });
+    else b.n += 1;
+  }
 }

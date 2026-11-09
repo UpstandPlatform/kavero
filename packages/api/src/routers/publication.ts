@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../index";
-import { PublicationService } from "../services/publication-service";
+import { MIN_PASSWORD_LENGTH, PublicationService } from "../services/publication-service";
 
 const catalogId = z.string().min(1).max(100);
 
@@ -18,7 +18,7 @@ export const publicationRouter = router({
       catalogId,
       slug: z.string().max(80),
       visibility: z.enum(["public", "unlisted", "password", "private"]),
-      password: z.string().min(4).max(200).optional(),
+      password: z.string().min(MIN_PASSWORD_LENGTH, `Use a password of at least ${MIN_PASSWORD_LENGTH} characters`).max(200).optional(),
       seoTitle: z.string().max(120).optional(),
       seoDescription: z.string().max(300).optional(),
     }))

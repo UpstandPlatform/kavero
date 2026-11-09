@@ -80,6 +80,14 @@ function deepMerge(target: Record<string, unknown>, changes: Record<string, unkn
   return out;
 }
 
+/** Moves skip the full element schema, so reject values that would make the document unsaveable. */
+function checkPosition(p: ElementPosition): ElementPosition {
+  for (const k of ["x", "y", "width", "height", "rotation"] as const) {
+    if (typeof p[k] !== "number" || !Number.isFinite(p[k])) throw new CommandError(`Invalid position: ${k} must be a finite number`);
+  }
+  return { ...p, width: Math.max(1, p.width), height: Math.max(1, p.height) };
+}
+
 function normalizeZ(slide: CatalogSlide) {
   slide.elements.sort((a, b) => a.zIndex - b.zIndex).forEach((e, i) => (e.zIndex = i));
 }
@@ -175,7 +183,7 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
     case "element.move": {
       const { element } = findElement(doc, cmd.elementId);
       if (element.locked) throw new CommandError("Element is locked");
-      element.position = { ...element.position, ...cmd.position };
+      element.position = checkPosition({ ...element.position, ...cmd.position });
       break;
     }
     case "element.delete": {

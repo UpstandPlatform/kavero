@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq } from "drizzle-orm";
 
-import { assertPublicUrl } from "./safe-fetch";
+import { assertPublicUrl, safeFetch } from "./safe-fetch";
 import type { SecretBox } from "./secret-box";
 
 export interface ConnectionInput {
@@ -98,9 +98,11 @@ export class McpConnectionService {
       if (row.authType === "header" && row.authHeader) headers[row.authHeader] = secret;
     }
     const client = new Client({ name: "kavero", version: "0.1.0" });
+    // Every request (including SSE endpoints the server announces) re-checks the address at connect time.
+    const fetch = (u: string | URL, init?: RequestInit) => safeFetch(u, init, this.opts);
     const transport = row.transport === "sse"
-      ? new SSEClientTransport(url, { requestInit: { headers } })
-      : new StreamableHTTPClientTransport(url, { requestInit: { headers } });
+      ? new SSEClientTransport(url, { requestInit: { headers }, fetch })
+      : new StreamableHTTPClientTransport(url, { requestInit: { headers }, fetch });
     await withTimeout(client.connect(transport), CALL_TIMEOUT_MS, "Connecting timed out");
     return client;
   }

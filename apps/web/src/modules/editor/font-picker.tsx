@@ -43,7 +43,15 @@ export function FontPicker({ onAdd, onPick, onClose }: { onAdd: AddFont; onPick:
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const fileInput = useRef<HTMLInputElement>(null);
+  const panel = useRef<HTMLDivElement>(null);
   const supported = typeof window !== "undefined" && "queryLocalFonts" in window;
+
+  // Move focus into the picker (the search box autofocuses when there is one) and give it back on close.
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    if (!panel.current?.contains(document.activeElement)) (panel.current?.querySelector<HTMLElement>("input:not([type=file])") ?? panel.current)?.focus();
+    return () => previous?.focus?.();
+  }, []);
 
   async function loadLocal() {
     try {
@@ -108,8 +116,16 @@ export function FontPicker({ onAdd, onPick, onClose }: { onAdd: AddFont; onPick:
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onPointerDown={(e) => e.target === e.currentTarget && onClose()}>
-      <div className="flex max-h-[80vh] w-[min(440px,100%)] flex-col border bg-background shadow-xl" role="dialog" aria-label="Choose a font">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      onPointerDown={(e) => e.target === e.currentTarget && onClose()}
+      onKeyDown={(e) => {
+        if (e.key !== "Escape") return;
+        e.stopPropagation();
+        onClose();
+      }}
+    >
+      <div ref={panel} tabIndex={-1} className="flex max-h-[80vh] w-[min(440px,100%)] flex-col border bg-background shadow-xl outline-none" role="dialog" aria-modal="true" aria-label="Choose a font">
         <div className="flex items-center justify-between border-b px-4 py-2">
           <h2 className="text-sm font-semibold">Fonts on this computer</h2>
           <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><X /></Button>

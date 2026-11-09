@@ -70,3 +70,31 @@ test("cloud link survives saves and marks unsynced edits", async () => {
   await repo.setCloudLink(doc.id, null);
   expect((await repo.list())[0]!.location).toBe("local");
 });
+
+test("compare-and-swap save refuses to overwrite a version it didn't read", async () => {
+  const { StaleWriteError, versionOf } = await import("./index");
+  const repo = new MemoryCatalogRepository();
+  const doc = createCatalog({ title: "A" });
+  const v1 = versionOf(await repo.save(doc));
+  // Another tab (or a cloud pull) writes in between.
+  const other = structuredClone(doc);
+  other.metadata.title = "B";
+  const v2 = versionOf(await repo.save(other));
+  expect(v2).not.toEqual(v1);
+  doc.revision += 1;
+  await expect(repo.save(doc, { expect: v1 })).rejects.toBeInstanceOf(StaleWriteError);
+  expect((await repo.get(doc.id))!.metadata.title).toBe("B");
+  await repo.save(doc, { expect: v2 });
+  expect((await repo.getWithSummary(doc.id))!.summary.revision).toBe(doc.revision);
+});
+
+test("pending asset uploads keep a catalog unsynced", async () => {
+  const { hasUnsyncedChanges } = await import("./index");
+  const repo = new MemoryCatalogRepository();
+  const doc = createCatalog({ title: "A" });
+  await repo.save(doc);
+  await repo.setCloudLink(doc.id, { id: "srv1", revision: 1, userId: "u1", syncedAt: 1, pendingAssetIds: ["ast_1"] }, doc.revision);
+  expect(hasUnsyncedChanges((await repo.getSummary(doc.id))!)).toBe(true);
+  await repo.setCloudLink(doc.id, { id: "srv1", revision: 1, userId: "u1", syncedAt: 2 }, doc.revision);
+  expect(hasUnsyncedChanges((await repo.getSummary(doc.id))!)).toBe(false);
+});

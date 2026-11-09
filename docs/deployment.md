@@ -59,6 +59,29 @@ cd packages/db && DATABASE_URL=postgres://... bunx drizzle-kit migrate
 
 Create new migrations in development with `bun run db:generate` after changing `packages/db/src/schema`.
 
+## Exports, proxies and limits
+
+| Variable | Default | What it does |
+| --- | --- | --- |
+| `KAVERO_RENDER_URL` | `BETTER_AUTH_URL` | Address the export browser uses to reach the app. Set an internal address when the server can't reach its own public URL (the Docker compose file sets `http://127.0.0.1:3001`). |
+| `KAVERO_MAX_BROWSERS` | `2` | Headless Chrome exports (PDF, JPG, video, previews) running at once; others queue, then get "busy, try again". |
+| `TRUST_PROXY` | unset | Set to `true` (or the number of proxy hops) behind a reverse proxy, so password-protected sites can rate-limit wrong passwords per visitor. Without it only a per-site limit applies. |
+
+Export requests are capped at 60 MB, page sizes at 10000 px, and each account at 50 active API tokens. Export browsers can only load the app itself, Google Fonts and public HTTPS addresses.
+
+## Admin accounts
+
+- On a new server, **the first account that signs up becomes the admin**. Create your own account right after deploying, before sharing the address.
+- Servers upgraded from a version without admins: the migration makes the **oldest account** the admin if none exists. Check **Admin → Users** after upgrading.
+- Admins can make other accounts admins and choose who may sign up (open, invite-only or closed) in **Admin → Sign-ups**. For a private company server, set it to invite-only or closed once your team has joined.
+- Recovering admin access (run where the app's `DATABASE_URL` is available):
+
+  ```bash
+  bun run make-admin you@example.com
+  ```
+
+  Add `--remove` to take admin away. It also lifts a suspension on that account.
+
 ## Hosting options
 
 Kavero needs a long-running Node server (API routes, MCP endpoint, background video jobs) with Chromium available. Pick by scale:

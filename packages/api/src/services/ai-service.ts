@@ -8,7 +8,9 @@ import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
 
 const PER_MINUTE = 6;
-const usage = new Map<string, number[]>();
+// Shared by every entry point (tRPC, MCP) even when bundled separately.
+const g = globalThis as unknown as { __kaveroAiUsage?: Map<string, number[]> };
+const usage = (g.__kaveroAiUsage ??= new Map<string, number[]>());
 
 function rateLimit(userId: string) {
   const now = Date.now();

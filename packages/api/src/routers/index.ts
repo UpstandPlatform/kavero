@@ -1,4 +1,5 @@
 import { protectedProcedure, publicProcedure, router } from "../index";
+import { adminRouter } from "./admin";
 import { aiRouter } from "./ai";
 import { catalogRouter } from "./catalog";
 import { integrationsRouter } from "./integrations";
@@ -10,6 +11,7 @@ export const appRouter = router({
   publication: publicationRouter,
   integrations: integrationsRouter,
   ai: aiRouter,
+  admin: adminRouter,
   workspace: workspaceRouter,
   healthCheck: publicProcedure.query(() => {
     return "OK";

@@ -49,7 +49,8 @@
     "docker:logs": "docker compose logs -f",
     "env:generate": "varlock codegen --path ./apps/web/ && varlock codegen --path ./packages/db/",
     "postinstall": "varlock codegen --path ./apps/web/ && varlock codegen --path ./packages/db/",
-    "auth:generate": "cd apps/web && bun run auth:generate"
+    "auth:generate": "cd apps/web && bun run auth:generate",
+    "make-admin": "bun run --filter @Kavero/db make-admin --"
   },
   "dependencies": {
     "zod": "catalog:"

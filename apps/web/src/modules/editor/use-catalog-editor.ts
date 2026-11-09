@@ -2,14 +2,17 @@
 
 import { createId, type CatalogDocument } from "@Kavero/catalog-engine";
 import { Editor, type EditorCommand, type EditorState } from "@Kavero/editor-core";
+import { StaleWriteError, versionOf, type DocVersion } from "@Kavero/local-storage";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { toast } from "sonner";
 
-import { localCatalogs, saveLocalCatalog } from "@/modules/catalog/local-catalogs";
+import { localCatalogs, onCatalogsChanged, saveLocalCatalog } from "@/modules/catalog/local-catalogs";
 
-export type SaveStatus = "saved" | "saving" | "unsaved" | "error";
+export type SaveStatus = "saved" | "saving" | "unsaved" | "error" | "conflict";
 
 const AUTOSAVE_MS = 700;
+/** Used when an image reports no intrinsic size (e.g. some SVGs). */
+export const FALLBACK_IMAGE_SIZE = { width: 400, height: 300 };
 
 async function sha256(blob: Blob) {
   const digest = await crypto.subtle.digest("SHA-256", await blob.arrayBuffer());
@@ -30,10 +33,23 @@ async function fontMime(blob: Blob): Promise<string> {
 function imageSize(url: string): Promise<{ width: number; height: number }> {
   return new Promise((resolve, reject) => {
     const img = new Image();
-    img.onload = () => resolve({ width: img.naturalWidth, height: img.naturalHeight });
+    img.onload = () => resolve(img.naturalWidth > 0 && img.naturalHeight > 0 ? { width: img.naturalWidth, height: img.naturalHeight } : FALLBACK_IMAGE_SIZE);
     img.onerror = () => reject(new Error("Could not read this image"));
     img.src = url;
   });
+}
+
+type EditorControls = { flush: () => Promise<void>; keepMine: () => void };
+
+// Lets code outside the editor tree (exports, publishing) wait for the live document to be stored.
+const flushers = new Map<string, () => Promise<void>>();
+
+/**
+ * Resolves once the open editor for this catalog has written its latest edits to
+ * this browser's storage (immediately if none is open). Rejects if they can't be saved.
+ */
+export function flushEditorSave(catalogId: string): Promise<void> {
+  return flushers.get(catalogId)?.() ?? Promise.resolve();
 }
 
 /** Loads a local catalog into an Editor and keeps it autosaved. */
@@ -42,65 +58,126 @@ export function useCatalogEditor(catalogId: string) {
   const [loadError, setLoadError] = useState<string | null>(null);
   const [assetUrls, setAssetUrls] = useState<Record<string, string>>({});
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("saved");
+  const [loadKey, setLoadKey] = useState(0);
   const urlsRef = useRef<string[]>([]);
+  const editorRef = useRef<Editor | null>(null);
+  // The stored version each editor was loaded from; its saves are compare-and-swap against it.
+  const versions = useRef(new WeakMap<Editor, DocVersion>());
+  const controls = useRef<EditorControls | null>(null);
 
   useEffect(() => {
     let cancelled = false;
     (async () => {
       const repo = localCatalogs();
-      const doc = await repo.get(catalogId);
+      const entry = await repo.getWithSummary(catalogId);
       if (cancelled) return;
-      if (!doc) return setLoadError("not-found");
+      if (!entry) return setLoadError("not-found");
       const assets = await repo.listAssets(catalogId);
+      if (cancelled) return;
       const urls: Record<string, string> = {};
       for (const a of assets) urls[a.id] = URL.createObjectURL(a.blob);
+      // Keep the previous URLs alive until a reloaded editor has rendered.
+      const old = urlsRef.current;
       urlsRef.current = Object.values(urls);
-      if (cancelled) return;
+      setTimeout(() => old.forEach((u) => URL.revokeObjectURL(u)), 1000);
+      const next = new Editor(entry.document);
+      const prev = editorRef.current;
+      if (prev) next.setActiveSlide(prev.getState().activeSlideId);
+      versions.current.set(next, versionOf(entry.summary));
+      editorRef.current = next;
+      setLoadError(null);
+      setSaveStatus("saved");
       setAssetUrls(urls);
-      setEditor(new Editor(doc));
-    })().catch((e: Error) => setLoadError(e.message));
+      setEditor(next);
+    })().catch((e: Error) => !cancelled && setLoadError(e.message));
     return () => {
       cancelled = true;
-      for (const u of urlsRef.current) URL.revokeObjectURL(u);
     };
-  }, [catalogId]);
+  }, [catalogId, loadKey]);
+
+  useEffect(() => () => urlsRef.current.forEach((u) => URL.revokeObjectURL(u)), []);
 
   // Autosave: debounce after each change, always saving the latest snapshot.
   useEffect(() => {
     if (!editor) return;
     let timer: ReturnType<typeof setTimeout> | undefined;
-    let saving = false;
-    let again = false;
-    const save = async () => {
-      if (saving) return void (again = true);
-      saving = true;
+    let active = true;
+    let conflicted = false;
+    let version = versions.current.get(editor);
+    // Saves and external-change checks run one at a time, in order.
+    let queue: Promise<void> = Promise.resolve();
+    const enqueue = (fn: () => Promise<void>) => (queue = queue.then(fn, fn));
+
+    const enterConflict = () => {
+      conflicted = true;
+      clearTimeout(timer);
+      if (active) setSaveStatus("conflict");
+    };
+    const doSave = async () => {
+      if (conflicted || !editor.getState().dirty) return;
       const doc: CatalogDocument = editor.getDocument();
-      setSaveStatus("saving");
+      if (active) setSaveStatus("saving");
       try {
-        await saveLocalCatalog(doc);
+        const summary = await saveLocalCatalog(doc, { expect: version });
+        version = versionOf(summary);
         editor.markSaved(doc.revision);
-        setSaveStatus(editor.getState().dirty ? "unsaved" : "saved");
+        if (active) setSaveStatus(editor.getState().dirty ? "unsaved" : "saved");
       } catch (e) {
-        setSaveStatus("error");
+        if (e instanceof StaleWriteError) return enterConflict();
+        if (active) setSaveStatus("error");
         toast.error(`Could not save: ${(e as Error).message}`);
-      } finally {
-        saving = false;
-        if (again) {
-          again = false;
-          void save();
-        }
       }
     };
+    const save = () => enqueue(doSave);
+
+    // Another tab (or a cloud pull) wrote this catalog: reload when nothing here is
+    // unsaved, otherwise stop autosaving and let the user choose.
+    const checkExternal = () =>
+      enqueue(async () => {
+        if (!active || conflicted) return;
+        const stored = await localCatalogs().getSummary(catalogId);
+        if (stored && version && stored.revision === version.revision && stored.updatedAt === version.updatedAt) return;
+        if (!active) return;
+        if (editor.getState().dirty) enterConflict();
+        else setLoadKey((k) => k + 1);
+      });
+    const offChange = onCatalogsChanged(() => void checkExternal());
+
+    controls.current = {
+      flush: async () => {
+        clearTimeout(timer);
+        await save();
+        if (conflicted) throw new Error("This catalog was changed in another tab. Choose which version to keep first.");
+        if (editor.getState().dirty) throw new Error("Your latest changes could not be saved yet.");
+      },
+      keepMine: () =>
+        void enqueue(async () => {
+          const stored = await localCatalogs().getSummary(catalogId);
+          version = stored ? versionOf(stored) : undefined;
+          conflicted = false;
+          // Number our next revision after the stored one, so sync sees this as the newer copy.
+          if (stored) editor.rebase(stored.revision);
+          await doSave();
+        }),
+    };
+    const flush = () => controls.current?.flush() ?? Promise.resolve();
+    flushers.set(catalogId, flush);
+
     // Commands, undo and redo bump the revision; selection changes don't.
     let lastRevision = editor.getDocument().revision;
     const unsub = editor.subscribe((state) => {
       if (state.document.revision === lastRevision) return;
       lastRevision = state.document.revision;
-      if (!state.dirty) return;
+      if (!state.dirty || conflicted) return;
       setSaveStatus("unsaved");
       clearTimeout(timer);
       timer = setTimeout(save, AUTOSAVE_MS);
     });
+    // A document without slides can't be edited: start it with a blank one (saved like any edit).
+    if (!editor.getDocument().slides.length) editor.execute({ type: "slide.add" });
+    // Catch writes that landed between loading and subscribing.
+    void checkExternal();
+
     const beforeUnload = (e: BeforeUnloadEvent) => {
       if (editor.getState().dirty) {
         void save();
@@ -109,12 +186,26 @@ export function useCatalogEditor(catalogId: string) {
     };
     window.addEventListener("beforeunload", beforeUnload);
     return () => {
+      active = false;
       unsub();
+      offChange();
       window.removeEventListener("beforeunload", beforeUnload);
       clearTimeout(timer);
+      if (flushers.get(catalogId) === flush) flushers.delete(catalogId);
+      controls.current = null;
       if (editor.getState().dirty) void save();
     };
+  }, [editor, catalogId]);
+
+  /** Resolve a conflict: drop this tab's unsaved edits and load the stored version. */
+  const reloadFromStorage = useCallback(() => {
+    editor?.markSaved();
+    setLoadKey((k) => k + 1);
   }, [editor]);
+  /** Resolve a conflict: overwrite the stored version with this tab's document. */
+  const keepMine = useCallback(() => controls.current?.keepMine(), []);
+  /** Wait until the live document is in local storage (e.g. before publishing it). */
+  const flushSave = useCallback(() => controls.current?.flush() ?? Promise.resolve(), []);
 
   const uploadImage = useCallback(
     async (file: File): Promise<{ assetId: string; width: number; height: number }> => {
@@ -126,7 +217,7 @@ export function useCatalogEditor(catalogId: string) {
       const doc = editor.getDocument();
       // Reuse an identical image already in this catalog.
       const existing = doc.assets.find((a) => a.hash === hash);
-      if (existing) return { assetId: existing.id, width: existing.width ?? 400, height: existing.height ?? 300 };
+      if (existing) return { assetId: existing.id, width: existing.width || FALLBACK_IMAGE_SIZE.width, height: existing.height || FALLBACK_IMAGE_SIZE.height };
 
       const assetId = createId("ast");
       const url = URL.createObjectURL(file);
@@ -172,7 +263,7 @@ export function useCatalogEditor(catalogId: string) {
     [editor, catalogId],
   );
 
-  return { editor, loadError, assetUrls, saveStatus, uploadImage, uploadFont };
+  return { editor, loadError, assetUrls, saveStatus, uploadImage, uploadFont, flushSave, reloadFromStorage, keepMine };
 }
 
 const EMPTY = () => () => {};

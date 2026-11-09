@@ -12,6 +12,7 @@ import { renderPdf, renderSlideImage } from "@Kavero/export-chromium";
 import { createKaveroMcpServer } from "@Kavero/mcp-server";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 
+import { renderOrigin } from "@/modules/export/access";
 import { objectStorage } from "@/modules/storage/object-storage";
 import { ENV } from "@/env.server";
 import { db } from "@/services";
@@ -89,8 +90,12 @@ export async function POST(request: Request) {
         return storeImage(catalogRowId, bytes, mimeType);
       },
       loadAssets,
-      renderPreview: async (doc, slideIndex) => renderSlideImage({ doc, assets: await loadAssets(doc), baseUrl: origin, slideIndex, width: 1280 }),
-      renderPdf: async (doc) => renderPdf({ doc, assets: await loadAssets(doc), baseUrl: origin }),
+      renderPreview: async (doc, slideIndex) => renderSlideImage({ doc, assets: await loadAssets(doc), baseUrl: renderOrigin(request), slideIndex, width: 1280 }),
+      renderPdf: async (doc) => renderPdf({ doc, assets: await loadAssets(doc), baseUrl: renderOrigin(request) }),
+      deleteObjects: async (keys) => {
+        // Files are content-addressed per catalog, so these keys belong to the deleted catalog only.
+        await Promise.all(keys.map((k) => objectStorage().delete(k)));
+      },
       ai: (await new AiCredentialService(db, secretBox, { allowLocal: process.env.NODE_ENV !== "production", appUrl: ENV.BETTER_AUTH_URL }).provider(principal.userId).catch(() => null)) ?? aiProvider,
     },
   });

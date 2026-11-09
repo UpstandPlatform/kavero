@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
 import { extractProducts, mapProduct } from "./product-extract";
-import { assertPublicUrl, isPrivateAddress } from "./safe-fetch";
+import { assertPublicUrl, fetchImageAsDataUrl, isPrivateAddress, safeFetch } from "./safe-fetch";
 import { SecretBox } from "./secret-box";
 import { hashPassword, slugify, validateSlug, verifyPassword } from "./publication-service";
 
@@ -28,6 +28,38 @@ test("URL guard: loopback only in dev, metadata never", async () => {
   await expect(assertPublicUrl("http://10.0.0.5/", { allowLocal: true })).rejects.toThrow("private");
   await expect(assertPublicUrl("file:///etc/passwd")).rejects.toThrow("http");
   await expect(assertPublicUrl("https://user:pw@example.com")).rejects.toThrow("credentials");
+});
+
+test("URL guard: embedded IPv4 forms are judged by the address they reach", async () => {
+  for (const ip of ["::ffff:a00:1", "64:ff9b::a9fe:a9fe", "2002:c0a8:101::1", "::a00:1", "::"]) expect(isPrivateAddress(ip)).toBe(true);
+  // WHATWG URL normalises [::ffff:10.0.0.1] to [::ffff:a00:1].
+  await expect(assertPublicUrl("http://[::ffff:10.0.0.1]/")).rejects.toThrow("private");
+  await expect(assertPublicUrl("http://[64:ff9b::169.254.169.254]/", { allowLocal: true })).rejects.toThrow("private");
+});
+
+// node:http client + Bun.serve in one Bun process hangs or crashes on Windows (Bun bug), so this runs elsewhere only.
+test.skipIf(process.platform === "win32")("safeFetch: local only with allowLocal, redirects are not followed, image redirects are bounded", async () => {
+  const server = Bun.serve({
+    port: 0, hostname: "127.0.0.1",
+    fetch: (req) => {
+      const path = new URL(req.url).pathname;
+      if (path === "/loop") return new Response(null, { status: 302, headers: { Location: "/loop" } });
+      if (path === "/img") return new Response(new Uint8Array([1, 2, 3]), { headers: { "Content-Type": "image/png" } });
+      return Response.json({ method: req.method, body: req.body ? "yes" : "no" });
+    },
+  });
+  try {
+    const base = `http://localhost:${server.port}`;
+    await expect(safeFetch(`${base}/x`)).rejects.toThrow("private");
+    const res = await safeFetch(`${base}/x`, { method: "POST", body: "{}" }, { allowLocal: true });
+    expect(await res.json()).toEqual({ method: "POST", body: "yes" });
+    expect((await safeFetch(`${base}/loop`, {}, { allowLocal: true })).status).toBe(302);
+    await expect(fetchImageAsDataUrl(`${base}/loop`, { allowLocal: true })).rejects.toThrow("redirects");
+    expect(await fetchImageAsDataUrl(`${base}/img`, { allowLocal: true })).toBe("data:image/png;base64,AQID");
+    await expect(fetchImageAsDataUrl(`${base}/img`, { allowLocal: true, maxBytes: 2 })).rejects.toThrow("too large");
+  } finally {
+    server.stop(true);
+  }
 });
 
 test("secret box round trip and tamper detection", () => {

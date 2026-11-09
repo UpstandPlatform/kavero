@@ -1,6 +1,6 @@
 "use client";
 
-import { createBlankSlide, type CatalogElement } from "@Kavero/catalog-engine";
+import { createBlankSlide, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { CatalogFonts, SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
@@ -29,18 +29,20 @@ import { authClient } from "@/lib/auth-client";
 import { pullCatalog, refreshFromCloud } from "@/modules/catalog/cloud-sync";
 import { localCatalogs } from "@/modules/catalog/local-catalogs";
 
-import { useCatalogEditor, useEditorState, useRun, type SaveStatus } from "./use-catalog-editor";
+import { FALLBACK_IMAGE_SIZE, useCatalogEditor, useEditorState, useRun, type SaveStatus } from "./use-catalog-editor";
 import { CLOUD_LABEL, useCloudAutoSync } from "./use-cloud-autosync";
 
 export function CatalogEditorPage({ catalogId }: { catalogId: string }) {
   const { data: session, isPending } = authClient.useSession();
-  const [ready, setReady] = useState(false);
+  const userId = session?.user.id ?? null;
+  const [readyFor, setReadyFor] = useState<string | null>(null);
+  const ready = readyFor === catalogId;
 
   // Before opening, pull a newer cloud version (e.g. edited by an AI agent over MCP).
+  // Only once: after the editor is up, a pull would replace the document under it.
   useEffect(() => {
-    if (isPending) return;
-    const userId = session?.user.id;
-    if (!userId) return setReady(true);
+    if (isPending || ready) return;
+    if (!userId) return setReadyFor(catalogId);
     let cancelled = false;
     (async () => {
       // Opened from a link (e.g. an AI agent's editorUrl) and not in this browser yet: fetch it from the cloud.
@@ -55,18 +57,18 @@ export function CatalogEditorPage({ catalogId }: { catalogId: string }) {
         if (r === "conflict") toast.warning("This catalog also changed in the cloud. Resolve it from the dashboard with Sync now.");
       })
       .catch(() => undefined)
-      .finally(() => !cancelled && setReady(true));
+      .finally(() => !cancelled && setReadyFor(catalogId));
     return () => {
       cancelled = true;
     };
-  }, [catalogId, session, isPending]);
+  }, [catalogId, userId, isPending, ready]);
 
   if (!ready) return <p className="p-8 text-sm text-muted-foreground">Opening catalog…</p>;
-  return <LoadedEditor catalogId={catalogId} userId={session?.user.id ?? null} />;
+  return <LoadedEditor catalogId={catalogId} userId={userId} />;
 }
 
 function LoadedEditor({ catalogId, userId }: { catalogId: string; userId: string | null }) {
-  const { editor, loadError, assetUrls, saveStatus, uploadImage, uploadFont } = useCatalogEditor(catalogId);
+  const { editor, loadError, assetUrls, saveStatus, uploadImage, uploadFont, reloadFromStorage, keepMine } = useCatalogEditor(catalogId);
   const cloudStatus = useCloudAutoSync(catalogId, userId, saveStatus);
   if (loadError) {
     return (
@@ -77,12 +79,18 @@ function LoadedEditor({ catalogId, userId }: { catalogId: string; userId: string
     );
   }
   if (!editor) return <p className="p-8 text-sm text-muted-foreground">Opening catalog…</p>;
-  return <ContextMenuProvider><EditorShell editor={editor} assetUrls={assetUrls} saveStatus={saveStatus} cloudLabel={CLOUD_LABEL[cloudStatus]} uploadImage={uploadImage} uploadFont={uploadFont} /></ContextMenuProvider>;
+  return (
+    <ContextMenuProvider>
+      <EditorShell editor={editor} assetUrls={assetUrls} saveStatus={saveStatus} cloudLabel={CLOUD_LABEL[cloudStatus]} uploadImage={uploadImage} uploadFont={uploadFont} onReload={reloadFromStorage} onKeepMine={keepMine} />
+    </ContextMenuProvider>
+  );
 }
 
-const SAVE_LABEL: Record<SaveStatus, string> = { saved: "Saved", saving: "Saving…", unsaved: "Unsaved changes", error: "Save failed" };
+const SAVE_LABEL: Record<SaveStatus, string> = { saved: "Saved", saving: "Saving…", unsaved: "Unsaved changes", error: "Save failed", conflict: "Not saved: changed elsewhere" };
 
-function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, uploadFont }: {
+function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, uploadFont, onReload, onKeepMine }: {
+  onReload: () => void;
+  onKeepMine: () => void;
   cloudLabel: string | null;
   editor: Editor;
   assetUrls: Record<string, string>;
@@ -94,7 +102,8 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
   const run = useRun(editor);
   const doc = state.document;
   const slideIndex = Math.max(0, doc.slides.findIndex((s) => s.id === state.activeSlideId));
-  const slide = doc.slides[slideIndex]!;
+  // Undefined only for a document without slides, until the editor adds a blank one.
+  const slide = doc.slides[slideIndex] as CatalogSlide | undefined;
   const [zoom, setZoom] = useState<number | "fit">("fit");
   const [fitScale, setFitScale] = useState(0.5);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -112,18 +121,20 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
       const { size: _s, ...rest } = element;
       const r = run({
         type: "element.add",
-        slideId: slide.id,
+        slideId: slide!.id,
         element: { ...rest, position: { x: Math.round((W - w) / 2), y: Math.round((H - h) / 2), width: Math.round(w), height: Math.round(h), rotation: 0 } } as NewElement,
       });
       if (r?.createdIds[0]) editor.select([r.createdIds[0]]);
     },
-    [run, editor, slide.id, W, H],
+    [run, editor, slide?.id, W, H],
   );
 
   async function addImage(file: File | undefined) {
     if (!file) return;
     try {
-      const { assetId, width, height } = await uploadImage(file);
+      const r = await uploadImage(file);
+      const { assetId } = r;
+      const width = r.width || FALLBACK_IMAGE_SIZE.width, height = r.height || FALLBACK_IMAGE_SIZE.height;
       const k = Math.min((W * 0.5) / width, (H * 0.6) / height, 1);
       addElement({ type: "image", content: { assetId, alt: file.name.replace(/\.[^.]+$/, "") }, size: [width * k, height * k] } as never);
     } catch (e) {
@@ -149,11 +160,15 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
     if (!node) return;
     const ro = new ResizeObserver(([e]) => setListWidth(e!.contentRect.width));
     ro.observe(node);
+    return () => ro.disconnect();
   }, []);
   const thumbScale = Math.max(40, listWidth) / W;
 
+  if (!slide) return <p className="p-8 text-sm text-muted-foreground">Opening catalog…</p>;
+  const conflict = saveStatus === "conflict";
+
   return (
-    <div className="grid h-svh w-full min-w-0 grid-rows-[auto_auto_minmax(0,1fr)] overflow-hidden">
+    <div className={`grid h-svh w-full min-w-0 overflow-hidden ${conflict ? "grid-rows-[auto_auto_auto_minmax(0,1fr)]" : "grid-rows-[auto_auto_minmax(0,1fr)]"}`}>
       {/* Top bar */}
       <header className="flex min-w-0 items-center gap-2 border-b px-3 py-1.5">
         <Link href="/dashboard" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" /> Catalogs</Link>
@@ -174,6 +189,16 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
         <Button variant="outline" size="sm" onClick={() => setPublishing(true)} title="Publish as a website"><Globe /> Publish</Button>
         <Button size="sm" className="ml-1" onClick={() => setPreviewing("play")} title="Play from this slide"><Play /> Preview</Button>
       </header>
+
+      {conflict && (
+        <div role="alert" className="flex flex-wrap items-center gap-2 border-b border-amber-500/40 bg-amber-500/10 px-3 py-1.5 text-xs">
+          <span className="min-w-0 flex-1">
+            This catalog was changed in another tab or updated from the cloud while you were editing. Your recent edits are not saved yet.
+          </span>
+          <Button size="xs" variant="outline" onClick={onReload} title="Discard the edits made here and open the latest saved version">Load latest version</Button>
+          <Button size="xs" onClick={onKeepMine} title="Save this tab’s version over the other changes">Keep my version</Button>
+        </div>
+      )}
 
       {/* Insert toolbar */}
       <div className="flex min-w-0 items-center gap-1 overflow-x-auto border-b px-3 py-1">

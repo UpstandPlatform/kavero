@@ -4,6 +4,7 @@ import { buildTimeline, frameAt, scheduleSlide } from "@Kavero/animation-engine"
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 
 import { ffmpegPath, launchBrowser } from "./browser";
+import { openRenderPage } from "./network";
 
 export interface VideoOptions {
   doc: CatalogDocument;
@@ -48,7 +49,8 @@ export async function renderVideo(opts: VideoOptions): Promise<{ frames: number;
   });
 
   opts.onProgress?.({ frame: 0, totalFrames, phase: "starting" });
-  const browser = await launchBrowser();
+  // Video jobs are already queued one at a time; wait as long as it takes for a Chrome slot.
+  const browser = await launchBrowser({ queueTimeoutMs: 30 * 60_000 });
   const ffmpeg = spawn(ffmpegPath(), [
     "-y", "-loglevel", "error",
     "-f", "image2pipe", "-framerate", String(fps), "-c:v", "mjpeg", "-i", "-",
@@ -67,8 +69,7 @@ export async function renderVideo(opts: VideoOptions): Promise<{ frames: number;
     new Promise<void>((resolve, reject) => (ffmpeg.stdin.write(buf, (e) => (e ? reject(e) : resolve()))));
 
   try {
-    const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: 1 });
-    await page.goto(`${opts.baseUrl}/render`, { waitUntil: "networkidle" });
+    const page = await openRenderPage(browser, opts.baseUrl, { viewport: { width, height }, deviceScaleFactor: 1 });
     await page.waitForFunction(() => typeof (window as unknown as { __kaveroLoad?: unknown }).__kaveroLoad === "function", null, { timeout: 30_000 });
     await page.evaluate(
       async ({ doc, assets, scale }) => {

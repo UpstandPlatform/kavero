@@ -1,5 +1,7 @@
 import type { CatalogDocument } from "@Kavero/catalog-engine";
-import { applyCloudLink, assertValid, summarize, type CatalogRepository, type CatalogSummary, type CloudLink, type StoredAsset } from "./repository";
+import {
+  applyCloudLink, assertExpected, assertValid, summarize, type CatalogRepository, type CatalogSummary, type CloudLink, type SaveOptions, type StoredAsset,
+} from "./repository";
 
 const DB_NAME = "kavero";
 const DB_VERSION = 1;
@@ -60,12 +62,34 @@ export class IndexedDbCatalogRepository implements CatalogRepository {
     return ((await req(db.transaction(DOCS).objectStore(DOCS).get(id))) as CatalogDocument | undefined) ?? null;
   }
 
-  async save(doc: CatalogDocument, extra: Partial<Pick<CatalogSummary, "thumbnail">> = {}): Promise<CatalogSummary> {
+  async getSummary(id: string): Promise<CatalogSummary | null> {
+    const db = await this.db();
+    return ((await req(db.transaction(SUMMARIES).objectStore(SUMMARIES).get(id))) as CatalogSummary | undefined) ?? null;
+  }
+
+  async getWithSummary(id: string): Promise<{ document: CatalogDocument; summary: CatalogSummary } | null> {
+    const db = await this.db();
+    const tx = db.transaction([DOCS, SUMMARIES]);
+    const [document, summary] = await Promise.all([
+      req(tx.objectStore(DOCS).get(id)) as Promise<CatalogDocument | undefined>,
+      req(tx.objectStore(SUMMARIES).get(id)) as Promise<CatalogSummary | undefined>,
+    ]);
+    return document && summary ? { document, summary } : null;
+  }
+
+  async save(doc: CatalogDocument, { expect, ...extra }: SaveOptions = {}): Promise<CatalogSummary> {
     const valid = assertValid(doc);
     const db = await this.db();
     const tx = db.transaction([DOCS, SUMMARIES], "readwrite");
     const summaries = tx.objectStore(SUMMARIES);
     const prev = ((await req(summaries.get(doc.id))) as CatalogSummary | undefined) ?? null;
+    // Compare-and-swap inside the transaction, so no other tab can write in between.
+    try {
+      assertExpected(doc.id, prev, expect);
+    } catch (e) {
+      tx.abort();
+      throw e;
+    }
     const summary = { ...summarize(valid, prev), ...extra };
     tx.objectStore(DOCS).put(valid);
     summaries.put(summary);

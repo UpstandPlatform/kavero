@@ -145,6 +145,8 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
 
   function onBackgroundDown(e: RPointerEvent) {
     if (e.button !== 0) return;
+    // Commit an open inline text edit first: unmounting the textarea wouldn't fire its blur.
+    if (editingId && document.activeElement instanceof HTMLTextAreaElement) document.activeElement.blur();
     setEditingId(null);
     const p = toDoc(e);
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
@@ -190,7 +192,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
         let h = Math.max(8, s.height + hy * ldy);
         const el = slide.elements.find((x) => x.id === gesture.id);
         const keepRatio = hx !== 0 && hy !== 0 && (e.shiftKey || el?.type === "image");
-        if (keepRatio) {
+        if (keepRatio && s.width > 0 && s.height > 0) {
           const r = s.width / s.height;
           if (w / h > r) h = w / r; else w = h * r;
         }

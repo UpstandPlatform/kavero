@@ -1,6 +1,7 @@
 "use client";
 
 import { duplicateCatalogWithAssets } from "@Kavero/catalog-engine";
+import { hasUnsyncedChanges } from "@Kavero/local-storage";
 import { TRPCClientError } from "@trpc/client";
 
 import { makeTRPCClient } from "@/utils/trpc";
@@ -18,60 +19,101 @@ export class SyncConflictError extends Error {
 
 export type PushResult = { status: "synced"; revision: number; uploaded: number } | { status: "unchanged" };
 
+// One push per catalog at a time; a second push waits and then re-reads the link,
+// so it never sends a baseRevision the first push already moved past.
+const pushes = new Map<string, Promise<unknown>>();
+
 /**
  * Push a local catalog to the signed-in user's cloud.
  * First push creates the cloud copy; later pushes send the cloud revision they
  * are based on, and the server refuses with a conflict if it moved on.
  */
-export async function pushCatalog(localId: string, userId: string, opts: { force?: boolean; workspaceId?: string | null } = {}): Promise<PushResult> {
+export function pushCatalog(localId: string, userId: string, opts: { force?: boolean; workspaceId?: string | null } = {}): Promise<PushResult> {
+  const run = () => pushNow(localId, userId, opts);
+  // Web Locks also serialize pushes from other tabs of this browser.
+  const locked = () => (typeof navigator !== "undefined" && navigator.locks ? navigator.locks.request(`kavero-push:${localId}`, run) : run());
+  const next = (pushes.get(localId) ?? Promise.resolve()).catch(() => undefined).then(locked);
+  pushes.set(localId, next);
+  void next.catch(() => undefined).finally(() => {
+    if (pushes.get(localId) === next) pushes.delete(localId);
+  });
+  return next;
+}
+
+async function pushNow(localId: string, userId: string, opts: { force?: boolean; workspaceId?: string | null }): Promise<PushResult> {
   const repo = localCatalogs();
-  const doc = await repo.get(localId);
-  if (!doc) throw new Error("Catalog not found");
-  const summary = (await repo.list()).find((s) => s.id === localId);
-  const link = summary?.cloud;
+  const entry = await repo.getWithSummary(localId);
+  if (!entry) throw new Error("Catalog not found");
+  const { document: doc, summary } = entry;
+  const link = summary.cloud;
   if (link && link.userId !== userId) {
     throw new Error("This catalog is linked to a different account. Duplicate it to save a copy to this account.");
   }
-  if (link && !opts.force && summary?.syncedRevision === doc.revision) return { status: "unchanged" };
+  const docSynced = !!link && !opts.force && summary.syncedRevision === doc.revision;
+  if (docSynced && !link.pendingAssetIds?.length) return { status: "unchanged" };
 
-  let baseRevision = link?.revision;
-  if (opts.force && link) {
-    // "Keep mine": overwrite the cloud copy, based on whatever it has now.
-    baseRevision = (await api().catalog.get.query({ id: link.id })).revision;
-  }
-
-  let res;
-  try {
-    res = await api().catalog.save.mutate({ document: doc, baseRevision, thumbnail: summary?.thumbnail, workspaceId: link ? undefined : opts.workspaceId });
-  } catch (e) {
-    if (e instanceof TRPCClientError && e.data?.code === "CONFLICT") throw new SyncConflictError(localId);
-    if (e instanceof TRPCClientError && e.data?.code === "FORBIDDEN") throw new Error(`${e.message}. Your changes are kept in this browser.`);
-    if (e instanceof TRPCClientError && e.data?.code === "NOT_FOUND" && link) {
-      // The cloud copy was deleted: unlink so the next push creates a fresh one.
-      await repo.setCloudLink(localId, null);
-      notifyCatalogsChanged();
-      throw new Error("The cloud copy was deleted. Save to cloud again to re-upload it.");
+  let target: { id: string; revision: number; missing: string[] };
+  if (docSynced) {
+    // The document is already in the cloud; only files from an earlier failed push are left.
+    target = { id: link.id, revision: link.revision, missing: link.pendingAssetIds! };
+  } else {
+    let baseRevision = link?.revision;
+    if (opts.force && link) {
+      // "Keep mine": overwrite the cloud copy, based on whatever it has now.
+      baseRevision = (await api().catalog.get.query({ id: link.id })).revision;
     }
-    throw e;
+
+    let res;
+    try {
+      res = await api().catalog.save.mutate({ document: doc, baseRevision, thumbnail: summary.thumbnail, workspaceId: link ? undefined : opts.workspaceId });
+    } catch (e) {
+      if (e instanceof TRPCClientError && e.data?.code === "CONFLICT") throw new SyncConflictError(localId);
+      if (e instanceof TRPCClientError && e.data?.code === "FORBIDDEN") throw new Error(`${e.message}. Your changes are kept in this browser.`);
+      if (e instanceof TRPCClientError && e.data?.code === "NOT_FOUND" && link) {
+        // The cloud copy was deleted: unlink so the next push creates a fresh one.
+        await repo.setCloudLink(localId, null);
+        notifyCatalogsChanged();
+        throw new Error("The cloud copy was deleted. Save to cloud again to re-upload it.");
+      }
+      throw e;
+    }
+    target = { id: res.id, revision: res.revision, missing: res.missingAssetIds };
   }
+
+  // Record the new cloud revision right away: if an upload below fails, the next
+  // push must be based on it (or it would be a false conflict) and retry the files.
+  const setLink = async (pending: string[]) => {
+    await repo.setCloudLink(localId, { id: target.id, revision: target.revision, userId, syncedAt: Date.now(), ...(pending.length ? { pendingAssetIds: pending } : {}) }, doc.revision);
+    notifyCatalogsChanged();
+  };
+  const pending = [...target.missing];
+  if (!docSynced) await setLink(pending);
 
   // Upload only the files the server is missing.
-  for (const assetId of res.missingAssetIds) {
+  let uploaded = 0;
+  while (pending.length) {
+    const assetId = pending[0]!;
     const stored = await repo.getAsset(assetId);
     const meta = doc.assets.find((a) => a.id === assetId);
-    if (!stored || !meta) continue;
-    const put = await fetch(`/api/catalogs/${res.id}/assets/${encodeURIComponent(assetId)}`, {
-      method: "PUT",
-      headers: { "Content-Type": meta.mimeType },
-      body: stored.blob,
-      credentials: "include",
-    });
-    if (!put.ok) throw new Error(`Uploading ${meta.name} failed: ${(await put.json().catch(() => null))?.error ?? put.status}`);
+    if (stored && meta) {
+      const put = await fetch(`/api/catalogs/${target.id}/assets/${encodeURIComponent(assetId)}`, {
+        method: "PUT",
+        headers: { "Content-Type": meta.mimeType },
+        body: stored.blob,
+        credentials: "include",
+      }).catch((e: Error) => e);
+      if (put instanceof Error || !put.ok) {
+        await setLink(pending);
+        const reason = put instanceof Error ? put.message : ((await put.json().catch(() => null))?.error ?? put.status);
+        throw new Error(`Uploading ${meta.name} failed: ${reason}. It will be retried on the next sync.`);
+      }
+      uploaded++;
+    }
+    // Files this browser doesn't have can never be uploaded from here; drop them.
+    pending.shift();
   }
-
-  await repo.setCloudLink(localId, { id: res.id, revision: res.revision, userId, syncedAt: Date.now() }, doc.revision);
-  notifyCatalogsChanged();
-  return { status: "synced", revision: res.revision, uploaded: res.missingAssetIds.length };
+  await setLink([]);
+  return { status: "synced", revision: target.revision, uploaded };
 }
 
 /** Download a cloud catalog into this browser, replacing the local copy if there is one. */
@@ -138,7 +180,7 @@ export async function refreshFromCloud(localId: string, userId: string, cloudRev
     }
   }
   if (latest === undefined || latest <= link.revision) return "current";
-  if (summary.syncedRevision !== summary.revision) return "conflict";
+  if (hasUnsyncedChanges(summary)) return "conflict";
   await pullCatalog(link.id, userId);
   return "pulled";
 }

@@ -18,6 +18,8 @@ services:
       CORS_ORIGIN: http://localhost:3001
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/Kavero
       KAVERO_STORAGE_DIR: /data/storage
+      # Exports render through the app itself; use its address inside the container.
+      KAVERO_RENDER_URL: http://127.0.0.1:3001
     volumes:
       - Kavero_storage_data:/data/storage
     # Chromium needs more shared memory than Docker's 64 MB default for PDF/video export.

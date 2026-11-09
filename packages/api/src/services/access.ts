@@ -37,12 +37,16 @@ export function memberJoin(userId: string) {
  * Find a catalog the user may act on, or throw NOT_FOUND (can't see it) /
  * FORBIDDEN (can see it, role too low). Used by every catalog operation.
  */
-export async function requireCatalog(db: Database, userId: string, id: string, need: CatalogPermission, opts: { forUpdate?: boolean } = {}): Promise<AccessibleCatalog> {
+export async function requireCatalog(
+  db: Database, userId: string, id: string, need: CatalogPermission,
+  /** byDocumentId: `id` is a document id whatever it looks like (cloud save matches documents, not rows). */
+  opts: { forUpdate?: boolean; byDocumentId?: boolean } = {},
+): Promise<AccessibleCatalog> {
   let q = db
     .select({ row: catalog, memberRole: workspaceMember.role })
     .from(catalog)
     .leftJoin(workspaceMember, memberJoin(userId))
-    .where(and(matchId(id), visibleTo(userId)))
+    .where(and(opts.byDocumentId ? eq(catalog.documentId, id) : matchId(id), visibleTo(userId)))
     // Prefer the user's own personal copy when a document id matches several rows.
     .orderBy(sql`case when ${catalog.workspaceId} is null then 0 else 1 end`)
     .limit(1)
@@ -61,4 +65,12 @@ export async function requireCatalog(db: Database, userId: string, id: string, n
 export async function workspaceRole(db: Database, userId: string, workspaceId: string): Promise<WorkspaceRole | null> {
   const [m] = await db.select({ role: workspaceMember.role }).from(workspaceMember).where(and(eq(workspaceMember.workspaceId, workspaceId), eq(workspaceMember.userId, userId))).limit(1);
   return m?.role ?? null;
+}
+
+/** Postgres unique-constraint violation (23505), possibly wrapped by the driver or Drizzle. */
+export function isUniqueViolation(e: unknown): boolean {
+  for (let cur = e as { code?: unknown; cause?: unknown } | undefined, i = 0; cur && i < 5; cur = cur.cause as typeof cur, i++) {
+    if (cur.code === "23505") return true;
+  }
+  return false;
 }

@@ -1,8 +1,10 @@
 import { createHash, randomBytes, randomUUID } from "node:crypto";
 
 import type { Database } from "@Kavero/db";
+import { user } from "@Kavero/db/schema/auth";
 import { apiToken, auditLog } from "@Kavero/db/schema/integration";
-import { and, desc, eq, isNull } from "drizzle-orm";
+import { TRPCError } from "@trpc/server";
+import { and, count, desc, eq, gt, isNull, or } from "drizzle-orm";
 
 export const SCOPES = {
   "catalogs:read": "Read catalogs",
@@ -13,6 +15,8 @@ export const SCOPES = {
 export type Scope = keyof typeof SCOPES;
 
 const TOKEN_PREFIX = "kv_";
+/** Active (not revoked, not expired) tokens per user. */
+export const MAX_TOKENS_PER_USER = 50;
 const hashToken = (t: string) => createHash("sha256").update(t).digest("hex");
 
 export interface TokenPrincipal {
@@ -26,6 +30,11 @@ export class TokenService {
   constructor(private readonly db: Database) {}
 
   async create(userId: string, input: { name: string; scopes: Scope[]; expiresInDays?: number }) {
+    const [active] = await this.db.select({ n: count() }).from(apiToken)
+      .where(and(eq(apiToken.userId, userId), isNull(apiToken.revokedAt), or(isNull(apiToken.expiresAt), gt(apiToken.expiresAt, new Date()))));
+    if ((active?.n ?? 0) >= MAX_TOKENS_PER_USER) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: `You have ${MAX_TOKENS_PER_USER} active tokens. Revoke one you no longer use first.` });
+    }
     const secret = `${TOKEN_PREFIX}${randomBytes(32).toString("base64url")}`;
     const id = randomUUID();
     const expiresAt = input.expiresInDays ? new Date(Date.now() + input.expiresInDays * 86_400_000) : null;
@@ -54,6 +63,9 @@ export class TokenService {
     if (!token.startsWith(TOKEN_PREFIX) || token.length > 200) return null;
     const [row] = await this.db.select().from(apiToken).where(eq(apiToken.tokenHash, hashToken(token))).limit(1);
     if (!row || row.revokedAt || (row.expiresAt && row.expiresAt < new Date())) return null;
+    // Suspended accounts lose API and MCP access too, not just browser sign-in.
+    const [owner] = await this.db.select({ banned: user.banned, banExpires: user.banExpires }).from(user).where(eq(user.id, row.userId)).limit(1);
+    if (!owner || isBanned(owner)) return null;
     // Don't write on every request: once a minute is enough for "last used".
     if (!row.lastUsedAt || Date.now() - row.lastUsedAt.getTime() > 60_000) {
       await this.db.update(apiToken).set({ lastUsedAt: new Date() }).where(eq(apiToken.id, row.id));
@@ -72,4 +84,9 @@ export async function audit(db: Database, entry: { userId?: string | null; token
 
 export async function recentAudit(db: Database, userId: string, limit = 50) {
   return db.select().from(auditLog).where(eq(auditLog.userId, userId)).orderBy(desc(auditLog.createdAt)).limit(limit);
+}
+
+/** A ban without an end date, or one that hasn't ended yet. */
+export function isBanned(u: { banned: boolean | null; banExpires: Date | null }) {
+  return !!u.banned && (!u.banExpires || u.banExpires > new Date());
 }

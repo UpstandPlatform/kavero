@@ -3,16 +3,21 @@ import { promisify } from "node:util";
 
 import { parseCatalogDocument, type CatalogDocument } from "@Kavero/catalog-engine";
 import type { Database } from "@Kavero/db";
+import { user } from "@Kavero/db/schema/auth";
 import { catalogAsset } from "@Kavero/db/schema/catalog";
 import { publication, publicationAsset, publicationViewDaily } from "@Kavero/db/schema/publication";
 import { TRPCError } from "@trpc/server";
 import { and, eq, gte, ne, sql } from "drizzle-orm";
 
-import { requireCatalog, type CatalogPermission } from "./access";
+import { isUniqueViolation, requireCatalog, type CatalogPermission } from "./access";
+import { isBanned } from "./token-service";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
 export type Visibility = "public" | "unlisted" | "password" | "private";
+
+/** New passwords; shorter ones set before this rule still unlock. */
+export const MIN_PASSWORD_LENGTH = 8;
 
 const RESERVED = new Set(["admin", "api", "app", "assets", "auth", "c", "dashboard", "editor", "help", "kavero", "login", "new", "render", "settings", "static", "www"]);
 
@@ -79,10 +84,10 @@ export class PublicationService {
         id: publication.id, hasPassword: sql<boolean>`${publication.passwordHash} is not null`, views: publication.views, publishedAt: publication.publishedAt,
       })
       .from(publication)
-      .where(eq(publication.catalogId, catalogId))
+      .where(eq(publication.catalogId, cat.id))
       .limit(1);
     const daily = pub ? await this.viewsByDay(pub.id, 30) : [];
-    return { catalogRevision: cat.revision, daily, suggestedSlug: pub?.slug ?? (await this.freeSlug(userId, catalogId, slugify(cat.title))), publication: pub ?? null };
+    return { catalogRevision: cat.revision, daily, suggestedSlug: pub?.slug ?? (await this.freeSlug(userId, cat.id, slugify(cat.title))), publication: pub ?? null };
   }
 
   /** The given slug if available, otherwise the slug with a short random suffix. */
@@ -96,19 +101,20 @@ export class PublicationService {
   }
 
   async isSlugAvailable(userId: string, catalogId: string, slug: string) {
-    await this.ownedCatalog(userId, catalogId, "read");
+    // catalogId may be a document id (cat_…): compare against the resolved row id.
+    const cat = await this.ownedCatalog(userId, catalogId, "read");
     const problem = validateSlug(slug);
     if (problem) return { available: false, reason: problem };
     const [taken] = await this.db.select({ catalogId: publication.catalogId, ownerId: publication.ownerId }).from(publication).where(eq(publication.slug, slug)).limit(1);
     // Access to catalogId is checked by the caller; its own address is always "available".
-    if (taken && taken.catalogId !== catalogId) return { available: false, reason: "That address is taken." };
+    if (taken && taken.catalogId !== cat.id) return { available: false, reason: "That address is taken." };
     return { available: true, reason: null };
   }
 
   /** Snapshot the current cloud catalog and make it live (creating or replacing the publication). */
   async publish(userId: string, input: PublishInput) {
     const cat = await this.ownedCatalog(userId, input.catalogId);
-    const slugCheck = await this.isSlugAvailable(userId, input.catalogId, input.slug);
+    const slugCheck = await this.isSlugAvailable(userId, cat.id, input.slug);
     if (!slugCheck.available) throw new TRPCError({ code: "BAD_REQUEST", message: slugCheck.reason ?? "Invalid address" });
 
     const parsed = parseCatalogDocument(cat.document);
@@ -124,7 +130,7 @@ export class PublicationService {
     let passwordHash: string | null = null;
     if (input.visibility === "password") {
       if (input.password) {
-        if (input.password.length < 4) throw new TRPCError({ code: "BAD_REQUEST", message: "Use a password of at least 4 characters" });
+        if (input.password.length < MIN_PASSWORD_LENGTH) throw new TRPCError({ code: "BAD_REQUEST", message: `Use a password of at least ${MIN_PASSWORD_LENGTH} characters` });
         passwordHash = await hashPassword(input.password);
       } else if (existing?.passwordHash) passwordHash = existing.passwordHash;
       else throw new TRPCError({ code: "BAD_REQUEST", message: "Set a password for this catalog" });
@@ -140,7 +146,8 @@ export class PublicationService {
       let pubId: string;
       if (existing) {
         pubId = existing.id;
-        await tx.update(publication).set({ ...values, version: existing.version + 1 }).where(eq(publication.id, existing.id));
+        // ownerId follows the latest publisher (it decides e.g. whether a suspended account's site is offline).
+        await tx.update(publication).set({ ...values, ownerId: userId, version: existing.version + 1 }).where(eq(publication.id, existing.id));
         await tx.delete(publicationAsset).where(eq(publicationAsset.publicationId, pubId));
       } else {
         pubId = randomUUID();
@@ -151,14 +158,18 @@ export class PublicationService {
         await tx.insert(publicationAsset).values(pinned.map((f) => ({ id: randomUUID(), publicationId: pubId, assetId: f.assetId, mimeType: f.mimeType, storageKey: f.storageKey })));
       }
       return pubId;
+    }).catch((e) => {
+      // Another publish took the address (or published this catalog) in the meantime.
+      if (isUniqueViolation(e)) throw new TRPCError({ code: "CONFLICT", message: "That address was just taken, or this catalog was published from somewhere else. Try again." });
+      throw e;
     });
 
     return { id, slug: input.slug, version: (existing?.version ?? 0) + 1, missingFiles: missing };
   }
 
   async unpublish(userId: string, catalogId: string) {
-    await this.ownedCatalog(userId, catalogId);
-    await this.db.delete(publication).where(eq(publication.catalogId, catalogId));
+    const cat = await this.ownedCatalog(userId, catalogId);
+    await this.db.delete(publication).where(eq(publication.catalogId, cat.id));
     return { ok: true };
   }
 
@@ -166,8 +177,15 @@ export class PublicationService {
 
   /** Everything the public page needs; the caller decides access from `visibility`. */
   async findBySlug(slug: string) {
-    const [pub] = await this.db.select().from(publication).where(eq(publication.slug, slug)).limit(1);
-    return pub ?? null;
+    const [row] = await this.db
+      .select({ pub: publication, banned: user.banned, banExpires: user.banExpires })
+      .from(publication)
+      .innerJoin(user, eq(user.id, publication.ownerId))
+      .where(eq(publication.slug, slug))
+      .limit(1);
+    // Sites of suspended accounts are offline until the ban ends.
+    if (!row || isBanned(row)) return null;
+    return row.pub;
   }
 
   async publicAsset(publicationId: string, assetId: string) {
@@ -200,6 +218,11 @@ export class PublicationService {
 
   /** Public catalogs for a sitemap. */
   async listPublic() {
-    return this.db.select({ slug: publication.slug, updatedAt: publication.updatedAt }).from(publication).where(and(eq(publication.visibility, "public"), ne(publication.slug, "")));
+    const rows = await this.db
+      .select({ slug: publication.slug, updatedAt: publication.updatedAt, banned: user.banned, banExpires: user.banExpires })
+      .from(publication)
+      .innerJoin(user, eq(user.id, publication.ownerId))
+      .where(and(eq(publication.visibility, "public"), ne(publication.slug, "")));
+    return rows.filter((r) => !isBanned(r)).map(({ slug, updatedAt }) => ({ slug, updatedAt }));
   }
 }
