@@ -52,8 +52,19 @@ export function CatalogDashboard() {
   const [sort, setSort] = useState<Sort>("updated");
   const [creating, setCreating] = useState(false);
   const [generating, setGenerating] = useState(false);
+  // Deep link from the landing page: /dashboard?generate=1 opens "Generate with AI".
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get("generate") === "1") setGenerating(true);
+    if (params.get("new") === "1") setCreating(true);
+    // The app header's "New catalog" / "Generate" buttons while already on this page.
+    const onAction = (e: Event) => ((e as CustomEvent).detail === "new" ? setCreating(true) : setGenerating(true));
+    window.addEventListener("kavero:dashboard", onAction);
+    return () => window.removeEventListener("kavero:dashboard", onAction);
+  }, []);
   const fileInput = useRef<HTMLInputElement>(null);
   const [conflicts, setConflicts] = useState<Set<string>>(new Set());
+  const [cloudOnlyCount, setCloudOnlyCount] = useState(0);
   const [workspaces, setWorkspaces] = useState<{ id: string; name: string; role: string }[]>([]);
   const [cloudInfo, setCloudInfo] = useState<Map<string, { workspaceName: string | null; role: string }>>(new Map());
 
@@ -113,7 +124,7 @@ export function CatalogDashboard() {
           <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
             <HardDrive className="size-3.5" />
             Saved in this browser.{" "}
-            {session ? "Cloud sync is coming soon." : (
+            {session ? "Catalogs you save to the cloud stay in sync across your devices." : (
               <>
                 <Link href="/login" className="underline underline-offset-2">Sign in</Link> later to sync across devices.
               </>
@@ -144,7 +155,7 @@ export function CatalogDashboard() {
             value={sort}
             onChange={(e) => setSort(e.target.value as Sort)}
             aria-label="Sort catalogs"
-            className="h-8 border border-input bg-transparent px-2 text-xs"
+            className="h-8 rounded-lg border border-input bg-transparent px-2 text-xs"
           >
             <option value="updated">Last edited</option>
             <option value="created">Newest</option>
@@ -161,8 +172,8 @@ export function CatalogDashboard() {
         </div>
       )}
 
-      {catalogs?.length === 0 && (
-        <div className="flex flex-col items-center gap-3 border border-dashed px-6 py-16 text-center">
+      {catalogs?.length === 0 && !cloudOnlyCount && (
+        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center">
           <h2 className="text-lg font-medium">No catalogs yet</h2>
           <p className="max-w-sm text-sm text-muted-foreground">Start from a template or a blank page. Everything is saved in your browser — no account needed.</p>
           <Button size="lg" onClick={() => setCreating(true)}><Plus /> Create your first catalog</Button>
@@ -178,7 +189,7 @@ export function CatalogDashboard() {
       </div>
 
       {session && catalogs && (
-        <CloudOnlyList key={catalogs.map((c) => c.id + c.location).join()} userId={session.user.id} localDocumentIds={new Set(catalogs.map((c) => c.id))} />
+        <CloudOnlyList key={catalogs.map((c) => c.id + c.location).join()} userId={session.user.id} localDocumentIds={new Set(catalogs.map((c) => c.id))} onCount={setCloudOnlyCount} />
       )}
 
       {generating && <AiGenerateDialog onClose={() => setGenerating(false)} />}
@@ -234,6 +245,8 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
 
   const status = !c.cloud
     ? { icon: <HardDrive className="size-2.5" />, label: "Local", title: "Only in this browser" }
+    : !userId
+      ? { icon: <CloudOff className="size-2.5" />, label: "Sign in to sync", title: "Linked to a cloud catalog. Sign in to check for changes and sync." }
     : linkedElsewhere
       ? { icon: <CloudOff className="size-2.5" />, label: "Other account", title: "Linked to a different account" }
       : cloudConflict
@@ -243,7 +256,7 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
         : { icon: <Cloud className="size-2.5" />, label: "Synced", title: "Matches your cloud copy" };
 
   return (
-    <div className="group relative flex flex-col border bg-card transition-shadow hover:shadow-md">
+    <div className="group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md">
       <Link href={`/editor/${c.id}`} className="block aspect-[4/3] overflow-hidden bg-muted p-4" aria-label={`Open ${c.title}`}>
         {c.thumbnail ? (
           // eslint-disable-next-line @next/next/no-img-element

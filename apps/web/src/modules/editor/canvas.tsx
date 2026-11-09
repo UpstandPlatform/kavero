@@ -5,6 +5,9 @@ import type { Editor, EditorState } from "@Kavero/editor-core";
 import { SlideView } from "@Kavero/renderer";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 
+import { useContextMenu } from "./context-menu";
+import type { EditorActions } from "./editor-actions";
+import { canvasMenu, elementMenu } from "./editor-menus";
 import { useRun } from "./use-catalog-editor";
 
 type Handle = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
@@ -29,9 +32,11 @@ export interface CanvasProps {
   assetUrls: Record<string, string>;
   zoom: number | "fit";
   onFitScale: (scale: number) => void;
+  actions: EditorActions;
 }
 
-export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale }: CanvasProps) {
+export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, actions }: CanvasProps) {
+  const openMenu = useContextMenu();
   const run = useRun(editor);
   const doc = state.document;
   const { width: W, height: H } = doc.settings;
@@ -237,7 +242,12 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale }: Ca
 
   return (
     <div ref={wrapRef} className="relative h-full w-full overflow-auto bg-muted/40" onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
-      <div className="flex min-h-full min-w-full items-center justify-center p-8" style={{ width: W * scale + 64, height: H * scale + 64 }} onPointerDown={onBackgroundDown}>
+      <div className="flex min-h-full min-w-full items-center justify-center p-8" style={{ width: W * scale + 64, height: H * scale + 64 }} onPointerDown={onBackgroundDown}
+        onContextMenu={(e) => {
+          if (e.target !== e.currentTarget && !(e.target as HTMLElement).closest("[data-slide-id]")) return;
+          const p = toDoc(e);
+          openMenu(e, canvasMenu(actions, { x: Math.round(p.x), y: Math.round(p.y) }));
+        }}>
         <div ref={slideRef} className="relative shadow-lg ring-1 ring-black/10" style={{ width: W * scale, height: H * scale }}>
           <SlideView
             doc={doc}
@@ -259,6 +269,13 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale }: Ca
                 <div
                   key={el.id}
                   onPointerDown={(e) => onElementDown(e, el)}
+                  onContextMenu={(e) => {
+                    e.stopPropagation();
+                    // Right-click selects what's under the pointer (its whole group) unless it's already selected.
+                    if (!selected.has(el.id)) editor.select(el.groupId ? slide.elements.filter((x) => x.groupId === el.groupId).map((x) => x.id) : [el.id]);
+                    const p = toDoc(e);
+                    openMenu(e, elementMenu(actions, { at: { x: Math.round(p.x), y: Math.round(p.y) } }));
+                  }}
                   className={isSel ? "outline-2 outline-sky-500" : "hover:outline-1 hover:outline-sky-400"}
                   style={{
                     position: "absolute", left: p.x * scale, top: p.y * scale, width: p.width * scale, height: p.height * scale,
@@ -365,6 +382,7 @@ function InlineTextEditor({
   return (
     <textarea
       ref={ref}
+      dir={el.style.direction === "auto" ? "auto" : el.style.direction}
       defaultValue={initial}
       onPointerDown={(e) => e.stopPropagation()}
       onBlur={(e) => onDone(e.currentTarget.value)}

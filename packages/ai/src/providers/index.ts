@@ -34,6 +34,31 @@ export function providerFromEnv(env: AiEnv): LlmProvider | null {
   return null;
 }
 
+export type PersonalProvider = "anthropic" | "openrouter" | "openai" | "openai-compatible";
+
+export const OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
+
+/** A provider from a user's own key (Settings → AI). */
+export function providerFromCredential(c: { provider: PersonalProvider; apiKey: string; model?: string | null; baseUrl?: string | null; appUrl?: string }): LlmProvider {
+  switch (c.provider) {
+    case "anthropic":
+      return new AnthropicProvider({ apiKey: c.apiKey, model: c.model || undefined });
+    case "openrouter":
+      if (!c.model) throw new Error("Choose an OpenRouter model id, e.g. from openrouter.ai/models");
+      return new OpenAICompatibleProvider({
+        baseUrl: OPENROUTER_BASE_URL, apiKey: c.apiKey, model: c.model, label: "OpenRouter",
+        // Optional attribution headers recommended by OpenRouter.
+        headers: { "X-Title": "Kavero", ...(c.appUrl ? { "HTTP-Referer": c.appUrl } : {}) },
+      });
+    case "openai":
+      if (!c.model) throw new Error("Choose an OpenAI model id");
+      return new OpenAICompatibleProvider({ baseUrl: "https://api.openai.com/v1", apiKey: c.apiKey, model: c.model, label: "OpenAI" });
+    case "openai-compatible":
+      if (!c.baseUrl || !c.model) throw new Error("Enter the server URL and model id");
+      return new OpenAICompatibleProvider({ baseUrl: c.baseUrl, apiKey: c.apiKey || undefined, model: c.model, strictSchema: false, label: "The AI server" });
+  }
+}
+
 /** Test double: returns canned values in order. */
 export class MockProvider implements LlmProvider {
   readonly id = "mock" as const;

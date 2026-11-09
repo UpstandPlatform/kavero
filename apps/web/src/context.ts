@@ -21,6 +21,7 @@ export async function createContext(req: NextRequest): Promise<ApiContext> {
     session,
     secretBox,
     ai,
+    appUrl: ENV.BETTER_AUTH_URL,
     allowLocalUrls: process.env.NODE_ENV !== "production",
     deleteObjects: async (keys) => {
       // Files are content-addressed per catalog, so these keys belong to the deleted catalog only.

@@ -1,6 +1,6 @@
 "use client";
 
-import { checkExportCompatibility, type CatalogDocument } from "@Kavero/catalog-engine";
+import { checkExportCompatibility, safeFileName, type CatalogDocument } from "@Kavero/catalog-engine";
 import { Button } from "@Kavero/ui/components/button";
 import {
   DropdownMenu,
@@ -38,7 +38,7 @@ export async function collectAssets(doc: CatalogDocument, kinds: ("image" | "fon
 }
 
 export function fileName(doc: CatalogDocument, ext: string) {
-  return `${doc.metadata.title.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "catalog"}.${ext}`;
+  return safeFileName(doc.metadata.title, ext);
 }
 
 function download(blob: Blob, name: string) {

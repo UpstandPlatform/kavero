@@ -82,7 +82,7 @@ export function AiEditDialog({ editor, doc, slideId, assetUrls, onClose }: { edi
   const added = preview ? preview.slides.length - doc.slides.length : 0;
 
   return (
-    <dialog ref={ref} onClose={onClose} className="m-auto w-[min(720px,calc(100vw-32px))] border bg-background p-0 text-foreground backdrop:bg-black/50">
+    <dialog ref={ref} onClose={onClose} className="m-auto w-[min(720px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50">
       <div className="flex items-center justify-between border-b px-5 py-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="size-4" /> Edit with AI</h2>
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><X /></Button>
@@ -95,7 +95,7 @@ export function AiEditDialog({ editor, doc, slideId, assetUrls, onClose }: { edi
         ) : (
           <>
             <label className="grid gap-1">What should change?
-              <textarea className="h-20 w-full border border-input bg-transparent p-2 text-sm" value={instruction} onChange={(e) => setInstruction(e.target.value)} maxLength={2000} autoFocus
+              <textarea className="h-20 w-full rounded-lg border border-input bg-transparent p-2 text-sm" value={instruction} onChange={(e) => setInstruction(e.target.value)} maxLength={2000} autoFocus
                 onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey) && instruction.trim()) void propose(); }} />
             </label>
             <div className="flex flex-wrap gap-1">

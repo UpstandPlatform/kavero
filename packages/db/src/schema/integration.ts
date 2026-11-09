@@ -93,3 +93,16 @@ export const aiJob = pgTable(
   },
   (t) => [index("ai_job_user_created_idx").on(t.userId, t.createdAt)],
 );
+
+/** A user's own AI provider key (Settings → AI). Used before the server's key. */
+export const aiCredential = pgTable("ai_credential", {
+  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
+  provider: text("provider", { enum: ["anthropic", "openrouter", "openai", "openai-compatible"] }).notNull(),
+  model: text("model"),
+  baseUrl: text("base_url"),
+  /** AES-256-GCM sealed key (SecretBox); never returned to clients. */
+  encryptedKey: text("encrypted_key"),
+  /** Last 4 characters, to recognise the key in the UI. */
+  keyHint: text("key_hint"),
+  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()).notNull(),
+});

@@ -1,4 +1,4 @@
-import { parseCatalogDocument } from "@Kavero/catalog-engine";
+import { attachmentHeader, parseCatalogDocument, safeFileName } from "@Kavero/catalog-engine";
 import { renderPdf } from "@Kavero/export-chromium";
 import { z } from "zod";
 
@@ -25,9 +25,8 @@ export async function POST(request: Request) {
 
   try {
     const pdf = await renderPdf({ doc: doc.document, assets: parsed.data.assets, baseUrl: new URL(request.url).origin, pageNumbers: parsed.data.pageNumbers });
-    const name = doc.document.metadata.title.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "catalog";
     return new Response(new Blob([pdf as BlobPart], { type: "application/pdf" }), {
-      headers: { "Content-Disposition": `attachment; filename="${name}.pdf"`, "Cache-Control": "no-store" },
+      headers: { "Content-Disposition": attachmentHeader(safeFileName(doc.document.metadata.title, "pdf")), "Cache-Control": "no-store" },
     });
   } catch (e) {
     return Response.json({ error: `PDF export failed: ${(e as Error).message}` }, { status: 500 });

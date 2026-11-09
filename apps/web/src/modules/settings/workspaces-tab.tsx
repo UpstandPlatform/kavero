@@ -106,7 +106,7 @@ function WorkspaceDetail({ workspaceId, me, onChanged, onGone }: { workspaceId: 
             <li key={m.userId} className="flex flex-wrap items-center gap-2 p-2">
               <div className="min-w-0 flex-1"><p className="truncate font-medium">{m.name}{m.userId === me ? " (you)" : ""}</p><p className="truncate text-muted-foreground">{m.email}</p></div>
               {canManage && m.userId !== me && (data.you === "owner" || m.role !== "owner") ? (
-                <select className="h-7 border border-input bg-transparent px-1" value={m.role} disabled={busy} title={ROLE_HELP[m.role]}
+                <select className="h-7 rounded-lg border border-input bg-transparent px-1" value={m.role} disabled={busy} title={ROLE_HELP[m.role]}
                   onChange={(e) => act(() => api().workspace.setRole.mutate({ workspaceId, userId: m.userId, role: e.target.value as Role }), "Role updated")}>
                   {roles.map((r) => <option key={r} value={r}>{r}</option>)}
                 </select>
@@ -127,7 +127,7 @@ function WorkspaceDetail({ workspaceId, me, onChanged, onGone }: { workspaceId: 
           <div className="flex flex-wrap items-end gap-2">
             <label className="grid min-w-48 flex-1 gap-1">Email<Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" /></label>
             <label className="grid gap-1">Role
-              <select className="h-8 border border-input bg-transparent px-2" value={role} onChange={(e) => setRole(e.target.value as Role)}>{roles.map((r) => <option key={r} value={r}>{r}</option>)}</select>
+              <select className="h-8 rounded-lg border border-input bg-transparent px-2" value={role} onChange={(e) => setRole(e.target.value as Role)}>{roles.map((r) => <option key={r} value={r}>{r}</option>)}</select>
             </label>
             <Button disabled={busy || !email} onClick={() => act(async () => {
               const r = await api().workspace.invite.mutate({ workspaceId, email, role });

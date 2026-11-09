@@ -67,6 +67,18 @@ export function createCatalog(input: CreateCatalogInput): CatalogDocument {
   });
 }
 
+const RTL_LANGUAGES = new Set(["ar", "fa", "he", "iw", "ur", "ps", "sd", "ug", "yi", "dv", "ku", "ckb"]);
+
+/** True for right-to-left languages (Persian, Arabic, Hebrew, Urdu, …). Accepts tags like "fa-IR". */
+export function isRtlLanguage(language: string | undefined): boolean {
+  return !!language && RTL_LANGUAGES.has(language.toLowerCase().split(/[-_]/)[0]!);
+}
+
+/** Base text direction of a catalog, from its language. */
+export function documentDirection(doc: Pick<CatalogDocument, "metadata">): "rtl" | "ltr" {
+  return isRtlLanguage(doc.metadata.language) ? "rtl" : "ltr";
+}
+
 export function orientationOf(doc: CatalogDocument): "portrait" | "landscape" {
   return doc.settings.height > doc.settings.width ? "portrait" : "landscape";
 }
@@ -122,4 +134,16 @@ export function duplicateCatalogWithAssets(doc: CatalogDocument, title?: string)
     }
   }
   return { document: copy, assetIdMap };
+}
+
+/** File name from a title, keeping letters/digits of every script (Persian, Arabic, CJK…). */
+export function safeFileName(title: string, ext: string): string {
+  const base = title.normalize("NFC").replace(/[^\p{L}\p{N}\p{M}\- ]+/gu, "").trim().replace(/\s+/g, "-").toLowerCase().slice(0, 80);
+  return `${base || "catalog"}${ext.startsWith(".") ? ext : `.${ext}`}`;
+}
+
+/** Content-Disposition for downloads: ASCII fallback plus RFC 5987 UTF-8 name. */
+export function attachmentHeader(fileName: string): string {
+  const ascii = fileName.replace(/[^\x20-\x7e]/g, "_").replace(/["\\]/g, "_");
+  return `attachment; filename="${ascii}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
 }

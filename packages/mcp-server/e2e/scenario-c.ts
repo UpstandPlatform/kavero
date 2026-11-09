@@ -64,7 +64,7 @@ check("agent fetched store products", storeProducts.length === 6);
 // --- …and builds a catalog in Kavero over MCP ---
 const kavero = await mcp(`${BASE}/api/mcp`, { Authorization: `Bearer ${full.token}` });
 const tools = (await kavero.listTools()).tools.map((t) => t.name);
-check("Kavero exposes 23 tools", tools.length === 23, tools.join(","));
+check("Kavero exposes 24 tools", tools.length === 24, tools.join(","));
 
 const created = json(await kavero.callTool({ name: "catalog_create", arguments: { title: "Leather Goods 2027", template: "dark-luxury", page: "16:9", currency: "EUR" } }));
 check("catalog_create", !!created.catalogId && created.slideIds.length >= 6);

@@ -1,127 +1,81 @@
 # Kavero
 
-This project was created with [Better-T-Stack](https://github.com/AmanVarshney01/create-better-t-stack), a modern TypeScript stack that combines Next.js, Self, TRPC, and more.
+**From product data to beautiful experiences.**
 
-## Features
+Kavero is an AI-native catalog and presentation builder. Bring your products — pasted, imported from any MCP server, or generated with AI — design them in a visual slide editor, animate them, and publish the same catalog as a **PDF**, an editable **PowerPoint**, an **MP4 video** or an **animated website**.
 
-- **TypeScript** - For type safety and improved developer experience
-- **Next.js** - Full-stack React framework
-- **TailwindCSS** - Utility-first CSS for rapid UI development
-- **Shared UI package** - shadcn/ui primitives live in `packages/ui`
-- **tRPC** - End-to-end type-safe APIs
-- **Drizzle** - TypeScript-first ORM
-- **PostgreSQL** - Database engine
-- **Authentication** - Better-Auth
-- **Turborepo** - Optimized monorepo build system
+It's local-first: open it and start working, no account needed. Sign in to sync across devices, collaborate in workspaces, publish, and let AI agents build catalogs for you over MCP.
 
-## Getting Started
+## Highlights
 
-First, install the dependencies:
+- **Visual editor** — text, images, shapes, product cards and grids, HTML blocks; snapping, groups, layers, undo/redo, autosave.
+- **AI generation and editing** — a designed first draft from a brief and a product list; slide edits you approve with a before/after preview. Works with Anthropic Claude, OpenRouter, OpenAI or local models — set on the server, or by each user with their own key in Settings → AI. A built-in planner takes over when no model is configured.
+- **MCP both ways** — import products from your store's MCP server; let Claude and other agents create, edit, preview, export and publish catalogs through Kavero's MCP server (24 tools, scoped tokens, audit log).
+- **Motion** — element animations and slide transitions that play the same in preview, on websites and in video.
+- **Every format from one document** — PDF with selectable text, PowerPoint with editable objects, MP4 up to 4K, published websites with SEO and social previews.
+- **12 templates** for fashion, jewelry, electronics, furniture, cosmetics, food, real estate, industrial, automotive and general catalogs.
+- **Right-to-left** catalogs (Persian, Arabic, Hebrew, Urdu) with per-paragraph direction.
+- **Teams** — workspaces with owner, admin, editor and viewer roles.
+
+## Quick start
+
+Requirements: [Bun](https://bun.sh) 1.4+, Docker (for Postgres), Chrome or Chromium (for PDF/video export).
 
 ```bash
 bun install
+cp apps/web/.env.example apps/web/.env   # or create it: see docs/deployment.md
+bun run db:start                          # Postgres on localhost:5436
+cd packages/db && bunx drizzle-kit migrate && cd ../..
+bun run dev:web                           # http://localhost:3001
 ```
 
-## Database Setup
+`apps/web/.env` needs `DATABASE_URL`, `BETTER_AUTH_SECRET` (32+ random characters) and `BETTER_AUTH_URL=http://localhost:3001`. Add `ANTHROPIC_API_KEY` to give everyone an AI model, or let each user add their own Claude/OpenRouter key in Settings → AI.
 
-This project uses PostgreSQL with Drizzle ORM.
+Everything runs in one container too: `docker compose up -d --build` (see [deployment](docs/deployment.md)).
 
-1. Make sure you have a PostgreSQL database set up.
-2. Update your `apps/web/.env` file with your PostgreSQL connection details.
+## Documentation
 
-3. Apply the schema to your database:
+| Guide | |
+| --- | --- |
+| [Using Kavero](docs/user-guide.md) | Dashboard, editor, products, RTL, animations, exports, sync, publishing, shortcuts |
+| [MCP](docs/mcp.md) | Connecting agents, tool reference, element JSON, recipes, product sources |
+| [Deployment](docs/deployment.md) | Environment, Docker, migrations, storage, hosting, backups, CI |
+| [Desktop app](docs/desktop.md) | The Electron app and its release workflow |
+| [Architecture](docs/architecture.md) | Packages, document model, sync, rendering, exports |
+| [Agent skills](skills/) | `kavero-catalogs` and `kavero-animations` skills for AI agents |
 
-```bash
-bun run db:push
+## Repository
+
+```text
+apps/
+  web/            Next.js app: dashboard, editor, published sites, API, MCP endpoint
+  desktop/        Electron desktop app
+packages/
+  catalog-engine/ document schema, validation, templates
+  editor-core/    command system, undo/redo
+  renderer/       shared slide renderer and presentation player
+  animation-engine/ deterministic animations and transitions
+  ai/             LLM providers, catalog planner and builder
+  export-chromium/ PDF, MP4 and image rendering (headless Chrome + ffmpeg)
+  export-pptx/    editable PowerPoint export
+  local-storage/  IndexedDB storage and .kavero files
+  api/            tRPC routers and services (catalogs, publishing, workspaces, AI, integrations)
+  mcp-server/     Kavero's MCP tools
+  db/             Drizzle schema and migrations
+  auth/, ui/, config/
+skills/           agent skills for building catalogs with Kavero
+docs/             guides
 ```
 
-Then, run the development server:
+## Scripts
 
-```bash
-bun run dev
-```
+| Command | |
+| --- | --- |
+| `bun run dev:web` | Web app in development |
+| `bun run dev:desktop` | Desktop app against the dev server |
+| `bun run build` | Build everything |
+| `bun run check-types` | Typecheck all packages |
+| `bun run db:start` / `db:stop` | Start/stop Postgres (Docker) |
+| `bun run db:generate` / `db:migrate` | Create/apply migrations |
 
-Open [http://localhost:3001](http://localhost:3001) in your browser to see the fullstack application.
-
-## UI Customization
-
-React web apps in this stack share shadcn/ui primitives through `packages/ui`.
-
-- Change design tokens and global styles in `packages/ui/src/styles/globals.css`
-- Update shared primitives in `packages/ui/src/components/*`
-- Adjust shadcn aliases or style config in `packages/ui/components.json` and `apps/web/components.json`
-
-### Add more shared components
-
-Run this from the project root to add more primitives to the shared UI package:
-
-```bash
-npx shadcn@latest add accordion dialog popover sheet table -c packages/ui
-```
-
-Import shared components like this:
-
-```tsx
-import { Button } from "@Kavero/ui/components/button";
-```
-
-### Add app-specific blocks
-
-If you want to add app-specific blocks instead of shared primitives, run the shadcn CLI from `apps/web`.
-
-## Environment Configuration
-
-Each app owns its environment schema in `.env.schema`. Varlock generates `src/env.ts` during installation; run `bun run env:generate` after changing a schema. Commit schemas, and keep secrets in ignored env files or your deployment platform.
-
-Import the generated `ENV` accessor in application code. Shared database and auth packages receive configuration or initialized clients from the application. See [Varlock's monorepo guide](https://varlock.dev/guides/monorepos/).
-
-Bun's automatic env loading is disabled in `bunfig.toml`; the framework integration or server bootstrap loads Varlock. Node deployments must include Varlock and its dependencies alongside the app schema.
-
-Run standalone Node/Bun tools that use Varlock from the owning app directory so they load that app's schema and env files. `env:generate` only generates TypeScript files; it does not initialize environment values in a subsequent command.
-
-## Deployment
-
-### Docker Compose
-
-- Target: web + server
-- Config: `docker-compose.yml` (app Dockerfiles live in `apps/*/Dockerfile`)
-- Build images: bun run docker:build
-- Start: bun run docker:up
-- Logs: bun run docker:logs
-- Stop: bun run docker:down
-
-Environment variables are read from each app's `.env` file (baked into web builds for public variables) and overridden in `docker-compose.yml` for container networking.
-
-For more details, see the guide on [Deploying with Docker Compose](https://www.better-t-stack.dev/docs/guides/docker).
-
-## Project Structure
-
-```
-Kavero/
-├── apps/
-│   └── web/         # Fullstack application (Next.js)
-├── packages/
-│   ├── ui/          # Shared shadcn/ui components and styles
-│   ├── api/         # API layer / business logic
-│   ├── auth/        # Authentication configuration & logic
-│   └── db/          # Database schema & queries
-```
-
-## Available Scripts
-
-- `bun run dev`: Start all applications in development mode
-- `bun run build`: Build all applications
-- `bun run dev:web`: Start only the web application
-- `bun run check-types`: Check TypeScript types across all apps
-- `bun run db:push`: Push schema changes to database
-- `bun run db:generate`: Generate database client/types
-- `bun run db:migrate`: Run database migrations
-- `bun run db:studio`: Open database studio UI
-- `bun run docker:build`: Build the Docker Compose images
-- `bun run docker:up`: Build and start the Docker Compose stack
-- `bun run docker:logs`: Tail logs from the Docker Compose stack
-- `bun run docker:down`: Stop the Docker Compose stack
-
-## Better Auth Schema Generation
-
-After changing auth plugins or schema options, run `bun run auth:generate` from the project root. The script runs the Better Auth CLI through `varlock run` from the owning app directory, loading the auth instance from `src/services.ts`. Review the schema changes, then use your ORM's migration workflow to apply them.
+End-to-end suites live in `packages/mcp-server/e2e/` and run against a dev server.

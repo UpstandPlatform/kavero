@@ -25,3 +25,11 @@ test("exports editable slides with warnings", async () => {
   expect(warnings.some((w) => w.includes("HTML blocks"))).toBe(true);
   expect(warnings.some((w) => w.includes("transitions"))).toBe(true);
 });
+
+test("RTL text detection", async () => {
+  const { textIsRtl } = await import("./index");
+  expect(textIsRtl("شیر توپی پی‌وی‌سی (UPVC)", false)).toBe(true);
+  expect(textIsRtl("UPVC شیر", true)).toBe(false);
+  expect(textIsRtl("۰۹۱۲ ۰۵۶ ۱۸۱۰", true)).toBe(true);
+  expect(textIsRtl("123", false)).toBe(false);
+});

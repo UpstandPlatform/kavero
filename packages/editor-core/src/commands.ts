@@ -35,6 +35,8 @@ export type EditorCommand =
   | { type: "element.move"; elementId: string; position: Partial<ElementPosition> }
   | { type: "element.delete"; elementId: string }
   | { type: "element.reorder"; elementId: string; to: "front" | "back" | "forward" | "backward" }
+  /** Move an element to an exact stacking position (0 = bottom), e.g. from the layers panel. */
+  | { type: "element.setZ"; elementId: string; index: number }
   | { type: "element.group"; elementIds: string[] }
   | { type: "element.ungroup"; groupId: string }
   | { type: "element.addAnimation"; elementId: string; animation: Omit<Partial<ElementAnimation>, "id"> & Pick<ElementAnimation, "category" | "preset"> }
@@ -185,6 +187,14 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
       const target = { front: max, back: 0, forward: Math.min(max, element.zIndex + 1), backward: Math.max(0, element.zIndex - 1) }[cmd.to];
       const ordered = slide.elements.filter((e) => e !== element);
       ordered.splice(target, 0, element);
+      ordered.forEach((e, i) => (e.zIndex = i));
+      break;
+    }
+    case "element.setZ": {
+      const { slide, element } = findElement(doc, cmd.elementId);
+      normalizeZ(slide);
+      const ordered = slide.elements.filter((e) => e !== element);
+      ordered.splice(Math.max(0, Math.min(cmd.index, ordered.length)), 0, element);
       ordered.forEach((e, i) => (e.zIndex = i));
       break;
     }

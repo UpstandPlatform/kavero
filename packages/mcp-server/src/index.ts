@@ -8,6 +8,7 @@ import {
   createFromTemplate,
   createId,
   duplicateCatalog,
+  safeFileName,
   type CatalogDocument,
   type CatalogElement,
 } from "@Kavero/catalog-engine";
@@ -25,6 +26,10 @@ export interface McpHost {
   renderPreview?: (doc: CatalogDocument, slideIndex: number) => Promise<Uint8Array>;
   /** Absolute URL of a published catalog. */
   publicUrl: (slug: string) => string;
+  /** Link that opens a catalog in the Kavero editor (pulls it into the browser if needed). */
+  editorUrl?: (documentId: string) => string;
+  /** Store raw image bytes (base64 uploads) like importImage does for URLs. Optional. */
+  importImageData?: (catalogRowId: string, bytes: Uint8Array, mimeType: string) => Promise<{ id: string; mimeType: string; bytes: number; hash: string; width?: number; height?: number }>;
   /**
    * Download an image from a public URL into a cloud catalog's storage (with
    * SSRF protection). Returns the asset to add to the document. Optional.
@@ -48,7 +53,9 @@ const ELEMENT_HELP = `Element JSON (positions in document pixels; see catalog_ge
 - product-grid: {"type":"product-grid","position":{...},"content":{"columns":3,"products":[{"productId":"prd_..."}]}}
 - button:  {"type":"button","position":{...},"content":{"label":"Shop now","href":"https://..."}}
 - html:    {"type":"html","position":{...},"content":{"html":"<h2>Hi</h2>","css":"h2{color:var(--kv-primary)}"}}  (scripts are removed)
-Colors may be hex or theme tokens: token:background, token:text, token:muted, token:primary, token:on-primary, token:accent.`;
+Colors may be hex or theme tokens: token:background, token:text, token:muted, token:primary, token:on-primary, token:accent.
+Text style: align "start" | "center" | "end" (start = right in RTL catalogs such as language "fa"/"ar"); direction "auto" (default, per paragraph) | "rtl" | "ltr" (use "ltr" for phone numbers or codes inside RTL slides). Do not insert Unicode bidi control characters.
+Images, logos and background photos: add the file with asset_import first, then use its assetId (image element, or slide background {"kind":"image","assetId":...}).`;
 
 const id = z.string().min(1).max(100);
 const positionShape = z.object({ x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive(), rotation: z.number().optional() });
@@ -130,7 +137,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     inputSchema: { catalogId: id, full: z.boolean().optional() }, annotations: { readOnlyHint: true },
   }, guard("catalog_get", "catalogs:read", async ({ catalogId, full }) => {
     const r = await catalogs.get(uid, catalogId);
-    return ok({ catalogId: r.id, revision: r.revision, ...(full ? { document: r.document } : outline(r.document)) });
+    return ok({ catalogId: r.id, revision: r.revision, editorUrl: host.editorUrl?.(r.document.id), ...(full ? { document: r.document } : outline(r.document)) });
   }));
 
   server.registerTool("catalog_create", {
@@ -147,7 +154,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     const input = { title: a.title, description: a.description, language: a.language, currency: a.currency?.toUpperCase(), page: a.page as keyof typeof PAGE_PRESETS | undefined };
     const doc = a.template && a.template !== "blank" ? createFromTemplate(a.template, input) : createCatalog(input);
     const r = await catalogs.create(uid, doc, a.workspaceId);
-    return ok({ catalogId: r.id, revision: r.revision, slideIds: doc.slides.map((s) => s.id), page: { width: doc.settings.width, height: doc.settings.height } });
+    return ok({ catalogId: r.id, revision: r.revision, editorUrl: host.editorUrl?.(doc.id), slideIds: doc.slides.map((s) => s.id), page: { width: doc.settings.width, height: doc.settings.height } });
   }));
 
   server.registerTool("catalog_update", {
@@ -313,6 +320,39 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     return ok({ ...r, productIds: ids, imagesImported: imageFor.size, warnings });
   }));
 
+  // ---------- Assets ----------
+
+  server.registerTool("asset_import", {
+    title: "Import image",
+    description: "Add an image (cover photo, background, logo, illustration) to a catalog from a public https URL or base64 data. Returns the assetId plus width/height; then place it with slide_add_element ({\"type\":\"image\",\"content\":{\"assetId\":...}}) or slide_update ({\"background\":{\"kind\":\"image\",\"assetId\":...}}).",
+    inputSchema: {
+      catalogId: id,
+      url: z.string().url().optional().describe("Public http(s) image URL"),
+      data: z.string().max(20_000_000).optional().describe("Base64 image bytes (PNG, JPEG, GIF, WebP), for agents without a public URL"),
+      mimeType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]).optional().describe("Required with data"),
+      name: z.string().min(1).max(120).describe("Human-readable name, e.g. 'Cover photo'"),
+    },
+  }, guard("asset_import", "catalogs:write", async ({ catalogId, url, data, mimeType, name }) => {
+    if (!!url === !!data) return fail("Pass either url or data (base64), not both.");
+    const { id: rowId, document } = await catalogs.get(uid, catalogId);
+    let asset;
+    if (url) {
+      if (!host.importImage) return fail("Image import isn't available on this server.");
+      asset = await host.importImage(rowId, url, name);
+    } else {
+      if (!host.importImageData) return fail("Uploading image data isn't available on this server.");
+      if (!mimeType) return fail("mimeType is required with data.");
+      const bytes = Uint8Array.from(Buffer.from(data!.replace(/^data:[^,]*,/, ""), "base64"));
+      if (!bytes.byteLength) return fail("The data is empty or not valid base64.");
+      asset = await host.importImageData(rowId, bytes, mimeType);
+    }
+    const commands: EditorCommand[] = document.assets.some((a) => a.id === asset.id)
+      ? []
+      : [{ type: "asset.add", asset: { id: asset.id, kind: "image", mimeType: asset.mimeType, name, uri: `cloud://${asset.id}`, bytes: asset.bytes, hash: asset.hash, width: asset.width, height: asset.height } }];
+    if (commands.length) await edit(catalogId, commands);
+    return ok({ assetId: asset.id, width: asset.width, height: asset.height, mimeType: asset.mimeType, alreadyPresent: !commands.length });
+  }));
+
   // ---------- AI generation ----------
 
   server.registerTool("catalog_generate", {
@@ -341,7 +381,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
         try {
           const asset = await host.importImage(created.id, p.imageUrl!, p.name);
           if (!commands.some((c) => c.type === "asset.add" && c.asset.id === asset.id)) {
-            commands.push({ type: "asset.add", asset: { id: asset.id, kind: "image", mimeType: asset.mimeType, name: p.name, uri: `cloud://${asset.id}`, bytes: asset.bytes, hash: asset.hash } });
+            commands.push({ type: "asset.add", asset: { id: asset.id, kind: "image", mimeType: asset.mimeType, name: p.name, uri: `cloud://${asset.id}`, bytes: asset.bytes, hash: asset.hash, width: asset.width, height: asset.height } });
           }
           commands.push({ type: "product.upsert", product: { id: p.id, name: p.name, imageAssetIds: [asset.id] } });
         } catch (e) {
@@ -351,7 +391,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
       if (commands.length) await catalogs.applyCommands(uid, created.id, commands);
     }
     return ok({
-      catalogId: created.id, source: result.source, model: result.model, template: result.plan.templateId,
+      catalogId: created.id, editorUrl: host.editorUrl?.(result.document.id), source: result.source, model: result.model, template: result.plan.templateId,
       slides: result.document.slides.map((s, i) => ({ index: i, id: s.id, name: s.name })), warnings,
     });
   }));
@@ -367,7 +407,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
       ],
     };
   };
-  const fileName = (doc: CatalogDocument, ext: string) => `${doc.metadata.title.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "catalog"}.${ext}`;
+  const fileName = (doc: CatalogDocument, ext: string) => safeFileName(doc.metadata.title, ext);
 
   server.registerTool("catalog_export_pdf", {
     title: "Export PDF", description: "Export the catalog as a print-ready PDF (one page per slide). Returned as an embedded file.",

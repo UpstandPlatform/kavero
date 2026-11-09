@@ -1,0 +1,68 @@
+# electron-builder config for the Kavero desktop app.
+# Build the web app first (bun run --filter web build); `bun run dist` stages it via
+# scripts/prepare-web.mjs into web-bundle/, which ships as <resources>/web.
+appId: app.kavero.desktop
+productName: Kavero
+copyright: Copyright © 2026 Kavero
+
+directories:
+  output: release
+  # Put icon.png (1024×1024) here; without it electron-builder uses the default Electron icon.
+  buildResources: assets
+
+asar: true
+# The main process has no runtime dependencies; nothing to rebuild for Electron.
+npmRebuild: false
+files:
+  - dist/**/*.js
+  - package.json
+  - "!**/*.map"
+  - "!node_modules/**/*"
+
+extraResources:
+  - from: web-bundle
+    to: web
+    filter:
+      - "**/*"
+  # electron-builder skips a top-level node_modules inside `from`; copy it explicitly.
+  - from: web-bundle/node_modules
+    to: web/node_modules
+    filter:
+      - "**/*"
+
+artifactName: ${productName}-${version}-${os}-${arch}.${ext}
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  deleteAppDataOnUninstall: false
+
+mac:
+  category: public.app-category.productivity
+  # arm64 only: the bundled server carries native modules (sharp, ffmpeg) for the build
+  # machine's arch. Add x64 by building on an Intel runner (macos-13) as a separate job.
+  target:
+    - target: dmg
+      arch: [arm64]
+    - target: zip
+      arch: [arm64]
+  hardenedRuntime: true
+  # Notarization runs when APPLE_ID / APPLE_APP_SPECIFIC_PASSWORD / APPLE_TEAM_ID are set.
+  notarize: false
+
+linux:
+  category: Office
+  maintainer: Kavero <hello@kavero.app>
+  target:
+    - target: AppImage
+      arch: [x64]
+    - target: deb
+      arch: [x64]
+
+# Publishing (GitHub Releases) is configured by scripts/dist.mjs from GITHUB_REPOSITORY,
+# so local builds work without a git remote. Releases are uploaded by .github/workflows/desktop.yml.

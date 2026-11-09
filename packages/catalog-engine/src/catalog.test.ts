@@ -116,3 +116,11 @@ test("html elements are sanitized", async () => {
   const el = catalogElementSchema.parse({ id: "e", type: "html", position: { x: 0, y: 0, width: 1, height: 1 }, content: { html: "<b onmouseover=x>ok</b>" } });
   expect(el.type === "html" && el.content.html).toBe("<b>ok</b>");
 });
+
+test("file names keep non-Latin titles", async () => {
+  const { safeFileName, attachmentHeader } = await import("./index");
+  expect(safeFileName("کاتالوگ محصولات آبان گستر البرز", "pdf")).toBe("کاتالوگ-محصولات-آبان-گستر-البرز.pdf");
+  expect(safeFileName("Summer / 2027!", ".kavero")).toBe("summer-2027.kavero");
+  expect(safeFileName("???", "pdf")).toBe("catalog.pdf");
+  expect(attachmentHeader("کاتالوگ.pdf")).toContain("filename*=UTF-8''%DA%A9");
+});

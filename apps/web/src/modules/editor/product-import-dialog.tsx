@@ -160,9 +160,9 @@ export function ProductImportDialog({ editor, doc, uploadImage, activeSlideIndex
     }
   }
 
-  const field = "h-8 w-full border border-input bg-transparent px-2 text-xs";
+  const field = "h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs";
   return (
-    <dialog ref={ref} onClose={onClose} className="m-auto w-[min(720px,calc(100vw-32px))] border bg-background p-0 text-foreground backdrop:bg-black/50">
+    <dialog ref={ref} onClose={onClose} className="m-auto w-[min(720px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50">
       <div className="flex items-center justify-between border-b px-5 py-3">
         <h2 className="text-sm font-semibold">Import products from MCP</h2>
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><X /></Button>
@@ -191,7 +191,7 @@ export function ProductImportDialog({ editor, doc, uploadImage, activeSlideIndex
             </div>
             {tools.find((t) => t.name === tool)?.description && <p className="text-muted-foreground">{tools.find((t) => t.name === tool)!.description}</p>}
             <label className="grid gap-1">Arguments (JSON)
-              <textarea className="h-24 w-full border border-input bg-transparent p-2 font-mono text-[11px]" value={args} onChange={(e) => setArgs(e.target.value)} spellCheck={false} />
+              <textarea className="h-24 w-full rounded-lg border border-input bg-transparent p-2 font-mono text-[11px]" value={args} onChange={(e) => setArgs(e.target.value)} spellCheck={false} />
             </label>
             <div><Button onClick={fetchProducts} disabled={!tool || !!busy}>{busy === "fetch" && <Loader2 className="animate-spin" />} Fetch products</Button></div>
 
@@ -227,7 +227,7 @@ export function ProductImportDialog({ editor, doc, uploadImage, activeSlideIndex
                 <div className="flex flex-wrap items-center gap-4">
                   <label className="flex items-center gap-1.5"><input type="checkbox" checked={withImages} onChange={(e) => setWithImages(e.target.checked)} /> Download images</label>
                   <label className="flex items-center gap-1.5">Add slides
-                    <select className="h-7 border border-input bg-transparent px-1" value={layout} onChange={(e) => setLayout(e.target.value as never)}>
+                    <select className="h-7 rounded-lg border border-input bg-transparent px-1" value={layout} onChange={(e) => setLayout(e.target.value as never)}>
                       <option value="single">one product section</option><option value="per-category">one per category</option><option value="none">no, just add products</option>
                     </select>
                   </label>

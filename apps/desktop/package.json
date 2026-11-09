@@ -1,0 +1,24 @@
+{
+  "name": "@Kavero/desktop",
+  "version": "0.1.0",
+  "private": true,
+  "productName": "Kavero",
+  "description": "Kavero desktop app (Electron shell around the Kavero web app)",
+  "author": "Kavero",
+  "main": "dist/main.js",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json && electron .",
+    "smoke": "tsc -p tsconfig.json && electron . --smoke",
+    "prepare-web": "node scripts/prepare-web.mjs",
+    "dist": "tsc -p tsconfig.json && node scripts/prepare-web.mjs && node scripts/dist.mjs",
+    "dist:dir": "tsc -p tsconfig.json && node scripts/prepare-web.mjs && node scripts/dist.mjs --dir",
+    "check-types": "tsc -p tsconfig.json --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "electron": "44.9.3",
+    "electron-builder": "26.17.0",
+    "typescript": "6.0.3"
+  }
+}

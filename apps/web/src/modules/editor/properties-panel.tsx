@@ -1,6 +1,6 @@
 "use client";
 
-import { resolveToken, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
+import { documentDirection, resolveToken, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
 import {
@@ -15,7 +15,7 @@ import { useRun } from "./use-catalog-editor";
 
 const FONTS = ["Inter", "Playfair Display", "Space Grotesk", "DM Serif Display", "Montserrat", "Lora", "Poppins", "Roboto", "Georgia", "Arial"];
 
-const inputCls = "h-7 w-full min-w-0 border border-input bg-transparent px-1.5 text-xs tabular-nums outline-none focus-visible:border-ring";
+const inputCls = "h-7 w-full min-w-0 rounded-lg border border-input bg-transparent px-1.5 text-xs tabular-nums outline-none focus-visible:border-ring";
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -64,7 +64,7 @@ function ColorInput({ doc, value, onChange }: { doc: CatalogDocument; value: str
   const resolved = resolveToken(doc, value);
   return (
     <div className="flex items-center gap-1">
-      <input type="color" value={/^#[0-9a-f]{6}$/i.test(resolved) ? resolved : "#000000"} onChange={(e) => onChange(e.target.value)} className="h-7 w-8 shrink-0 cursor-pointer border border-input bg-transparent p-0.5" aria-label="Custom color" />
+      <input type="color" value={/^#[0-9a-f]{6}$/i.test(resolved) ? resolved : "#000000"} onChange={(e) => onChange(e.target.value)} className="h-7 w-8 shrink-0 cursor-pointer rounded-lg border border-input bg-transparent p-0.5" aria-label="Custom color" />
       <div className="flex flex-wrap gap-0.5">
         {Object.entries(doc.theme.colors).map(([name, hex]) => (
           <button
@@ -82,6 +82,7 @@ function ColorInput({ doc, value, onChange }: { doc: CatalogDocument; value: str
 export function PropertiesPanel({ editor, doc, slide, selection, addFont }: { editor: Editor; doc: CatalogDocument; slide: CatalogSlide; selection: string[]; addFont: AddFont }) {
   const run = useRun(editor);
   const [fontPickerFor, setFontPickerFor] = useState<string | null>(null);
+  const rtl = documentDirection(doc) === "rtl";
   const catalogFonts = [...new Set(doc.assets.filter((a) => a.kind === "font" && a.family).map((a) => a.family!))].sort();
   const selected = slide.elements.filter((e) => selection.includes(e.id));
 
@@ -172,12 +173,20 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont }: { ed
           </div>
           <Field label="Color"><ColorInput doc={doc} value={el.style.color} onChange={(color) => update({ style: { color } })} /></Field>
           <div className="flex gap-1">
-            {([["left", AlignLeft], ["center", AlignCenter], ["right", AlignRight]] as const).map(([a, Icon]) => (
-              <Button key={a} variant={el.style.align === a ? "secondary" : "ghost"} size="icon-sm" title={`Align ${a}`} onClick={() => update({ style: { align: a } })}><Icon /></Button>
+            {/* start/end follow the text direction, so RTL catalogs mirror correctly */}
+            {([["start", rtl ? AlignRight : AlignLeft, "Align to start"], ["center", AlignCenter, "Center"], ["end", rtl ? AlignLeft : AlignRight, "Align to end"]] as const).map(([a, Icon, label]) => (
+              <Button key={a} variant={el.style.align === a || (a === "start" && el.style.align === (rtl ? "right" : "left")) || (a === "end" && el.style.align === (rtl ? "left" : "right")) ? "secondary" : "ghost"} size="icon-sm" title={label} onClick={() => update({ style: { align: a } })}><Icon /></Button>
             ))}
             <Button variant={el.style.italic ? "secondary" : "ghost"} size="icon-sm" title="Italic" className="italic" onClick={() => update({ style: { italic: !el.style.italic } })}>I</Button>
             <Button variant={el.style.decoration === "underline" ? "secondary" : "ghost"} size="icon-sm" title="Underline" className="underline" onClick={() => update({ style: { decoration: el.style.decoration === "underline" ? "none" : "underline" } })}>U</Button>
           </div>
+          <Field label="Direction">
+            <select className={inputCls} value={el.style.direction} onChange={(e) => update({ style: { direction: e.target.value } })}>
+              <option value="auto">Automatic (from the text)</option>
+              <option value="rtl">Right to left</option>
+              <option value="ltr">Left to right (e.g. phone numbers)</option>
+            </select>
+          </Field>
           <p className="text-[11px] text-muted-foreground">Double-click the text on the slide to edit it.</p>
           {fontPickerFor === el.id && (
             <FontPicker
@@ -316,6 +325,13 @@ function ProductProperties({ doc, el, run, update }: {
       )}
       <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.style.showPrice} onChange={(e) => update({ style: { showPrice: e.target.checked } })} /> Show price</label>
       <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.style.showDescription} onChange={(e) => update({ style: { showDescription: e.target.checked } })} /> Show description</label>
+      <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.style.showAttributes} onChange={(e) => update({ style: { showAttributes: e.target.checked } })} /> Show specs (attributes)</label>
+      <Field label="Photo fit">
+        <select className={inputCls} value={el.style.imageFit} onChange={(e) => update({ style: { imageFit: e.target.value } })}>
+          <option value="contain">Show whole photo</option>
+          <option value="cover">Fill and crop</option>
+        </select>
+      </Field>
       <div className="grid max-h-48 gap-1 overflow-y-auto">
         {doc.products.length === 0 && <p className="text-[11px] text-muted-foreground">No products yet. Add one below. (Import from MCP comes in a later phase.)</p>}
         {doc.products.map((p) => (
@@ -387,7 +403,7 @@ function SlideProperties({ doc, slide, run }: { doc: CatalogDocument; slide: Cat
       <Section title="Theme colors">
         {Object.entries(doc.theme.colors).map(([name, hex]) => (
           <Field key={name} label={name}>
-            <input type="color" value={hex} className="h-7 w-full cursor-pointer border border-input bg-transparent p-0.5" onChange={(e) => run({ type: "catalog.updateTheme", theme: { colors: { [name]: e.target.value } } })} />
+            <input type="color" value={hex} className="h-7 w-full cursor-pointer rounded-lg border border-input bg-transparent p-0.5" onChange={(e) => run({ type: "catalog.updateTheme", theme: { colors: { [name]: e.target.value } } })} />
           </Field>
         ))}
       </Section>
@@ -408,7 +424,7 @@ function CodeField({ label, value, rows, onCommit }: { label: string; value: str
         rows={rows}
         spellCheck={false}
         onBlur={(e) => e.target.value !== value && onCommit(e.target.value)}
-        className="w-full resize-y border border-input bg-transparent p-1.5 font-mono text-[11px] leading-snug outline-none focus-visible:border-ring"
+        className="w-full resize-y rounded-lg border border-input bg-transparent p-1.5 font-mono text-[11px] leading-snug outline-none focus-visible:border-ring"
       />
     </label>
   );
@@ -423,7 +439,7 @@ function AnimationProperties({ el, run }: { el: CatalogElement; run: (c: EditorC
   const [direction, setDirection] = useState<"left" | "right" | "up" | "down">("up");
   const [duration, setDuration] = useState(0.6);
   const [delay, setDelay] = useState(0);
-  const sel = "h-7 w-full min-w-0 border border-input bg-transparent px-1 text-xs";
+  const sel = "h-7 w-full min-w-0 rounded-lg border border-input bg-transparent px-1 text-xs";
   return (
     <Section title="Animation">
       {el.animations.length === 0 && <p className="text-[11px] text-muted-foreground">No animations yet. They play in Preview, on published sites and in video exports.</p>}

@@ -59,6 +59,49 @@ cd packages/db && DATABASE_URL=postgres://... bunx drizzle-kit migrate
 
 Create new migrations in development with `bun run db:generate` after changing `packages/db/src/schema`.
 
+## Hosting options
+
+Kavero needs a long-running Node server (API routes, MCP endpoint, background video jobs) with Chromium available. Pick by scale:
+
+| Option | Good for | Notes |
+| --- | --- | --- |
+| **One VPS + Docker Compose** (recommended start) | Teams, small business | Any Linux VM with 2 vCPU / 4 GB RAM. `docker compose up -d --build`, a reverse proxy for HTTPS (below), daily backups. |
+| **Container platforms** (Fly.io, Railway, Render, Coolify, Dokku, Kubernetes) | Managed ops | Deploy `apps/web/Dockerfile` with a managed Postgres; use S3/R2 storage so instances are stateless. Give it ≥ 1 GB shared memory for Chromium. |
+| **Serverless (Vercel, Netlify)** | Not recommended | No Chromium for PDF/video/previews, short function timeouts, no in-memory video jobs. Editor, sync and publishing work; exports don't. |
+| **Desktop app** | Single user, offline | See [desktop.md](desktop.md). |
+
+### VPS walkthrough
+
+```sh
+# 1. On the server (Docker + Compose installed)
+git clone <your fork> kavero && cd kavero
+cp apps/web/.env.example apps/web/.env      # set BETTER_AUTH_SECRET, BETTER_AUTH_URL=https://catalog.example.com
+#    and change POSTGRES_PASSWORD in docker-compose.yml / its .env
+docker compose up -d --build                 # postgres → migrate → web on :3001
+
+# 2. HTTPS with Caddy (automatic certificates)
+cat > Caddyfile <<'EOF'
+catalog.example.com {
+  reverse_proxy 127.0.0.1:3001
+}
+EOF
+caddy run --config Caddyfile                 # or run Caddy/Traefik/nginx as a service
+```
+
+- Remove the Postgres `ports:` mapping in production.
+- Updates: `git pull && docker compose up -d --build` (migrations run automatically before `web` starts).
+- Published catalogs live at `https://catalog.example.com/c/<slug>`; the MCP endpoint is `https://catalog.example.com/api/mcp`.
+
+### CI/CD
+
+`.github/workflows/` contains:
+
+- **CI** — typecheck, unit tests and a production build on every push and pull request.
+- **Docker** — builds the web image (and pushes it to GitHub Container Registry on version tags) if enabled.
+- **Desktop** — builds Windows, macOS and Linux installers on `v*` tags and attaches them to a GitHub Release ([desktop.md](desktop.md)).
+
+To deploy automatically, add a job after the image is pushed that SSHes to your server and runs `docker compose pull && docker compose up -d`, or point your container platform at the GHCR image.
+
 ## Storage
 
 | Option | When | Setup |

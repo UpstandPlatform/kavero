@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 
+import { AiCredentialService } from "@Kavero/api/services/ai-credential-service";
 import { CatalogService } from "@Kavero/api/services/catalog-service";
+import { SecretBox } from "@Kavero/api/services/secret-box";
+import { imageSize } from "@Kavero/api/services/image-size";
 import { fetchImageAsDataUrl } from "@Kavero/api/services/safe-fetch";
 import { TokenService, audit } from "@Kavero/api/services/token-service";
 import { providerFromEnv, type AiEnv } from "@Kavero/ai";
@@ -10,12 +13,14 @@ import { createKaveroMcpServer } from "@Kavero/mcp-server";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 
 import { objectStorage } from "@/modules/storage/object-storage";
+import { ENV } from "@/env.server";
 import { db } from "@/services";
 
 export const runtime = "nodejs";
 
 const LIMIT_PER_MINUTE = 120;
 const aiProvider = providerFromEnv(process.env as AiEnv);
+const secretBox = new SecretBox(ENV.BETTER_AUTH_SECRET);
 const hits = new Map<string, { n: number; resetAt: number }>();
 function rateLimited(tokenId: string) {
   const now = Date.now();
@@ -47,6 +52,15 @@ export async function POST(request: Request) {
 
   const origin = new URL(request.url).origin;
   const catalogs = new CatalogService(db);
+  /** Store image bytes for a cloud catalog; same bytes → same asset id (no duplicates). */
+  const storeImage = async (catalogRowId: string, bytes: Uint8Array, mimeType: string) => {
+    const hash = createHash("sha256").update(bytes).digest("hex");
+    const assetId = `ast_${hash.slice(0, 16)}`;
+    const storageKey = `catalogs/${catalogRowId}/${hash}`;
+    await objectStorage().put(storageKey, bytes);
+    await catalogs.recordAsset({ catalogId: catalogRowId, assetId, mimeType, bytes: bytes.byteLength, hash, storageKey });
+    return { id: assetId, mimeType, bytes: bytes.byteLength, hash, ...(imageSize(bytes) ?? {}) };
+  };
   /** The catalog's stored images and fonts as data: URLs (access-checked per file). */
   const loadAssets = async (doc: CatalogDocument) => {
     const assets: Record<string, string> = {};
@@ -63,22 +77,21 @@ export async function POST(request: Request) {
     principal,
     host: {
       publicUrl: (slug) => `${origin}/c/${slug}`,
+      editorUrl: (documentId) => `${origin}/editor/${encodeURIComponent(documentId)}`,
       importImage: async (catalogRowId, url) => {
         const dataUrl = await fetchImageAsDataUrl(url, { allowLocal: process.env.NODE_ENV !== "production" });
         const [, mimeType = "", b64 = ""] = /^data:([^;]+);base64,([A-Za-z0-9+/=]*)$/.exec(dataUrl) ?? [];
-        const bytes = Buffer.from(b64, "base64");
-        const hash = createHash("sha256").update(bytes).digest("hex");
-        // Same hash → same asset id, so re-imports don't duplicate files.
-        const assetId = `ast_${hash.slice(0, 16)}`;
-        const storageKey = `catalogs/${catalogRowId}/${hash}`;
-        await objectStorage().put(storageKey, bytes);
-        await catalogs.recordAsset({ catalogId: catalogRowId, assetId, mimeType, bytes: bytes.byteLength, hash, storageKey });
-        return { id: assetId, mimeType, bytes: bytes.byteLength, hash };
+        return storeImage(catalogRowId, Uint8Array.from(Buffer.from(b64, "base64")), mimeType);
+      },
+      importImageData: async (catalogRowId, bytes, mimeType) => {
+        if (bytes.byteLength > 15 * 1024 * 1024) throw new Error("Images must be under 15 MB");
+        if (!imageSize(bytes)) throw new Error("That data isn't a PNG, JPEG, GIF or WebP image");
+        return storeImage(catalogRowId, bytes, mimeType);
       },
       loadAssets,
       renderPreview: async (doc, slideIndex) => renderSlideImage({ doc, assets: await loadAssets(doc), baseUrl: origin, slideIndex, width: 1280 }),
       renderPdf: async (doc) => renderPdf({ doc, assets: await loadAssets(doc), baseUrl: origin }),
-      ai: aiProvider,
+      ai: (await new AiCredentialService(db, secretBox, { allowLocal: process.env.NODE_ENV !== "production", appUrl: ENV.BETTER_AUTH_URL }).provider(principal.userId).catch(() => null)) ?? aiProvider,
     },
   });
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });

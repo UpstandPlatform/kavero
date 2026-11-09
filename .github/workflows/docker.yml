@@ -1,0 +1,73 @@
+name: Docker
+
+on:
+  push:
+    branches: [master, main]
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - apps/web/Dockerfile
+      - .github/workflows/docker.yml
+  workflow_dispatch:
+
+concurrency:
+  group: docker-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  image:
+    name: Web image
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # The Dockerfile mounts apps/web/.env as the `web_env` build secret. CI uses
+      # placeholders; the real env is supplied at runtime (--env-file / compose env_file).
+      - name: Create build env file
+        run: |
+          mkdir -p "$RUNNER_TEMP/docker"
+          {
+            echo "DATABASE_URL=postgres://kavero:kavero@postgres:5432/kavero"
+            echo "BETTER_AUTH_SECRET=build-only-not-a-secret-0123456789abcdefghijklmn"
+            echo "BETTER_AUTH_URL=http://localhost:3001"
+          } > "$RUNNER_TEMP/docker/web.env"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Image metadata
+        id: meta
+        uses: docker/metadata-action@v5
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/kavero-web
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=sha
+
+      - name: Build (push on version tags)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: apps/web/Dockerfile
+          push: ${{ startsWith(github.ref, 'refs/tags/v') }}
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          secret-files: |
+            web_env=${{ runner.temp }}/docker/web.env
+          cache-from: type=gha
+          cache-to: type=gha,mode=max

@@ -1,4 +1,5 @@
 import {
+  documentDirection,
   resolveToken,
   type CatalogDocument,
   type CatalogElement,
@@ -9,7 +10,7 @@ import {
 import { elementStateAt, scheduleSlide, stateToCss, type ScheduledAnimation } from "@Kavero/animation-engine";
 import { createContext, memo, useContext, useMemo, type CSSProperties, type ReactNode } from "react";
 
-import { embeddedFamilies, fontFaceCss, googleFontsUrl, usedFonts } from "./fonts";
+import { fontFaceCss, googleFontsUrls } from "./fonts";
 
 /** Turns an asset id into a displayable URL (blob:, https:, data:). */
 export type AssetResolver = (assetId: string) => string | undefined;
@@ -77,6 +78,8 @@ export const SlideView = memo(function SlideView({
       <div className={className} style={{ width: W * scale, height: H * scale, overflow: "hidden", position: "relative" }}>
         <div
           data-slide-id={slide.id}
+          dir={documentDirection(doc)}
+          lang={doc.metadata.language}
           style={{
             width: W, height: H, position: "absolute", left: 0, top: 0,
             transform: `scale(${scale})`, transformOrigin: "0 0",
@@ -144,9 +147,12 @@ export function ElementBody({ element: el }: { element: CatalogElement }) {
             fontStyle: s.italic ? "italic" : undefined,
             whiteSpace: "pre-wrap", overflowWrap: "break-word",
           }}
+          dir={s.direction === "auto" ? undefined : s.direction}
         >
           {el.content.paragraphs.map((runs, i) => (
-            <p key={i} style={{ margin: 0, minHeight: "1em" }}>
+            // dir="auto": each paragraph takes its direction from its own first strong letter,
+            // so mixed Persian/Latin lines lay out correctly without control characters.
+            <p key={i} dir={s.direction === "auto" ? "auto" : s.direction} style={{ margin: 0, minHeight: "1em" }}>
               {runs.map((r, j) => {
                 const style: CSSProperties = {
                   fontWeight: r.bold ? 700 : undefined, fontStyle: r.italic ? "italic" : undefined,
@@ -231,7 +237,7 @@ export function ElementBody({ element: el }: { element: CatalogElement }) {
   }
 }
 
-function ProductCard({ product, style: s }: { product: Product | undefined; style: { layout: string; showPrice: boolean; showDescription: boolean; background?: string; borderRadius: number } }) {
+function ProductCard({ product, style: s }: { product: Product | undefined; style: { layout: string; showPrice: boolean; showDescription: boolean; background?: string; borderRadius: number; imageFit?: "contain" | "cover"; showAttributes?: boolean } }) {
   const { doc, resolveAsset, mode } = useRender();
   if (!product) return <Placeholder label="Product" radius={s.borderRadius} show={mode === "edit"} minHeight={120} />;
   const img = product.imageAssetIds[0] ? resolveAsset(product.imageAssetIds[0]) : undefined;
@@ -246,11 +252,18 @@ function ProductCard({ product, style: s }: { product: Product | undefined; styl
     }}>
       <div style={{ flex: horizontal ? "0 0 45%" : "1 1 0", minHeight: 0, background: "rgba(127,127,127,0.12)", borderRadius: s.borderRadius, overflow: "hidden" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        {img && <img src={img} alt={product.name} draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
+        {img && <img src={img} alt={product.name} draggable={false} style={{ width: "100%", height: "100%", objectFit: s.imageFit ?? "contain", display: "block" }} />}
       </div>
-      <div style={{ flex: "0 0 auto", padding: horizontal ? "8px 0" : 0 }}>
-        <div style={{ fontWeight: 600, fontSize: 22, fontFamily: `${resolveToken(doc, "token:heading", "fonts")}, system-ui, sans-serif` }}>{product.name}</div>
-        {s.showDescription && product.description && <div style={{ fontSize: 15, opacity: 0.7, marginTop: 4 }}>{product.description}</div>}
+      <div style={{ flex: "0 0 auto", padding: horizontal ? "8px 0" : 0, textAlign: "start" }}>
+        <div dir="auto" style={{ fontWeight: 600, fontSize: 22, fontFamily: `${resolveToken(doc, "token:heading", "fonts")}, system-ui, sans-serif` }}>{product.name}</div>
+        {s.showDescription && product.description && <div dir="auto" style={{ fontSize: 15, opacity: 0.7, marginTop: 4 }}>{product.description}</div>}
+        {s.showAttributes && Object.keys(product.attributes ?? {}).length > 0 && (
+          <ul style={{ margin: "6px 0 0", padding: 0, listStyle: "none", fontSize: 13, opacity: 0.8, lineHeight: 1.45 }}>
+            {Object.entries(product.attributes).slice(0, 8).map(([k, v]) => (
+              <li key={k} dir="auto"><span style={{ opacity: 0.7 }}>{k}:</span> {v}</li>
+            ))}
+          </ul>
+        )}
         {s.showPrice && price && <div style={{ fontSize: 18, fontWeight: 600, marginTop: 6, color: resolveToken(doc, "token:primary") }}>{price}</div>}
       </div>
     </div>
@@ -263,13 +276,13 @@ function ProductCard({ product, style: s }: { product: Product | undefined; styl
  */
 function HtmlBlock({ html, css, background, interactive }: { html: string; css: string; background?: string; interactive: boolean }) {
   const { doc, resolveAsset } = useRender();
-  const fonts = googleFontsUrl(usedFonts(doc), embeddedFamilies(doc));
+  const fonts = googleFontsUrls(doc);
   // Embedded fonts only reach the sandbox as data: URLs (blob: URLs are origin-bound).
   const faces = fontFaceCss(doc, (id) => { const u = resolveAsset(id); return u?.startsWith("data:") ? u : undefined; });
   const vars = Object.entries(doc.theme.colors).map(([k, v]) => `--kv-${k}:${v};`).join("");
-  const srcDoc = `<!doctype html><html><head><meta charset="utf-8">
+  const srcDoc = `<!doctype html><html dir="${documentDirection(doc)}" lang="${doc.metadata.language.replace(/[^\w-]/g, "")}"><head><meta charset="utf-8">
 <meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src https: data:; media-src https: data:; style-src 'unsafe-inline' https://fonts.googleapis.com; font-src https://fonts.gstatic.com data:">
-<base target="_blank">${fonts ? `<link rel="stylesheet" href="${fonts}">` : ""}
+<base target="_blank">${fonts.map((href) => `<link rel="stylesheet" href="${href}">`).join("")}
 <style>${faces}</style><style>:root{${vars}--kv-heading:'${resolveToken(doc, "token:heading", "fonts")}';--kv-body:'${resolveToken(doc, "token:body", "fonts")}'}
 html,body{margin:0;width:100%;height:100%;overflow:hidden;background:${background ?? "transparent"};color:var(--kv-text);font-family:var(--kv-body),system-ui,sans-serif}
 *{box-sizing:border-box}</style><style>${css.replace(/<\/style/gi, "")}</style></head><body>${html}</body></html>`;

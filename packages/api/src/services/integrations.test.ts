@@ -48,3 +48,15 @@ test("slugs and passwords", async () => {
   expect(await verifyPassword("open-sesame", h)).toBe(true);
   expect(await verifyPassword("nope", h)).toBe(false);
 });
+
+test("image dimensions from headers", async () => {
+  const { imageSize } = await import("./image-size");
+  const png = Uint8Array.from(atob("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg=="), (c) => c.charCodeAt(0));
+  expect(imageSize(png)).toEqual({ width: 1, height: 1 });
+  const gif = Uint8Array.from(atob("R0lGODlhAwACAIAAAP///wAAACH5BAEAAAAALAAAAAADAAIAAAICjF8AOw=="), (c) => c.charCodeAt(0));
+  expect(imageSize(gif)).toEqual({ width: 3, height: 2 });
+  // Minimal JPEG: SOI + SOF0 (height 50, width 80)
+  const jpg = new Uint8Array([0xff, 0xd8, 0xff, 0xc0, 0x00, 0x11, 0x08, 0x00, 0x32, 0x00, 0x50, 0x03, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+  expect(imageSize(jpg)).toEqual({ width: 80, height: 50 });
+  expect(imageSize(new Uint8Array([1, 2, 3]))).toBeNull();
+});

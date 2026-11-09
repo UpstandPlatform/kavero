@@ -150,7 +150,7 @@ function comparisonColumns(doc: CatalogDocument, area: Box, copy: TemplateCopy, 
         shape(r, hi ? opts.highlight : opts.card, { radius: opts.radius }),
         text({ x: r.x + r.w * 0.06, y: r.y + r.h * 0.18, w: r.w * 0.55, h: r.h * 0.3 }, copy.columns[i]!, heading({ fontSize: fs(0.04), color: hi ? opts.onHighlight : "token:text" })),
         text({ x: r.x + r.w * 0.06, y: r.y + r.h * 0.55, w: r.w * 0.55, h: r.h * 0.3 }, "Key features and what is included", { fontSize: fs(0.02), color: hi ? opts.onHighlight : "token:muted" }),
-        text({ x: r.x + r.w * 0.62, y: r.y + r.h * 0.32, w: r.w * 0.32, h: r.h * 0.36 }, "Price", heading({ fontSize: fs(0.045), align: "right", color: hi ? opts.onHighlight : "token:text" })),
+        text({ x: r.x + r.w * 0.62, y: r.y + r.h * 0.32, w: r.w * 0.32, h: r.h * 0.36 }, "Price", heading({ fontSize: fs(0.045), align: "end", color: hi ? opts.onHighlight : "token:text" })),
       );
     }
     return out;
@@ -263,7 +263,7 @@ function gridLayout(copy: TemplateCopy) {
     const top = m + H * 0.12;
     const products = slide("Products", [
       text({ x: m, y: m, w: W * 0.6, h: H * 0.07 }, copy.productsTitle, heading({ fontSize: fs(0.045), fontWeight: 800 })),
-      text({ x: W * 0.6, y: m + H * 0.015, w: W * 0.4 - m, h: H * 0.05 }, doc.metadata.title, { fontSize: fs(0.018), align: "right", color: "token:muted" }),
+      text({ x: W * 0.6, y: m + H * 0.015, w: W * 0.4 - m, h: H * 0.05 }, doc.metadata.title, { fontSize: fs(0.018), align: "end", color: "token:muted" }),
       shape({ x: m, y: m + H * 0.085, w: W - 2 * m, h: rule }, "token:muted"),
       productGrid({ x: m, y: top, w: W - 2 * m, h: H - top - m }, doc, land ? 4 : 2, "token:accent", r),
     ], "token:background", tr("push", "left"));

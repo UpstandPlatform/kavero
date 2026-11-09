@@ -1,0 +1,129 @@
+name: Desktop
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NEXT_TELEMETRY_DISABLED: "1"
+  TURBO_TELEMETRY_DISABLED: "1"
+  # Build-time placeholders only: the desktop app supplies the real env at runtime
+  # (see docs/desktop.md). Never put real secrets here.
+  DATABASE_URL: postgres://kavero:kavero@127.0.0.1:5432/kavero_build
+  BETTER_AUTH_SECRET: build-only-not-a-secret-0123456789abcdefghijklmn
+  BETTER_AUTH_URL: http://127.0.0.1:41731
+
+jobs:
+  build:
+    name: Build (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      # electron's binary download and electron-builder's helper scripts run on Node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Cache Bun install cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.bun/install/cache
+          key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
+          restore-keys: bun-${{ runner.os }}-
+
+      - name: Cache Electron downloads
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/.cache/electron-builder
+            ~/Library/Caches/electron
+            ~/Library/Caches/electron-builder
+            ~/AppData/Local/electron/Cache
+            ~/AppData/Local/electron-builder/Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('apps/desktop/package.json') }}
+
+      - name: Install
+        run: bun install --frozen-lockfile
+
+      - name: Build web (standalone)
+        run: bun run --filter web build
+        env:
+          NODE_ENV: production
+
+      - name: Build installers
+        shell: bash
+        working-directory: apps/desktop
+        env:
+          # macOS signing + notarization (optional)
+          CSC_LINK: ${{ secrets.CSC_LINK }}
+          CSC_KEY_PASSWORD: ${{ secrets.CSC_KEY_PASSWORD }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          # Windows signing (optional)
+          WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        # scripts/dist.mjs drops empty secrets, builds unsigned (CSC_IDENTITY_AUTO_DISCOVERY=false)
+        # when no certificate is configured, notarizes only when all APPLE_* are set, and
+        # writes latest*.yml for GITHUB_REPOSITORY. It never uploads anything itself.
+        run: |
+          bun run build
+          node scripts/prepare-web.mjs
+          node scripts/dist.mjs
+
+      - name: Upload installers
+        uses: actions/upload-artifact@v4
+        with:
+          name: kavero-desktop-${{ runner.os }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.AppImage
+            apps/desktop/release/*.deb
+            apps/desktop/release/*.blockmap
+            apps/desktop/release/latest*.yml
+
+  release:
+    name: GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          pattern: kavero-desktop-*
+          merge-multiple: true
+
+      - name: Create or update release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: Kavero ${{ github.ref_name }}
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
+          files: installers/*

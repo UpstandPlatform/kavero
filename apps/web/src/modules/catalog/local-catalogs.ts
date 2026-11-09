@@ -8,7 +8,7 @@ import {
   type CatalogRepository,
   type CatalogSummary,
 } from "@Kavero/local-storage";
-import { createFromTemplate, createCatalog, duplicateCatalogWithAssets, type CreateCatalogInput } from "@Kavero/catalog-engine";
+import { createFromTemplate, createCatalog, duplicateCatalogWithAssets, safeFileName, type CreateCatalogInput } from "@Kavero/catalog-engine";
 import { useCallback, useEffect, useState } from "react";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { slideThumbnail } from "./thumbnail";
@@ -106,7 +106,7 @@ export async function downloadProjectFile(id: string, title: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
-  a.download = `${title.replace(/[^\w\- ]+/g, "").trim().replace(/\s+/g, "-").toLowerCase() || "catalog"}${KAVERO_FILE_EXTENSION}`;
+  a.download = safeFileName(title, KAVERO_FILE_EXTENSION);
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }

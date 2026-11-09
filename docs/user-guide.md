@@ -1,0 +1,183 @@
+# Using Kavero
+
+Kavero turns product information into designed, animated catalogs and presentations. One catalog can be exported as PDF, PowerPoint or MP4 video, and published as an animated website.
+
+- [Getting started](#getting-started)
+- [Creating a catalog](#creating-a-catalog)
+- [The editor](#the-editor)
+- [Text, fonts and right-to-left languages](#text-fonts-and-right-to-left-languages)
+- [Products](#products)
+- [Images and HTML blocks](#images-and-html-blocks)
+- [Animations and transitions](#animations-and-transitions)
+- [Preview and export](#preview-and-export)
+- [Cloud sync, conflicts and workspaces](#cloud-sync-conflicts-and-workspaces)
+- [Publishing a website](#publishing-a-website)
+- [Settings](#settings)
+- [Keyboard shortcuts](#keyboard-shortcuts)
+- [Troubleshooting](#troubleshooting)
+
+For AI agents and the MCP server, see [mcp.md](mcp.md). For hosting your own Kavero, see [deployment.md](deployment.md).
+
+## Getting started
+
+Open Kavero (locally `http://localhost:3001`) and click **Open the editor**. You don't need an account: catalogs are saved in your browser (IndexedDB) as you work.
+
+Sign in when you want to:
+
+- sync catalogs across devices and keep version history,
+- publish websites,
+- share catalogs with a team (workspaces),
+- use AI with a configured model, connect product sources, or let AI agents work through MCP.
+
+## Creating a catalog
+
+On the dashboard:
+
+- **New catalog** — choose a title, page size (16:9, 4:3, A4 portrait/landscape, US Letter, square), language, currency and a starting point: blank or one of 12 templates (general, fashion, jewelry, electronics, furniture, cosmetics, food, real estate, industrial, automotive).
+- **Generate with AI** — describe the catalog ("autumn lookbook for wholesale buyers"), choose a style or let Kavero pick, and add products by pasting a list or pulling them from a connected MCP source. You see every slide before anything is created. Without an AI model configured, Kavero's built-in planner arranges your products.
+- **Import** — open a `.kavero` project file.
+
+Paste products one per line as `name, price, category, image URL`:
+
+```text
+Weekender Bag, 640, Bags, https://example.com/bag.jpg
+Card Holder, 85, Small leather goods
+```
+
+Each catalog card has a menu: rename, duplicate, export a `.kavero` file, save to cloud, delete.
+
+## The editor
+
+| Area | What it does |
+| --- | --- |
+| Top bar | Title, save status, cloud status, undo/redo, **AI**, **Export**, **Publish**, **Preview** |
+| Toolbar | Add heading, text, rectangle, ellipse, line, image, product, product grid, HTML block, or **Import products** |
+| Slides / Layers (left) | **Slides**: thumbnails; add, duplicate, rename, delete and reorder. **Layers**: every element on the current slide, top layer first |
+| Canvas | Select, drag, resize (corners/edges), rotate (top handle); drag on empty space to select several |
+| Properties (right) | Everything about the selection, or the slide and theme when nothing is selected |
+
+- Snapping guides appear when edges or centers line up with the slide or other elements; hold **Alt** to move freely, **Shift** to lock to one axis.
+- Several selected elements can be aligned, distributed and grouped. Clicking a grouped element selects the whole group.
+- Each element can be locked, hidden, reordered (front/back) and given an opacity.
+- **Right-click** anything for its menu: elements (cut, copy, paste, duplicate, delete, copy/paste style, order, align, lock, hide, rename, select all of a type), empty canvas (paste here, select all, add slide) and slide thumbnails (duplicate, copy/paste slide, rename, move, delete). Menus work with the arrow keys too.
+- Copy and paste work between catalogs and browser tabs. Pasting an image or text copied from another app adds it to the slide.
+
+### Layers
+
+Open the **Layers** tab in the left sidebar to see every element on the slide, top first.
+
+- Click to select; **Ctrl/⌘-click** to add or remove; **Shift-click** to select a range.
+- Hover a layer for its **eye** (hide/show), **lock** and **delete** buttons. Hidden and locked layers keep their icons visible.
+- **Double-click** a name to rename it. Drag layers to change the stacking order.
+- Right-click a layer for the same menu as on the canvas.
+- Changes save automatically in your browser. **Undo/redo** covers every change, including AI edits.
+- **Theme colors** (shown when nothing is selected) recolor every element that uses them. Prefer theme colors over fixed ones so a catalog can be restyled in one place.
+
+### Edit with AI
+
+Click **AI** in the top bar, describe the change ("make this slide more minimal", "add a tagline", "change the theme to dark luxury") and click **Suggest changes**. You get a summary and a before/after preview; nothing changes until you click **Apply**, and it's one undo step. AI editing needs an account and an AI model — your own key (Settings → AI) or the server's.
+
+## Text, fonts and right-to-left languages
+
+- Double-click text on the slide to edit it; **Esc** or clicking away finishes.
+- Properties: font, size, weight, line height, letter spacing, color, alignment, italic, underline.
+- **Fonts**: theme heading/body fonts, popular web fonts, or **From this computer…** to use an installed font (Chrome/Edge can list them) or upload `.ttf/.otf/.woff/.woff2` files. Fonts you add are stored inside the catalog so previews and exports look the same on any machine. Only use fonts whose license allows embedding.
+- **Right-to-left**: set the catalog language to Persian, Arabic, Hebrew or Urdu and the catalog becomes right-to-left. Alignment uses **start/end**, so "start" means right in an RTL catalog.
+- **Direction** (text properties) is **Automatic** by default: each paragraph follows its own first letter, so mixed lines like `شیر توپی (UPVC)` display correctly. Set **Left to right** for a text box that holds a phone number, code or URL inside an RTL slide. Don't paste invisible bidi control characters; they're not needed.
+
+## Products
+
+- Products belong to the catalog. Add them in a product card's properties, by pasting a list in **Generate with AI**, or with **Import products** from a connected MCP source (with images).
+- **Product card**: one product. **Product grid**: several; set the number of columns.
+- Card options: show price, description and specs (attributes), and photo fit: **Show whole photo** (default) or **Fill and crop**.
+- Prices are formatted for the catalog's language and currency.
+
+## Images and HTML blocks
+
+- **Image**: upload a picture (fill/fit/stretch, rounded corners, grayscale, alt text). Identical files are stored once.
+- **HTML block**: write your own HTML and CSS for anything the built-in elements can't do. Theme colors are available as CSS variables (`var(--kv-primary)`, `var(--kv-heading)`). Scripts, forms and embedded frames are removed and the block runs in a sandbox, so it can style but never run code. Images inside must use https or data URLs.
+
+## Animations and transitions
+
+- **Element animations** (properties → Animation): entrance, emphasis or exit with effects fade, slide, scale, bounce, rotate, blur, float, pulse. Choose when it starts — **with the slide**, **after the previous animation**, or **with the previous** — and its duration and delay.
+- **Slide transitions** (slide properties): none, fade, slide, push, zoom, wipe, flip, with duration and direction. **Duration** sets how long the slide stays on screen in playback and video.
+- Animations play in Preview, on published websites and in MP4 exports exactly the same way. PDF shows the finished state; PowerPoint export keeps the content but not the motion.
+
+## Preview and export
+
+- **Preview** plays the catalog from the current slide (Space pauses, arrows change slides, Esc closes).
+- **Export**:
+  - **PDF** (optionally with page numbers) — one page per slide, selectable text.
+  - **PowerPoint** — text, shapes and images stay editable; you're told what can't be carried over (transitions, HTML styling, embedded fonts).
+  - **Video (MP4)** — 720p to 4K at 24/30/60 fps, rendered frame by frame on the server.
+  - **Kavero project file** — the whole catalog with its images and fonts, for backup or moving between browsers.
+- PDF and video need Chrome (or Chromium) on the machine running the Kavero server.
+
+## Cloud sync, conflicts and workspaces
+
+- Signed in, a catalog's menu offers **Save to my cloud** or **Save to *workspace***. After that it syncs automatically a few seconds after you stop editing. Badges: **Local**, **Synced**, **Changed** (edits not uploaded yet), **Conflict**, **Sign in to sync**.
+- Opening the dashboard or a catalog pulls a newer cloud version (from another device, or from an AI agent) when you have no unsynced edits.
+- **Conflicts** (changed in two places): choose **Keep both** (your version becomes a separate catalog), **Keep this browser's version** or **Use the cloud version**. Nothing is overwritten without your choice.
+- Catalogs only in your cloud appear under **In your cloud, not in this browser**; **Open** downloads and opens them.
+- **Workspaces** (Settings → Workspaces) share catalogs with a team:
+
+| Role | Can |
+| --- | --- |
+| Owner | Everything, including deleting the workspace |
+| Admin | Manage members, publish and delete catalogs |
+| Editor | Create and edit catalogs |
+| Viewer | View and preview catalogs |
+
+Invite by email: Kavero creates a link you send yourself; only that email address can accept it within 7 days.
+
+## Publishing a website
+
+**Publish** (top bar) saves the latest version to the cloud, then lets you choose:
+
+- the address (`/c/your-name`),
+- who can see it: **Public** (indexed by search engines), **Unlisted** (anyone with the link), **Password**, or **Private** (you and workspace members),
+- a search title and description; the first slide becomes the link preview image.
+
+The website shows the version you published. Later edits stay private until you click **Update**. The dialog shows views for the last 30 days. Visitors can use arrow keys, click/tap either side, swipe, press F for full screen, or link to a slide with `#3`.
+
+## Settings
+
+- **Workspaces** — create, invite, change roles, leave or delete.
+- **API tokens & AI agents** — tokens for MCP clients, with permissions and expiry; shown once. Includes a ready-to-paste MCP client config.
+- **MCP connections** — product sources (Streamable HTTP or SSE, with bearer or header auth). Credentials are encrypted.
+- **AI** — connect your own model: **Claude** (Anthropic API key), **OpenRouter** (key plus any model id from openrouter.ai/models), **OpenAI**, or an **OpenAI-compatible server** such as Ollama or LM Studio. **Save and test** checks the connection. The key is encrypted on the server and never shown again (only its last 4 characters). Your key is used for generation, AI edits and the MCP `catalog_generate` tool, in preference to the server's key. Also shows your generation history.
+- **Activity** — audit log of API and agent actions.
+
+## Keyboard shortcuts
+
+Press **?** in the editor (or the keyboard button in the toolbar) for the full list. Ctrl on Windows/Linux is ⌘ on macOS.
+
+| Keys | Action |
+| --- | --- |
+| Ctrl Z, Ctrl Shift Z (or Ctrl Y) | Undo, redo |
+| Ctrl C, X, V | Copy, cut, paste (also images and text from other apps) |
+| Ctrl D | Duplicate selection |
+| Ctrl Alt C, Ctrl Alt V | Copy style, paste style |
+| Delete / Backspace | Delete selection |
+| Ctrl A | Select all on the slide |
+| Tab, Shift Tab | Select next / previous element |
+| Esc | Deselect; close menus and dialogs |
+| Ctrl G, Ctrl Shift G | Group, ungroup |
+| Ctrl ], Ctrl [ | Bring forward, send backward |
+| Ctrl Shift ], Ctrl Shift [ | Bring to front, send to back |
+| Ctrl Shift L, Ctrl Shift H | Lock / unlock, hide / show |
+| Alt A / H / D | Align left / center / right |
+| Alt W / V / S | Align top / middle / bottom |
+| Arrow keys (Shift = 10 px) | Nudge selection; with nothing selected, previous/next slide |
+| Page Up / Page Down | Previous / next slide |
+| Ctrl M, Ctrl Shift D | New slide, duplicate slide |
+| Ctrl + / Ctrl − / Ctrl 0 | Zoom in, out, fit |
+| Double-click text | Edit text |
+
+## Troubleshooting
+
+- **Signed out unexpectedly** — sessions survive server restarts, but cookies belong to one host: `localhost:3001` and `127.0.0.1:3001` are different sites to the browser. Always use the address in `BETTER_AUTH_URL`.
+- **"Sign in to sync" badge** — the catalog is linked to a cloud copy but you're signed out, so Kavero can't check for newer versions.
+- **Fonts look different in an export** — use theme fonts, web fonts or fonts added to the catalog; system fonts on your computer may not exist on the server.
+- **PDF or video export fails** — Chrome or Chromium must be installed on the server (set `KAVERO_CHROME_PATH` if it's in an unusual place).
+- **Mixed Persian/English text in the wrong order** — leave Direction on Automatic; use Left to right only for phone numbers and codes.

@@ -2,7 +2,7 @@ import { frameAt, transitionStyles, type Timeline } from "@Kavero/animation-engi
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import type { CSSProperties } from "react";
 
-import { embeddedFamilies, fontFaceCss, googleFontsUrl, usedFonts } from "./fonts";
+import { fontFaceCss, googleFontsUrls } from "./fonts";
 import { SlideView, type AssetResolver } from "./slide-view";
 
 /**
@@ -40,11 +40,11 @@ export function FrameView({ doc, timeline, timeMs, scale = 1, resolveAsset }: {
 
 /** Loads Google fonts and embedded font files for a catalog. Render once per page. */
 export function CatalogFonts({ doc, resolveAsset }: { doc: CatalogDocument; resolveAsset?: AssetResolver }) {
-  const google = googleFontsUrl(usedFonts(doc), embeddedFamilies(doc));
+  const google = googleFontsUrls(doc);
   const faces = fontFaceCss(doc, resolveAsset ?? (() => undefined));
   return (
     <>
-      {google && <link rel="stylesheet" href={google} />}
+      {google.map((href) => <link key={href} rel="stylesheet" href={href} />)}
       {faces && <style>{faces}</style>}
     </>
   );

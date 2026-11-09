@@ -121,7 +121,7 @@ export function FontPicker({ onAdd, onPick, onClose }: { onAdd: AddFont; onPick:
           <>
             <div className="relative border-b px-4 py-2">
               <Search className="pointer-events-none absolute top-1/2 left-6 size-3.5 -translate-y-1/2 text-muted-foreground" />
-              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search fonts" autoFocus className="h-8 w-full border border-input bg-transparent pr-2 pl-7 text-xs outline-none" />
+              <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search fonts" autoFocus className="h-8 w-full rounded-lg border border-input bg-transparent pr-2 pl-7 text-xs outline-none" />
             </div>
             <ul className="min-h-0 flex-1 overflow-y-auto py-1">
               {error && <li className="px-4 py-3 text-xs text-destructive">{error} {error.includes("blocked") || error.includes("shared") ? <button className="underline" onClick={() => { setError(null); void loadLocal(); }}>Try again</button> : null}</li>}

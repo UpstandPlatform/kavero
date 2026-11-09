@@ -2,7 +2,7 @@
 
 import { buildTimeline, type Timeline } from "@Kavero/animation-engine";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
-import { CatalogFonts, FrameView, SlideView } from "@Kavero/renderer";
+import { CatalogFonts, FrameView, SlideView, usedWeights } from "@Kavero/renderer";
 import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
@@ -17,11 +17,11 @@ const nextPaint = () => new Promise<void>((r) => requestAnimationFrame(() => req
 async function loadFonts(doc: CatalogDocument) {
   const links = [...document.querySelectorAll<HTMLLinkElement>('link[rel="stylesheet"]')].filter((l) => !l.sheet);
   await Promise.all(links.map((l) => new Promise((r) => { l.addEventListener("load", r, { once: true }); l.addEventListener("error", r, { once: true }); setTimeout(r, 5000); })));
-  const families = new Set(Object.values(doc.theme.fonts));
-  for (const s of doc.slides) for (const e of s.elements) if (e.type === "text" && !e.style.fontFamily.startsWith("token:")) families.add(e.style.fontFamily);
+  // Exactly the weights the catalog uses (e.g. 800 headings), so no frame captures a fallback font.
   await Promise.all(
-    [...families].flatMap((f) => ["400", "700", "italic 400"].map((w) => document.fonts.load(`${w} 16px "${f.replace(/"/g, "")}"`).catch(() => undefined))),
+    [...usedWeights(doc)].flatMap(([f, weights]) => [...weights.map(String), "italic 400"].map((w) => document.fonts.load(`${w} 16px "${f.replace(/"/g, "")}"`).catch(() => undefined))),
   );
+  await document.fonts.ready;
 }
 
 /** Wait for fonts, images and HTML-block iframes in the current frame to finish loading. */

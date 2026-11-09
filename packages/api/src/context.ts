@@ -15,4 +15,6 @@ export type Context = {
   allowLocalUrls?: boolean;
   /** Configured LLM provider, or null for the offline planner only. */
   ai?: LlmProvider | null;
+  /** Public origin of the app (for provider attribution headers). */
+  appUrl?: string;
 };

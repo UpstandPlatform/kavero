@@ -70,7 +70,10 @@ export const textStyleSchema = z.object({
   fontWeight: z.number().int().min(100).max(900).default(400),
   lineHeight: z.number().positive().default(1.3),
   letterSpacing: z.number().default(0),
-  align: z.enum(["left", "center", "right", "justify"]).default("left"),
+  /** "start"/"end" follow the text direction (right in RTL catalogs). */
+  align: z.enum(["start", "end", "left", "center", "right", "justify"]).default("start"),
+  /** "auto" picks the direction per paragraph from its first strong character; force "ltr" for e.g. phone numbers in RTL text. */
+  direction: z.enum(["auto", "ltr", "rtl"]).default("auto"),
   color: color.default("token:text"),
   decoration: z.enum(["none", "underline", "line-through"]).default("none"),
   italic: z.boolean().default(false),
@@ -133,6 +136,10 @@ const cardStyle = z.object({
   showDescription: z.boolean().default(true),
   background: color.optional(),
   borderRadius: z.number().min(0).default(8),
+  /** How product photos fit their box: "contain" shows the whole photo, "cover" fills and crops. */
+  imageFit: z.enum(["contain", "cover"]).default("contain"),
+  /** Show product attributes (specs) as a small list. */
+  showAttributes: z.boolean().default(false),
 });
 
 export const productElementSchema = z.object({

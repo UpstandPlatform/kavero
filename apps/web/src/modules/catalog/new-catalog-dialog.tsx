@@ -61,13 +61,13 @@ export function NewCatalogDialog({ open, onClose, onCreate }: { open: boolean; o
     }
   }
 
-  const select = "h-8 w-full border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring";
+  const select = "h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring";
 
   return (
     <dialog
       ref={ref}
       onClose={onClose}
-      className="m-auto w-[min(640px,calc(100vw-32px))] border bg-background p-0 text-foreground backdrop:bg-black/50"
+      className="m-auto w-[min(640px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50"
     >
       <form onSubmit={submit} className="flex max-h-[85vh] flex-col">
         <div className="flex items-center justify-between border-b px-5 py-3">

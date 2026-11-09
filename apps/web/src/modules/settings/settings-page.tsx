@@ -10,6 +10,7 @@ import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { makeTRPCClient } from "@/utils/trpc";
 
+import { AiTab } from "./ai-tab";
 import { WorkspacesTab } from "./workspaces-tab";
 
 let client: ReturnType<typeof makeTRPCClient> | null = null;
@@ -20,6 +21,14 @@ type Tab = "workspaces" | "tokens" | "connections" | "ai" | "activity";
 export function SettingsPage() {
   const { data: session, isPending } = authClient.useSession();
   const [tab, setTab] = useState<Tab>(() => (typeof window !== "undefined" && (["workspaces", "tokens", "connections", "ai", "activity"] as const).find((t) => window.location.hash === `#${t}`)) || "workspaces");
+  useEffect(() => {
+    const onHash = () => {
+      const t = (["workspaces", "tokens", "connections", "ai", "activity"] as const).find((x) => window.location.hash === `#${x}`);
+      if (t) setTab(t);
+    };
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, []);
   if (isPending) return <p className="p-8 text-sm text-muted-foreground">Loading…</p>;
   if (!session) {
     return (
@@ -45,7 +54,7 @@ export function SettingsPage() {
             key={t.id}
             role="tab"
             aria-selected={tab === t.id}
-            onClick={() => setTab(t.id)}
+            onClick={() => { setTab(t.id); history.replaceState(null, "", `#${t.id}`); }}
             className="-mb-px inline-flex items-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground aria-selected:border-foreground aria-selected:text-foreground [&_svg]:size-4"
           >
             {t.icon} {t.label}
@@ -118,7 +127,7 @@ function TokensTab() {
           <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
             <label className="grid gap-1 text-xs">Name<Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} /></label>
             <label className="grid gap-1 text-xs">Expires
-              <select value={expires} onChange={(e) => setExpires(e.target.value)} className="h-8 border border-input bg-transparent px-2 text-xs">
+              <select value={expires} onChange={(e) => setExpires(e.target.value)} className="h-8 rounded-lg border border-input bg-transparent px-2 text-xs">
                 <option value="30">in 30 days</option><option value="90">in 90 days</option><option value="365">in a year</option><option value="">never</option>
               </select>
             </label>
@@ -200,7 +209,7 @@ function ConnectionsTab() {
     }
   }
 
-  const field = "h-8 w-full border border-input bg-transparent px-2 text-xs";
+  const field = "h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs";
   return (
     <div className="grid gap-8">
       <section className="grid gap-3">
@@ -297,41 +306,3 @@ function ActivityTab() {
   );
 }
 
-// ---------- AI ----------
-
-type AiRow = Awaited<ReturnType<ReturnType<typeof api>["ai"]["history"]["query"]>>[number];
-
-function AiTab() {
-  const [status, setStatus] = useState<{ configured: boolean; provider: string | null; model: string | null } | null>(null);
-  const [rows, setRows] = useState<AiRow[] | null>(null);
-  useEffect(() => {
-    void api().ai.status.query().then(setStatus);
-    void api().ai.history.query().then(setRows);
-  }, []);
-  return (
-    <div className="grid gap-6 text-xs">
-      <section className="grid gap-1 border p-4">
-        <p className="font-medium">{status?.configured ? `AI model: ${status.model} (${status.provider})` : "No AI model configured"}</p>
-        <p className="text-muted-foreground">
-          {status?.configured
-            ? "Generation and AI edits send your brief, product list and slide outline to this provider."
-            : "Catalog generation still works with Kavero’s built-in planner. To use a model, set ANTHROPIC_API_KEY (or AI_BASE_URL + AI_MODEL for a local OpenAI-compatible server such as Ollama) on the server and restart."}
-        </p>
-      </section>
-      <section>
-        <h2 className="mb-2 text-sm font-semibold">History</h2>
-        {!rows ? <p className="text-muted-foreground">Loading…</p> : !rows.length ? <p className="text-muted-foreground">Nothing yet.</p> : (
-          <ul className="divide-y border">
-            {rows.map((r) => (
-              <li key={r.id} className="grid gap-0.5 p-3">
-                <p><span className="font-medium capitalize">{r.kind}</span> <span className="text-muted-foreground">· {new Date(r.createdAt).toLocaleString()} · {r.source === "offline" ? "built-in planner" : r.model ?? ""}</span></p>
-                <p className="truncate">{r.prompt || "(no brief)"}</p>
-                <p className={r.status === "ok" ? "text-muted-foreground" : "text-destructive"}>{r.status === "ok" ? r.summary : r.error}</p>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-    </div>
-  );
-}

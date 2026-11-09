@@ -62,3 +62,12 @@ test("products and assets", () => {
   editor.execute({ type: "asset.add", asset: { id: "ast_x", kind: "image", mimeType: "image/png", name: "x", uri: "local://ast_x" } });
   expect(editor.getDocument().assets).toHaveLength(1);
 });
+
+test("setZ moves an element to an exact layer", () => {
+  const editor = new Editor(createCatalog({ title: "T" }), { coalesceMs: 0 });
+  const slideId = editor.getState().activeSlideId;
+  const ids = [0, 1, 2].map(() => editor.execute({ type: "element.add", slideId, element: { type: "shape", position: pos, content: { shape: "rect" } } as never }).createdIds[0]!);
+  editor.execute({ type: "element.setZ", elementId: ids[2]!, index: 0 });
+  const order = [...editor.getDocument().slides[0]!.elements].sort((a, b) => a.zIndex - b.zIndex).map((e) => e.id);
+  expect(order).toEqual([ids[2]!, ids[0]!, ids[1]!]);
+});

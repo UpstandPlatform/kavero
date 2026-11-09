@@ -1,4 +1,4 @@
-import { resolveToken, type CatalogDocument, type CatalogElement, type Product } from "@Kavero/catalog-engine";
+import { documentDirection, resolveToken, type CatalogDocument, type CatalogElement, type Product } from "@Kavero/catalog-engine";
 import PptxGenJS from "pptxgenjs";
 
 /**
@@ -44,6 +44,12 @@ export function toHex(color: string | undefined, fallback = "000000"): string {
   return fallback;
 }
 
+/** First strong character decides direction (like CSS dir="auto"). */
+export function textIsRtl(text: string, fallback: boolean): boolean {
+  const m = /[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF]|[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.exec(text);
+  return m ? /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(m[0]) : fallback;
+}
+
 function htmlToText(html: string): string {
   return html
     .replace(/<(br|\/p|\/div|\/h[1-6]|\/li)\s*\/?>/gi, "\n")
@@ -63,6 +69,7 @@ export async function exportPptx<T = Blob>(doc: CatalogDocument, opts: PptxOptio
   if (doc.metadata.author) pptx.author = doc.metadata.author;
   pptx.company = "Kavero";
 
+  const docRtl = documentDirection(doc) === "rtl";
   const color = (v: string | undefined, fallback?: string) => toHex(v ? resolveToken(doc, v) : undefined, fallback);
   const font = (v: string) => resolveToken(doc, v, "fonts");
   const asset = (id: string | undefined) => (id ? opts.assets[id] : undefined);
@@ -105,7 +112,12 @@ export async function exportPptx<T = Blob>(doc: CatalogDocument, opts: PptxOptio
           fontFace: font(st.fontFamily),
           fontSize: pt(st.fontSize),
           color: color(st.color),
-          align: st.align,
+          ...(() => {
+            const plain = el.content.paragraphs.map((p) => p.map((r) => r.text).join("")).join(" ");
+            const rtl = st.direction === "rtl" || (st.direction === "auto" && textIsRtl(plain, docRtl));
+            const align = st.align === "start" ? (rtl ? "right" : "left") : st.align === "end" ? (rtl ? "left" : "right") : st.align;
+            return { align, rtlMode: rtl || undefined, lang: doc.metadata.language };
+          })(),
           valign: "top",
           lineSpacingMultiple: st.lineHeight,
           charSpacing: st.letterSpacing ? st.letterSpacing * 0.75 : undefined,

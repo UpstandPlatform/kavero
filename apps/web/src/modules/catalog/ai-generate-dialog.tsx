@@ -138,11 +138,11 @@ export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const field = "h-8 w-full border border-input bg-transparent px-2 text-xs";
+  const field = "h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs";
   const thumb = result ? 150 / result.document.settings.width : 0;
 
   return (
-    <dialog ref={ref} onClose={onClose} className="m-auto w-[min(820px,calc(100vw-32px))] border bg-background p-0 text-foreground backdrop:bg-black/50">
+    <dialog ref={ref} onClose={onClose} className="m-auto w-[min(820px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50">
       <div className="flex items-center justify-between border-b px-5 py-3">
         <h2 className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="size-4" /> Generate a catalog</h2>
         <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><X /></Button>
@@ -151,7 +151,7 @@ export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
         {!result ? (
           <>
             <label className="grid gap-1">Describe the catalog
-              <textarea ref={briefRef} className="h-24 w-full border border-input bg-transparent p-2 text-sm" value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000}
+              <textarea ref={briefRef} className="h-24 w-full rounded-lg border border-input bg-transparent p-2 text-sm" value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000}
                 placeholder="e.g. Autumn 2027 lookbook for our handmade leather goods: warm, premium, for wholesale buyers." />
             </label>
             <div className="grid gap-3 sm:grid-cols-4">
@@ -187,7 +187,7 @@ export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
               </div>
               {source === "paste" && (
                 <>
-                  <textarea className="h-28 w-full border border-input bg-transparent p-2 font-mono text-[11px]" value={pasted} onChange={(e) => setPasted(e.target.value)}
+                  <textarea className="h-28 w-full rounded-lg border border-input bg-transparent p-2 font-mono text-[11px]" value={pasted} onChange={(e) => setPasted(e.target.value)}
                     placeholder={"One product per line: name, price, category, image URL (optional)\nWeekender Bag, 640, Bags\nCard Holder, 85, Small leather goods"} />
                   <span className="text-muted-foreground">{products.length} product{products.length === 1 ? "" : "s"} recognised</span>
                 </>

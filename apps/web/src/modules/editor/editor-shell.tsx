@@ -5,22 +5,29 @@ import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { CatalogFonts, SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
 import {
-  ArrowLeft, Circle, Code2, Copy, Globe, PackagePlus, Play, Sparkles, ImagePlus, LayoutGrid, Minus, Plus, Redo2, Square, Tag, Trash2, Type, Undo2, ChevronUp, ChevronDown,
+  ArrowLeft, Circle, Code2, Copy, Globe, Keyboard, PackagePlus, Play, Sparkles, ImagePlus, LayoutGrid, Minus, Plus, Redo2, Square, Tag, Trash2, Type, Undo2, ChevronUp, ChevronDown,
 } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Canvas } from "./canvas";
 import type { AddFont } from "./font-picker";
 import { AiEditDialog } from "./ai-edit-dialog";
+import { ContextMenuProvider, useContextMenu } from "./context-menu";
+import { createActions, kbd } from "./editor-actions";
+import { slideMenu } from "./editor-menus";
 import { ExportMenu } from "./export-menu";
+import { LayersPanel } from "./layers-panel";
+import { ShortcutsDialog } from "./shortcuts-dialog";
+import { useEditorKeyboard } from "./use-editor-keyboard";
 import { ProductImportDialog } from "./product-import-dialog";
 import { PublishDialog } from "./publish-dialog";
 import { PreviewPlayer } from "./preview-player";
 import { PropertiesPanel } from "./properties-panel";
 import { authClient } from "@/lib/auth-client";
-import { refreshFromCloud } from "@/modules/catalog/cloud-sync";
+import { pullCatalog, refreshFromCloud } from "@/modules/catalog/cloud-sync";
+import { localCatalogs } from "@/modules/catalog/local-catalogs";
 
 import { useCatalogEditor, useEditorState, useRun, type SaveStatus } from "./use-catalog-editor";
 import { CLOUD_LABEL, useCloudAutoSync } from "./use-cloud-autosync";
@@ -35,7 +42,14 @@ export function CatalogEditorPage({ catalogId }: { catalogId: string }) {
     const userId = session?.user.id;
     if (!userId) return setReady(true);
     let cancelled = false;
-    refreshFromCloud(catalogId, userId)
+    (async () => {
+      // Opened from a link (e.g. an AI agent's editorUrl) and not in this browser yet: fetch it from the cloud.
+      if (!(await localCatalogs().get(catalogId))) {
+        await pullCatalog(catalogId, userId).then(() => toast.success("Downloaded from your cloud"), () => undefined);
+        return "current" as const;
+      }
+      return refreshFromCloud(catalogId, userId);
+    })()
       .then((r) => {
         if (r === "pulled") toast.success("Loaded the latest version from the cloud");
         if (r === "conflict") toast.warning("This catalog also changed in the cloud. Resolve it from the dashboard with Sync now.");
@@ -63,7 +77,7 @@ function LoadedEditor({ catalogId, userId }: { catalogId: string; userId: string
     );
   }
   if (!editor) return <p className="p-8 text-sm text-muted-foreground">Opening catalog…</p>;
-  return <EditorShell editor={editor} assetUrls={assetUrls} saveStatus={saveStatus} cloudLabel={CLOUD_LABEL[cloudStatus]} uploadImage={uploadImage} uploadFont={uploadFont} />;
+  return <ContextMenuProvider><EditorShell editor={editor} assetUrls={assetUrls} saveStatus={saveStatus} cloudLabel={CLOUD_LABEL[cloudStatus]} uploadImage={uploadImage} uploadFont={uploadFont} /></ContextMenuProvider>;
 }
 
 const SAVE_LABEL: Record<SaveStatus, string> = { saved: "Saved", saving: "Saving…", unsaved: "Unsaved changes", error: "Save failed" };
@@ -83,7 +97,6 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
   const slide = doc.slides[slideIndex]!;
   const [zoom, setZoom] = useState<number | "fit">("fit");
   const [fitScale, setFitScale] = useState(0.5);
-  const clipboard = useRef<CatalogElement[]>([]);
   const fileInput = useRef<HTMLInputElement>(null);
   const { width: W, height: H } = doc.settings;
 
@@ -120,69 +133,17 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
     }
   }
 
-  // Keyboard shortcuts.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      const t = e.target as HTMLElement;
-      if (t.closest("input, textarea, select, [contenteditable=true]")) return;
-      const mod = e.metaKey || e.ctrlKey;
-      const sel = editor.getState().selection;
-      const cur = editor.getDocument().slides.find((s) => s.id === editor.getState().activeSlideId);
-      if (!cur) return;
-      const selected = cur.elements.filter((x) => sel.includes(x.id));
-      const k = e.key.toLowerCase();
-
-      if (mod && k === "z") { e.preventDefault(); e.shiftKey ? editor.redo() : editor.undo(); return; }
-      if (mod && k === "y") { e.preventDefault(); editor.redo(); return; }
-      if (mod && k === "a") { e.preventDefault(); editor.select(cur.elements.filter((x) => !x.hidden).map((x) => x.id)); return; }
-      if (e.key === "Escape") { editor.select([]); return; }
-      if (!selected.length) {
-        if (e.key === "ArrowDown" || e.key === "PageDown") { const n = editor.getDocument().slides[slideIndex + 1]; if (n) { e.preventDefault(); editor.setActiveSlide(n.id); } }
-        if (e.key === "ArrowUp" || e.key === "PageUp") { const p = editor.getDocument().slides[slideIndex - 1]; if (p) { e.preventDefault(); editor.setActiveSlide(p.id); } }
-        if (mod && k === "v" && clipboard.current.length) paste();
-        return;
-      }
-      if (e.key === "Delete" || e.key === "Backspace") {
-        e.preventDefault();
-        run({ type: "batch", commands: selected.map((x) => ({ type: "element.delete" as const, elementId: x.id })) });
-        return;
-      }
-      if (e.key.startsWith("Arrow")) {
-        e.preventDefault();
-        const step = e.shiftKey ? 10 : 1;
-        const [dx, dy] = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key as "ArrowLeft"]!;
-        run({ type: "batch", commands: selected.filter((x) => !x.locked).map((x) => ({ type: "element.move" as const, elementId: x.id, position: { x: x.position.x + dx, y: x.position.y + dy } })) });
-        return;
-      }
-      if (mod && k === "c") { clipboard.current = structuredClone(selected); return; }
-      if (mod && k === "x") { clipboard.current = structuredClone(selected); run({ type: "batch", commands: selected.map((x) => ({ type: "element.delete" as const, elementId: x.id })) }); return; }
-      if (mod && k === "v" && clipboard.current.length) { e.preventDefault(); paste(); return; }
-      if (mod && k === "d") { e.preventDefault(); clipboard.current = structuredClone(selected); paste(); return; }
-      if (mod && k === "g") {
-        e.preventDefault();
-        const g = selected[0]?.groupId;
-        if (e.shiftKey && g) run({ type: "element.ungroup", groupId: g });
-        else if (selected.length > 1) run({ type: "element.group", elementIds: selected.map((x) => x.id) });
-      }
-    };
-    function paste() {
-      const commands: EditorCommand[] = clipboard.current.map((x) => {
-        const { id: _id, groupId: _g, ...rest } = x;
-        return { type: "element.add", slideId: editor.getState().activeSlideId, element: { ...rest, position: { ...x.position, x: x.position.x + 20, y: x.position.y + 20 } } as NewElement };
-      });
-      const r = run({ type: "batch", commands });
-      if (r) {
-        editor.select(r.createdIds);
-        clipboard.current = clipboard.current.map((x) => ({ ...x, position: { ...x.position, x: x.position.x + 20, y: x.position.y + 20 } }));
-      }
-    }
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-  }, [editor, run, slideIndex]);
+  const actions = useMemo(() => createActions({ editor, run, uploadImage }), [editor, run, uploadImage]);
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [sidebar, setSidebar] = useState<"slides" | "layers">("slides");
+  const [renamingSlide, setRenamingSlide] = useState<string | null>(null);
+  const openMenu = useContextMenu();
 
   const onFitScale = useCallback((s: number) => setFitScale(s), []);
   const scale = zoom === "fit" ? fitScale : zoom;
-  const zoomBy = (f: number) => setZoom(Math.min(4, Math.max(0.1, Math.round(scale * f * 100) / 100)));
+  const zoomBy = useCallback((f: number) => setZoom((z) => Math.min(4, Math.max(0.1, Math.round((z === "fit" ? fitScale : z) * f * 100) / 100))), [fitScale]);
+  const view = useMemo(() => ({ zoomIn: () => zoomBy(1.25), zoomOut: () => zoomBy(0.8), zoomFit: () => setZoom("fit"), showShortcuts: () => setShortcutsOpen(true) }), [zoomBy]);
+  useEditorKeyboard(editor, actions, view);
   const [listWidth, setListWidth] = useState(176);
   const listRef = useCallback((node: HTMLOListElement | null) => {
     if (!node) return;
@@ -230,28 +191,45 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
         <div className="ml-auto flex shrink-0 items-center gap-1 text-xs">
           <Button variant="ghost" size="icon-sm" title="Zoom out" onClick={() => zoomBy(0.8)}><Minus /></Button>
           <button type="button" className="w-12 text-center tabular-nums hover:underline" title="Fit to window" onClick={() => setZoom("fit")}>{Math.round(scale * 100)}%</button>
-          <Button variant="ghost" size="icon-sm" title="Zoom in" onClick={() => zoomBy(1.25)}><Plus /></Button>
+          <Button variant="ghost" size="icon-sm" title={`Zoom in (${kbd("Ctrl+=")})`} onClick={() => zoomBy(1.25)}><Plus /></Button>
+          <Button variant="ghost" size="icon-sm" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}><Keyboard /></Button>
         </div>
       </div>
 
-      <div className="grid min-h-0 grid-cols-[clamp(120px,16vw,200px)_minmax(0,1fr)_clamp(220px,24vw,272px)]">
-        {/* Slide list */}
+      <div className="grid min-h-0 grid-cols-[clamp(140px,17vw,220px)_minmax(0,1fr)_clamp(220px,24vw,272px)]">
+        {/* Slides / Layers */}
         <aside className="flex min-h-0 flex-col border-r">
-          <div className="flex items-center justify-between px-3 py-2">
-            <span className="text-xs font-semibold">Slides</span>
-            <Button variant="ghost" size="icon-sm" title="Add slide" onClick={() => { const r = run({ type: "slide.add", slide: createBlankSlide(`Slide ${doc.slides.length + 1}`), index: slideIndex + 1 }); if (r?.createdIds[0]) editor.setActiveSlide(r.createdIds[0]); }}><Plus /></Button>
+          <div className="flex items-center gap-1 px-2 py-2" role="tablist" aria-label="Sidebar">
+            {(["slides", "layers"] as const).map((t) => (
+              <button key={t} type="button" role="tab" aria-selected={sidebar === t} onClick={() => setSidebar(t)}
+                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground capitalize aria-selected:bg-muted aria-selected:text-foreground">
+                {t}{t === "layers" ? ` (${slide.elements.length})` : ""}
+              </button>
+            ))}
+            {sidebar === "slides" && <Button variant="ghost" size="icon-sm" className="ml-auto" title={`Add slide (${kbd("Ctrl+M")})`} onClick={() => actions.addSlide()}><Plus /></Button>}
           </div>
+          {sidebar === "layers" ? (
+            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+              <LayersPanel editor={editor} slide={slide} selection={state.selection} actions={actions} />
+            </div>
+          ) : (
           <ol ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pb-3">
             {doc.slides.map((s, i) => (
-              <li key={s.id} className="group">
+              <li key={s.id} className="group" onContextMenu={(e) => { editor.setActiveSlide(s.id); openMenu(e, slideMenu(actions, s.id, i, doc.slides.length, () => setRenamingSlide(s.id))); }}>
                 <div className="mb-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                   <span className="tabular-nums">{i + 1}</span>
-                  <span className="truncate">{s.name}</span>
+                  {renamingSlide === s.id ? (
+                    <input autoFocus defaultValue={s.name} aria-label="Slide name" className="h-5 min-w-0 flex-1 rounded border border-input bg-background px-1 text-[11px] text-foreground outline-none"
+                      onBlur={(e) => { actions.renameSlide(s.id, e.target.value); setRenamingSlide(null); }}
+                      onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenamingSlide(null); }} />
+                  ) : (
+                    <span className="truncate" onDoubleClick={() => setRenamingSlide(s.id)}>{s.name}</span>
+                  )}
                   <span className="ml-auto hidden gap-0.5 group-hover:flex group-focus-within:flex">
-                    <button type="button" title="Move up" disabled={i === 0} onClick={() => run({ type: "slide.move", slideId: s.id, toIndex: i - 1 })} className="disabled:opacity-30"><ChevronUp className="size-3.5" /></button>
-                    <button type="button" title="Move down" disabled={i === doc.slides.length - 1} onClick={() => run({ type: "slide.move", slideId: s.id, toIndex: i + 1 })} className="disabled:opacity-30"><ChevronDown className="size-3.5" /></button>
-                    <button type="button" title="Duplicate slide" onClick={() => { const r = run({ type: "slide.duplicate", slideId: s.id }); if (r?.createdIds[0]) editor.setActiveSlide(r.createdIds[0]); }}><Copy className="size-3.5" /></button>
-                    <button type="button" title="Delete slide" disabled={doc.slides.length === 1} onClick={() => run({ type: "slide.delete", slideId: s.id })} className="disabled:opacity-30"><Trash2 className="size-3.5" /></button>
+                    <button type="button" title="Move up" disabled={i === 0} onClick={() => actions.moveSlide(s.id, i - 1)} className="disabled:opacity-30"><ChevronUp className="size-3.5" /></button>
+                    <button type="button" title="Move down" disabled={i === doc.slides.length - 1} onClick={() => actions.moveSlide(s.id, i + 1)} className="disabled:opacity-30"><ChevronDown className="size-3.5" /></button>
+                    <button type="button" title="Duplicate slide" onClick={() => actions.duplicateSlide(s.id)}><Copy className="size-3.5" /></button>
+                    <button type="button" title="Delete slide" disabled={doc.slides.length === 1} onClick={() => actions.deleteSlide(s.id)} className="disabled:opacity-30"><Trash2 className="size-3.5" /></button>
                   </span>
                 </div>
                 <button
@@ -259,18 +237,19 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
                   onClick={() => editor.setActiveSlide(s.id)}
                   aria-current={s.id === slide.id}
                   aria-label={`Slide ${i + 1}: ${s.name}`}
-                  className="block w-full ring-1 ring-border aria-current:ring-2 aria-current:ring-sky-500"
+                  className="block w-full overflow-hidden rounded-md ring-1 ring-border aria-current:ring-2 aria-current:ring-sky-500"
                 >
                   <SlideView doc={doc} slide={s} scale={thumbScale} mode="edit" resolveAsset={(id) => assetUrls[id]} />
                 </button>
               </li>
             ))}
           </ol>
+          )}
         </aside>
 
         {/* Canvas */}
         <main className="min-h-0 min-w-0">
-          <Canvas editor={editor} state={state} slide={slide} assetUrls={assetUrls} zoom={zoom} onFitScale={onFitScale} />
+          <Canvas editor={editor} state={state} slide={slide} assetUrls={assetUrls} zoom={zoom} onFitScale={onFitScale} actions={actions} />
         </main>
 
         {/* Properties */}
@@ -279,6 +258,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
         </aside>
       </div>
       <CatalogFonts doc={doc} resolveAsset={(id) => assetUrls[id]} />
+      {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
       {aiEditing && <AiEditDialog editor={editor} doc={doc} slideId={slide.id} assetUrls={assetUrls} onClose={() => setAiEditing(false)} />}
       {importing && <ProductImportDialog editor={editor} doc={doc} uploadImage={uploadImage} activeSlideIndex={slideIndex} onClose={() => setImporting(false)} />}
       {publishing && <PublishDialog doc={doc} onClose={() => setPublishing(false)} />}
