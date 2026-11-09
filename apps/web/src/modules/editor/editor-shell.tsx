@@ -5,7 +5,7 @@ import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { CatalogFonts, SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
 import {
-  ArrowLeft, Circle, Code2, Copy, Globe, Play, ImagePlus, LayoutGrid, Minus, Plus, Redo2, Square, Tag, Trash2, Type, Undo2, ChevronUp, ChevronDown,
+  ArrowLeft, Circle, Code2, Copy, Globe, PackagePlus, Play, ImagePlus, LayoutGrid, Minus, Plus, Redo2, Square, Tag, Trash2, Type, Undo2, ChevronUp, ChevronDown,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -14,18 +14,45 @@ import { toast } from "sonner";
 import { Canvas } from "./canvas";
 import type { AddFont } from "./font-picker";
 import { ExportMenu } from "./export-menu";
+import { ProductImportDialog } from "./product-import-dialog";
 import { PublishDialog } from "./publish-dialog";
 import { PreviewPlayer } from "./preview-player";
 import { PropertiesPanel } from "./properties-panel";
 import { authClient } from "@/lib/auth-client";
+import { refreshFromCloud } from "@/modules/catalog/cloud-sync";
 
 import { useCatalogEditor, useEditorState, useRun, type SaveStatus } from "./use-catalog-editor";
 import { CLOUD_LABEL, useCloudAutoSync } from "./use-cloud-autosync";
 
 export function CatalogEditorPage({ catalogId }: { catalogId: string }) {
+  const { data: session, isPending } = authClient.useSession();
+  const [ready, setReady] = useState(false);
+
+  // Before opening, pull a newer cloud version (e.g. edited by an AI agent over MCP).
+  useEffect(() => {
+    if (isPending) return;
+    const userId = session?.user.id;
+    if (!userId) return setReady(true);
+    let cancelled = false;
+    refreshFromCloud(catalogId, userId)
+      .then((r) => {
+        if (r === "pulled") toast.success("Loaded the latest version from the cloud");
+        if (r === "conflict") toast.warning("This catalog also changed in the cloud. Resolve it from the dashboard with Sync now.");
+      })
+      .catch(() => undefined)
+      .finally(() => !cancelled && setReady(true));
+    return () => {
+      cancelled = true;
+    };
+  }, [catalogId, session, isPending]);
+
+  if (!ready) return <p className="p-8 text-sm text-muted-foreground">Opening catalog…</p>;
+  return <LoadedEditor catalogId={catalogId} userId={session?.user.id ?? null} />;
+}
+
+function LoadedEditor({ catalogId, userId }: { catalogId: string; userId: string | null }) {
   const { editor, loadError, assetUrls, saveStatus, uploadImage, uploadFont } = useCatalogEditor(catalogId);
-  const { data: session } = authClient.useSession();
-  const cloudStatus = useCloudAutoSync(catalogId, session?.user.id ?? null, saveStatus);
+  const cloudStatus = useCloudAutoSync(catalogId, userId, saveStatus);
   if (loadError) {
     return (
       <div className="p-8">
@@ -61,6 +88,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
 
   const [previewing, setPreviewing] = useState<false | "play" | "export">(false);
   const [publishing, setPublishing] = useState(false);
+  const [importing, setImporting] = useState(false);
 
   /** Add an element centred on the slide and select it. */
   const addElement = useCallback(
@@ -195,6 +223,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
         <Button variant="ghost" size="sm" title="Product" aria-label="Product" onClick={() => addElement({ type: "product", content: { productId: doc.products[0]?.id ?? "none" }, size: [W * 0.22, H * 0.5] } as never)}><Tag /> <span className="hidden xl:inline">Product</span></Button>
         <Button variant="ghost" size="sm" title="Product grid" aria-label="Product grid" onClick={() => addElement({ type: "product-grid", content: { products: [], columns: 3 }, size: [W * 0.8, H * 0.6] } as never)}><LayoutGrid /> <span className="hidden xl:inline">Product grid</span></Button>
         <Button variant="ghost" size="sm" title="HTML block" aria-label="HTML block" onClick={() => addElement({ type: "html", content: { html: SAMPLE_HTML, css: SAMPLE_CSS }, size: [W * 0.4, H * 0.3] } as never)}><Code2 /> <span className="hidden xl:inline">HTML</span></Button>
+        <Button variant="ghost" size="sm" title="Import products from MCP" aria-label="Import products from MCP" onClick={() => setImporting(true)}><PackagePlus /> <span className="hidden xl:inline">Import products</span></Button>
         <div className="ml-auto flex shrink-0 items-center gap-1 text-xs">
           <Button variant="ghost" size="icon-sm" title="Zoom out" onClick={() => zoomBy(0.8)}><Minus /></Button>
           <button type="button" className="w-12 text-center tabular-nums hover:underline" title="Fit to window" onClick={() => setZoom("fit")}>{Math.round(scale * 100)}%</button>
@@ -247,6 +276,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
         </aside>
       </div>
       <CatalogFonts doc={doc} resolveAsset={(id) => assetUrls[id]} />
+      {importing && <ProductImportDialog editor={editor} doc={doc} uploadImage={uploadImage} activeSlideIndex={slideIndex} onClose={() => setImporting(false)} />}
       {publishing && <PublishDialog doc={doc} onClose={() => setPublishing(false)} />}
       {previewing && <PreviewPlayer doc={doc} startSlide={previewing === "export" ? 0 : slideIndex} openExport={previewing === "export"} assetUrls={assetUrls} onClose={() => setPreviewing(false)} />}
     </div>

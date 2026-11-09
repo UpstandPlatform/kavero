@@ -14,7 +14,7 @@ import { Skeleton } from "@Kavero/ui/components/skeleton";
 import { Cloud, CloudOff, CloudUpload, Copy, Download, HardDrive, RefreshCw, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { authClient } from "@/lib/auth-client";
@@ -28,7 +28,7 @@ import {
   renameLocalCatalog,
   useLocalCatalogs,
 } from "./local-catalogs";
-import { SyncConflictError, deleteCloudCopy, pushCatalog } from "./cloud-sync";
+import { SyncConflictError, deleteCloudCopy, listCloudCatalogs, pushCatalog, refreshFromCloud } from "./cloud-sync";
 import { CloudOnlyList, ConflictDialog } from "./cloud-ui";
 import { NewCatalogDialog } from "./new-catalog-dialog";
 
@@ -51,6 +51,29 @@ export function CatalogDashboard() {
   const [sort, setSort] = useState<Sort>("updated");
   const [creating, setCreating] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
+  const [conflicts, setConflicts] = useState<Set<string>>(new Set());
+  const refreshed = useRef(false);
+
+  // Pull catalogs that changed in the cloud (another device, or an AI agent via MCP).
+  useEffect(() => {
+    const userId = session?.user.id;
+    if (!userId || !catalogs || refreshed.current) return;
+    refreshed.current = true;
+    const linked = catalogs.filter((c) => c.cloud?.userId === userId);
+    if (!linked.length) return;
+    void listCloudCatalogs().then(async (cloud) => {
+      const rev = new Map(cloud.map((c) => [c.id, c.revision]));
+      const found = new Set<string>();
+      let pulled = 0;
+      for (const c of linked) {
+        const r = await refreshFromCloud(c.id, userId, rev.get(c.cloud!.id)).catch(() => "offline" as const);
+        if (r === "pulled") pulled++;
+        if (r === "conflict") found.add(c.id);
+      }
+      setConflicts(found);
+      if (pulled) toast.success(`Updated ${pulled} catalog${pulled === 1 ? "" : "s"} from the cloud`);
+    }, () => undefined);
+  }, [session, catalogs]);
 
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -138,7 +161,7 @@ export function CatalogDashboard() {
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {visible.map((c) => <CatalogCard key={c.id} catalog={c} userId={session?.user.id ?? null} />)}
+        {visible.map((c) => <CatalogCard key={c.id} catalog={c} userId={session?.user.id ?? null} cloudConflict={conflicts.has(c.id)} />)}
       </div>
 
       {session && catalogs && (
@@ -162,7 +185,7 @@ export function CatalogDashboard() {
   );
 }
 
-function CatalogCard({ catalog: c, userId }: { catalog: CatalogSummary; userId: string | null }) {
+function CatalogCard({ catalog: c, userId, cloudConflict = false }: { catalog: CatalogSummary; userId: string | null; cloudConflict?: boolean }) {
   const [renaming, setRenaming] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [syncing, setSyncing] = useState(false);
@@ -192,6 +215,8 @@ function CatalogCard({ catalog: c, userId }: { catalog: CatalogSummary; userId: 
     ? { icon: <HardDrive className="size-2.5" />, label: "Local", title: "Only in this browser" }
     : linkedElsewhere
       ? { icon: <CloudOff className="size-2.5" />, label: "Other account", title: "Linked to a different account" }
+      : cloudConflict
+        ? { icon: <CloudOff className="size-2.5 text-destructive" />, label: "Conflict", title: "Changed here and in the cloud. Use Sync now to choose a version." }
       : hasUnsyncedChanges(c)
         ? { icon: <CloudUpload className="size-2.5" />, label: "Changed", title: "Has edits not in the cloud yet" }
         : { icon: <Cloud className="size-2.5" />, label: "Synced", title: "Matches your cloud copy" };

@@ -1,6 +1,4 @@
 {
   "extends": "@Kavero/config/tsconfig.base.json",
-  "compilerOptions": {
-    "noEmit": true
-  }
+  "compilerOptions": { "noEmit": true, "types": ["node", "bun"] }
 }

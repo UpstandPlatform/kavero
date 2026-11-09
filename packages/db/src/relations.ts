@@ -7,4 +7,5 @@ export const relations = {
   ...schema.authRelations,
   ...schema.catalogRelations,
   ...schema.publicationRelations,
+  ...schema.integrationRelations,
 };

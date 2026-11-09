@@ -1,0 +1,27 @@
+{
+  "name": "@Kavero/mcp-server",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit",
+    "test": "bun test",
+    "e2e:store": "bun e2e/fake-store.ts",
+    "e2e": "bun e2e/scenario-c.ts"
+  },
+  "dependencies": {
+    "@Kavero/api": "workspace:*",
+    "@Kavero/catalog-engine": "workspace:*",
+    "@Kavero/db": "workspace:*",
+    "@Kavero/editor-core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.32.2",
+    "@trpc/server": "catalog:",
+    "zod": "catalog:"
+  },
+  "devDependencies": {
+    "@Kavero/config": "workspace:*",
+    "@types/bun": "^1.3.0",
+    "typescript": "catalog:"
+  }
+}

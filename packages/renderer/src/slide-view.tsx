@@ -201,7 +201,8 @@ export function ElementBody({ element: el }: { element: CatalogElement }) {
         ? products.map((r) => doc.products.find((p) => p.id === r.productId))
         : mode === "edit" ? Array.from({ length: columns }, () => undefined) : [];
       return (
-        <div style={{ ...fill, display: "grid", gridTemplateColumns: `repeat(${columns}, 1fr)`, gap: el.style.gap, alignContent: "start" }}>
+        // Rows share the element's height so cards (and their images) fill it.
+        <div style={{ ...fill, display: "grid", gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${Math.max(1, Math.ceil(items.length / columns))}, minmax(0, 1fr))`, gap: el.style.gap }}>
           {items.map((p, i) => <ProductCard key={i} product={p} style={el.style} />)}
         </div>
       );
@@ -243,7 +244,7 @@ function ProductCard({ product, style: s }: { product: Product | undefined; styl
       width: "100%", height: "100%", display: "flex", flexDirection: horizontal ? "row" : "column", overflow: "hidden",
       borderRadius: s.borderRadius, background: s.background ? resolveToken(doc, s.background) : "transparent", gap: 12,
     }}>
-      <div style={{ flex: horizontal ? "0 0 45%" : "1 1 auto", minHeight: 0, background: "rgba(127,127,127,0.12)", borderRadius: s.borderRadius, overflow: "hidden" }}>
+      <div style={{ flex: horizontal ? "0 0 45%" : "1 1 0", minHeight: 0, background: "rgba(127,127,127,0.12)", borderRadius: s.borderRadius, overflow: "hidden" }}>
         {/* eslint-disable-next-line @next/next/no-img-element */}
         {img && <img src={img} alt={product.name} draggable={false} style={{ width: "100%", height: "100%", objectFit: "cover", display: "block" }} />}
       </div>

@@ -6,12 +6,15 @@
     "./*": "./src/*.ts"
   },
   "scripts": {
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@Kavero/auth": "workspace:*",
     "@Kavero/catalog-engine": "workspace:*",
     "@Kavero/db": "workspace:*",
+    "@Kavero/editor-core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",
     "drizzle-orm": "catalog:",
@@ -19,6 +22,7 @@
   },
   "devDependencies": {
     "@Kavero/config": "workspace:*",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "@types/bun": "^1.3.0"
   }
 }

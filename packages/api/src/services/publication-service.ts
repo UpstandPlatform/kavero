@@ -79,7 +79,17 @@ export class PublicationService {
       .from(publication)
       .where(eq(publication.catalogId, catalogId))
       .limit(1);
-    return { catalogRevision: cat.revision, suggestedSlug: slugify(cat.title), publication: pub ?? null };
+    return { catalogRevision: cat.revision, suggestedSlug: pub?.slug ?? (await this.freeSlug(userId, catalogId, slugify(cat.title))), publication: pub ?? null };
+  }
+
+  /** The given slug if available, otherwise the slug with a short random suffix. */
+  private async freeSlug(userId: string, catalogId: string, base: string) {
+    if ((await this.isSlugAvailable(userId, catalogId, base)).available) return base;
+    for (let i = 0; i < 5; i++) {
+      const candidate = `${base.slice(0, 52)}-${randomBytes(2).toString("hex")}`;
+      if ((await this.isSlugAvailable(userId, catalogId, candidate)).available) return candidate;
+    }
+    return `catalog-${randomBytes(4).toString("hex")}`;
   }
 
   async isSlugAvailable(userId: string, catalogId: string, slug: string) {

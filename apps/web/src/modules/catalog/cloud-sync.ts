@@ -116,3 +116,28 @@ export async function deleteCloudCopy(localId: string) {
 export async function listCloudCatalogs() {
   return api().catalog.list.query();
 }
+
+export type RefreshResult = "pulled" | "current" | "conflict" | "unlinked" | "offline";
+
+/**
+ * Bring a linked local catalog up to date when the cloud copy moved ahead
+ * (e.g. an AI agent edited it over MCP). Only pulls when there are no local
+ * edits waiting; otherwise reports a conflict for the user to resolve.
+ */
+export async function refreshFromCloud(localId: string, userId: string, cloudRevision?: number): Promise<RefreshResult> {
+  const summary = (await localCatalogs().list()).find((s) => s.id === localId);
+  const link = summary?.cloud;
+  if (!summary || !link || link.userId !== userId) return "unlinked";
+  let latest = cloudRevision;
+  if (latest === undefined) {
+    try {
+      latest = (await api().catalog.list.query()).find((c) => c.id === link.id)?.revision;
+    } catch {
+      return "offline";
+    }
+  }
+  if (latest === undefined || latest <= link.revision) return "current";
+  if (summary.syncedRevision !== summary.revision) return "conflict";
+  await pullCatalog(link.id, userId);
+  return "pulled";
+}

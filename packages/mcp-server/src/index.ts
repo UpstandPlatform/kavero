@@ -1,0 +1,338 @@
+import { CatalogService } from "@Kavero/api/services/catalog-service";
+import { PublicationService, slugify } from "@Kavero/api/services/publication-service";
+import { audit, type Scope, type TokenPrincipal } from "@Kavero/api/services/token-service";
+import {
+  PAGE_PRESETS,
+  TEMPLATES,
+  createCatalog,
+  createFromTemplate,
+  createId,
+  duplicateCatalog,
+  type CatalogDocument,
+  type CatalogElement,
+} from "@Kavero/catalog-engine";
+import type { Database } from "@Kavero/db";
+import type { EditorCommand, NewElement } from "@Kavero/editor-core";
+import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
+import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { TRPCError } from "@trpc/server";
+import { z } from "zod";
+
+export interface McpHost {
+  /** PNG of a slide in its finished state (headless Chrome). Optional. */
+  renderPreview?: (doc: CatalogDocument, slideIndex: number) => Promise<Uint8Array>;
+  /** Absolute URL of a published catalog. */
+  publicUrl: (slug: string) => string;
+  /**
+   * Download an image from a public URL into a cloud catalog's storage (with
+   * SSRF protection). Returns the asset to add to the document. Optional.
+   */
+  importImage?: (catalogRowId: string, url: string, name: string) => Promise<{ id: string; mimeType: string; bytes: number; hash: string; width?: number; height?: number }>;
+}
+
+const ELEMENT_HELP = `Element JSON (positions in document pixels; see catalog_get for page size):
+- text:    {"type":"text","position":{"x":80,"y":80,"width":800,"height":120},"content":{"paragraphs":[[{"text":"Hello","bold":true}]]},"style":{"fontSize":64,"fontWeight":700,"color":"token:text","fontFamily":"token:heading","align":"left"}}
+- shape:   {"type":"shape","position":{...},"content":{"shape":"rect|ellipse|triangle|line|arrow"},"style":{"fill":"token:primary","borderRadius":12}}
+- image:   {"type":"image","position":{...},"content":{"assetId":"ast_..."},"style":{"fit":"cover"}}  (assetId must exist in the catalog)
+- product: {"type":"product","position":{...},"content":{"productId":"prd_..."}}
+- product-grid: {"type":"product-grid","position":{...},"content":{"columns":3,"products":[{"productId":"prd_..."}]}}
+- button:  {"type":"button","position":{...},"content":{"label":"Shop now","href":"https://..."}}
+- html:    {"type":"html","position":{...},"content":{"html":"<h2>Hi</h2>","css":"h2{color:var(--kv-primary)}"}}  (scripts are removed)
+Colors may be hex or theme tokens: token:background, token:text, token:muted, token:primary, token:on-primary, token:accent.`;
+
+const id = z.string().min(1).max(100);
+const positionShape = z.object({ x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive(), rotation: z.number().optional() });
+
+type Ctx = { db: Database; principal: TokenPrincipal; host: McpHost };
+
+const ok = (data: unknown, extra: CallToolResult["content"] = []): CallToolResult => ({
+  content: [{ type: "text", text: JSON.stringify(data, null, 2) }, ...extra],
+  structuredContent: typeof data === "object" && data !== null && !Array.isArray(data) ? (data as Record<string, unknown>) : { result: data },
+});
+const fail = (message: string): CallToolResult => ({ isError: true, content: [{ type: "text", text: message }] });
+
+/** Compact, agent-friendly outline of a catalog (ids + text, no styling noise). */
+export function outline(doc: CatalogDocument) {
+  const text = (el: CatalogElement) =>
+    el.type === "text" ? el.content.paragraphs.map((p) => p.map((r) => r.text).join("")).join(" / ").slice(0, 120)
+    : el.type === "button" ? el.content.label
+    : el.type === "html" ? el.content.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 80)
+    : el.type === "product" ? `product ${el.content.productId}`
+    : el.type === "product-grid" ? `${el.content.products.length} products`
+    : undefined;
+  return {
+    id: doc.id,
+    title: doc.metadata.title,
+    page: { width: doc.settings.width, height: doc.settings.height },
+    theme: doc.theme,
+    products: doc.products.map((p) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency })),
+    assets: doc.assets.map((a) => ({ id: a.id, kind: a.kind, name: a.name })),
+    slides: doc.slides.map((s, i) => ({
+      index: i, id: s.id, name: s.name, transition: s.transition?.type,
+      elements: s.elements.map((e) => ({ id: e.id, type: e.type, position: e.position, text: text(e), animations: e.animations.length || undefined })),
+    })),
+  };
+}
+
+/**
+ * Kavero's MCP server for one authenticated principal. Every tool goes through
+ * the same services (and validation) as the web app.
+ */
+export function createKaveroMcpServer({ db, principal, host }: Ctx) {
+  const server = new McpServer({ name: "kavero", version: "0.1.0" }, { instructions: "Create and edit Kavero product catalogs: slides with text, images, products, shapes and HTML; themes, transitions, animations; previews and website publishing. Call catalog_get first to see ids and page size." });
+  const catalogs = new CatalogService(db);
+  const pubs = new PublicationService(db);
+  const uid = principal.userId;
+
+  /** Scope check + audit + error mapping around every tool. */
+  function guard<A extends Record<string, unknown>>(name: string, scope: Scope, fn: (args: A) => Promise<CallToolResult>) {
+    return async (args: A): Promise<CallToolResult> => {
+      const target = typeof args.catalogId === "string" ? args.catalogId : null;
+      if (!principal.scopes.includes(scope)) {
+        await audit(db, { userId: uid, tokenId: principal.tokenId, action: `mcp:${name}`, target, outcome: "denied", details: { missingScope: scope } });
+        return fail(`This token doesn't have the "${scope}" permission. Create a token with it in Kavero settings.`);
+      }
+      try {
+        const result = await fn(args);
+        await audit(db, { userId: uid, tokenId: principal.tokenId, action: `mcp:${name}`, target, outcome: result.isError ? "error" : "ok" });
+        return result;
+      } catch (e) {
+        const message = e instanceof TRPCError || e instanceof Error ? e.message : "Unexpected error";
+        await audit(db, { userId: uid, tokenId: principal.tokenId, action: `mcp:${name}`, target, outcome: "error", details: { message } });
+        return fail(message);
+      }
+    };
+  }
+
+  const edit = async (catalogId: string, commands: EditorCommand[]) => {
+    const r = await catalogs.applyCommands(uid, catalogId, commands);
+    return { catalogId: r.id, revision: r.revision, createdIds: r.createdIds };
+  };
+
+  // ---------- Catalogs ----------
+
+  server.registerTool("catalog_list", {
+    title: "List catalogs", description: "List the user's cloud catalogs.", annotations: { readOnlyHint: true },
+  }, guard("catalog_list", "catalogs:read", async () => ok({ catalogs: (await catalogs.list(uid)).map((c) => ({ catalogId: c.id, title: c.title, slides: c.slideCount, revision: c.revision, updatedAt: c.updatedAt })) })));
+
+  server.registerTool("catalog_get", {
+    title: "Get catalog", description: "Outline of a catalog: page size, theme, products, assets and every slide's elements with ids. Set full=true for the complete JSON document.",
+    inputSchema: { catalogId: id, full: z.boolean().optional() }, annotations: { readOnlyHint: true },
+  }, guard("catalog_get", "catalogs:read", async ({ catalogId, full }) => {
+    const r = await catalogs.get(uid, catalogId);
+    return ok({ catalogId: r.id, revision: r.revision, ...(full ? { document: r.document } : outline(r.document)) });
+  }));
+
+  server.registerTool("catalog_create", {
+    title: "Create catalog",
+    description: `Create a cloud catalog, blank or from a template (${TEMPLATES.map((t) => `${t.id}: ${t.description}`).join("; ")}).`,
+    inputSchema: {
+      title: z.string().min(1).max(200), description: z.string().max(500).optional(),
+      template: z.enum(["blank", ...TEMPLATES.map((t) => t.id)] as [string, ...string[]]).optional(),
+      page: z.enum(Object.keys(PAGE_PRESETS) as [string, ...string[]]).optional(),
+      language: z.string().max(10).optional(), currency: z.string().length(3).optional(),
+    },
+  }, guard("catalog_create", "catalogs:write", async (a) => {
+    const input = { title: a.title, description: a.description, language: a.language, currency: a.currency?.toUpperCase(), page: a.page as keyof typeof PAGE_PRESETS | undefined };
+    const doc = a.template && a.template !== "blank" ? createFromTemplate(a.template, input) : createCatalog(input);
+    const r = await catalogs.create(uid, doc);
+    return ok({ catalogId: r.id, revision: r.revision, slideIds: doc.slides.map((s) => s.id), page: { width: doc.settings.width, height: doc.settings.height } });
+  }));
+
+  server.registerTool("catalog_update", {
+    title: "Update catalog details", description: "Change title, description, language or currency.",
+    inputSchema: { catalogId: id, title: z.string().min(1).max(200).optional(), description: z.string().max(500).optional(), language: z.string().max(10).optional(), currency: z.string().length(3).optional() },
+  }, guard("catalog_update", "catalogs:write", async ({ catalogId, ...changes }) => ok(await edit(catalogId, [{ type: "catalog.updateMetadata", changes: { ...changes, currency: changes.currency?.toUpperCase() } }]))));
+
+  server.registerTool("catalog_delete", {
+    title: "Delete catalog", description: "Permanently delete a cloud catalog and its published website. Ask the user first, then pass confirm: true.",
+    inputSchema: { catalogId: id, confirm: z.literal(true).describe("Must be true; confirms the user approved this deletion") },
+    annotations: { destructiveHint: true },
+  }, guard("catalog_delete", "catalogs:delete", async ({ catalogId }) => {
+    await catalogs.delete(uid, catalogId);
+    return ok({ deleted: catalogId });
+  }));
+
+  server.registerTool("catalog_duplicate", {
+    title: "Duplicate catalog", description: "Copy a catalog (new ids). Images are not copied yet; image elements in the copy show placeholders.",
+    inputSchema: { catalogId: id, title: z.string().max(200).optional() },
+  }, guard("catalog_duplicate", "catalogs:write", async ({ catalogId, title }) => {
+    const { document } = await catalogs.get(uid, catalogId);
+    const copy = duplicateCatalog(document, title);
+    const r = await catalogs.create(uid, copy);
+    return ok({ catalogId: r.id, title: copy.metadata.title });
+  }));
+
+  server.registerTool("catalog_apply_theme", {
+    title: "Apply theme", description: "Apply a template's colors and fonts, and/or set individual theme colors (hex) and fonts.",
+    inputSchema: {
+      catalogId: id, template: z.enum(TEMPLATES.map((t) => t.id) as [string, ...string[]]).optional(),
+      colors: z.record(z.string(), z.string().regex(/^#[0-9a-fA-F]{6}$/)).optional(), fonts: z.record(z.string(), z.string().max(80)).optional(),
+    },
+  }, guard("catalog_apply_theme", "catalogs:write", async ({ catalogId, template, colors, fonts }) => {
+    const base = template ? TEMPLATES.find((t) => t.id === template)!.theme : { colors: {}, fonts: {} };
+    return ok(await edit(catalogId, [{ type: "catalog.updateTheme", theme: { colors: { ...base.colors, ...colors }, fonts: { ...base.fonts, ...fonts } } }]));
+  }));
+
+  // ---------- Slides ----------
+
+  const background = z.union([
+    z.object({ kind: z.literal("color"), color: z.string() }),
+    z.object({ kind: z.literal("gradient"), from: z.string(), to: z.string(), angle: z.number().optional() }),
+    z.object({ kind: z.literal("image"), assetId: id }),
+  ]);
+
+  server.registerTool("slide_create", {
+    title: "Add slide", description: "Add an empty slide (default: at the end).",
+    inputSchema: { catalogId: id, name: z.string().max(100).optional(), index: z.number().int().min(0).optional(), background: background.optional() },
+  }, guard("slide_create", "catalogs:write", async ({ catalogId, name, index, background: bg }) =>
+    ok(await edit(catalogId, [{ type: "slide.add", index, slide: { name: name ?? "Slide", ...(bg ? { background: bg as never } : {}) } }]))));
+
+  server.registerTool("slide_update", {
+    title: "Update slide", description: "Rename a slide, change its background or its duration (ms) in playback/video.",
+    inputSchema: { catalogId: id, slideId: id, name: z.string().max(100).optional(), background: background.optional(), durationMs: z.number().int().min(500).max(600_000).optional() },
+  }, guard("slide_update", "catalogs:write", async ({ catalogId, slideId, ...changes }) =>
+    ok(await edit(catalogId, [{ type: "slide.update", slideId, changes: changes as never }]))));
+
+  server.registerTool("slide_delete", {
+    title: "Delete slide", description: "Remove a slide (a catalog keeps at least one).", inputSchema: { catalogId: id, slideId: id }, annotations: { destructiveHint: true },
+  }, guard("slide_delete", "catalogs:write", async ({ catalogId, slideId }) => ok(await edit(catalogId, [{ type: "slide.delete", slideId }]))));
+
+  server.registerTool("slide_reorder", {
+    title: "Move slide", description: "Move a slide to a new 0-based position.", inputSchema: { catalogId: id, slideId: id, toIndex: z.number().int().min(0) },
+  }, guard("slide_reorder", "catalogs:write", async ({ catalogId, slideId, toIndex }) => ok(await edit(catalogId, [{ type: "slide.move", slideId, toIndex }]))));
+
+  // ---------- Elements ----------
+
+  server.registerTool("slide_add_element", {
+    title: "Add element", description: `Add one or more elements to a slide.\n${ELEMENT_HELP}`,
+    inputSchema: { catalogId: id, slideId: id, elements: z.array(z.object({ type: z.string(), position: positionShape }).passthrough()).min(1).max(50) },
+  }, guard("slide_add_element", "catalogs:write", async ({ catalogId, slideId, elements }) =>
+    ok(await edit(catalogId, elements.map((element) => ({ type: "element.add" as const, slideId, element: { rotation: 0, ...element, position: { rotation: 0, ...element.position } } as unknown as NewElement }))))));
+
+  server.registerTool("slide_update_element", {
+    title: "Update element", description: "Deep-merge changes into an element, e.g. {\"style\":{\"fontSize\":48}} or {\"position\":{\"x\":100}} or {\"content\":{\"paragraphs\":[[{\"text\":\"New\"}]]}}. Arrays are replaced, not merged.",
+    inputSchema: { catalogId: id, elementId: id, changes: z.record(z.string(), z.unknown()) },
+  }, guard("slide_update_element", "catalogs:write", async ({ catalogId, elementId, changes }) => {
+    const { position, ...rest } = changes as { position?: Record<string, number> };
+    const commands: EditorCommand[] = [];
+    if (position) commands.push({ type: "element.move", elementId, position });
+    if (Object.keys(rest).length) commands.push({ type: "element.update", elementId, changes: rest });
+    return ok(await edit(catalogId, commands));
+  }));
+
+  server.registerTool("slide_remove_element", {
+    title: "Remove element", description: "Delete an element.", inputSchema: { catalogId: id, elementId: id }, annotations: { destructiveHint: true },
+  }, guard("slide_remove_element", "catalogs:write", async ({ catalogId, elementId }) => ok(await edit(catalogId, [{ type: "element.delete", elementId }]))));
+
+  // ---------- Motion ----------
+
+  server.registerTool("catalog_set_transition", {
+    title: "Set slide transition", description: "Transition played when this slide appears (none removes it).",
+    inputSchema: { catalogId: id, slideId: id, type: z.enum(["none", "fade", "slide", "push", "zoom", "wipe", "flip"]), durationMs: z.number().int().min(100).max(10_000).optional(), direction: z.enum(["left", "right", "up", "down"]).optional() },
+  }, guard("catalog_set_transition", "catalogs:write", async ({ catalogId, slideId, type, durationMs, direction }) =>
+    ok(await edit(catalogId, [{ type: "slide.setTransition", slideId, transition: type === "none" ? null : { type, durationMs, direction } }]))));
+
+  server.registerTool("catalog_animate_element", {
+    title: "Animate element", description: "Add an animation to an element. Triggers: on-enter (with slide), after-previous, with-previous.",
+    inputSchema: {
+      catalogId: id, elementId: id,
+      category: z.enum(["entrance", "exit", "emphasis"]), preset: z.enum(["fade", "slide", "scale", "bounce", "rotate", "blur", "float", "pulse"]),
+      trigger: z.enum(["on-enter", "after-previous", "with-previous"]).optional(), durationMs: z.number().int().min(50).max(60_000).optional(),
+      delayMs: z.number().int().min(0).max(60_000).optional(), direction: z.enum(["left", "right", "up", "down"]).optional(),
+    },
+  }, guard("catalog_animate_element", "catalogs:write", async ({ catalogId, elementId, ...animation }) =>
+    ok(await edit(catalogId, [{ type: "element.addAnimation", elementId, animation }]))));
+
+  // ---------- Products ----------
+
+  const productInput = z.object({
+    id: z.string().max(100).optional(), name: z.string().min(1).max(200), description: z.string().max(2000).optional(),
+    sku: z.string().max(100).optional(), price: z.number().optional(), currency: z.string().length(3).optional(),
+    url: z.string().url().optional(), category: z.string().max(100).optional(), attributes: z.record(z.string(), z.string()).optional(),
+    imageUrl: z.string().url().optional().describe("Public https image URL; downloaded and stored with the catalog"),
+  });
+
+  server.registerTool("catalog_import_products", {
+    title: "Import products",
+    description: "Add or update products in a catalog (matching on id), with optional image URLs that Kavero downloads and stores. Optionally add slides with product grids: one slide per category, or one slide for all (max 6 products per slide).",
+    inputSchema: { catalogId: id, products: z.array(productInput).min(1).max(500), addSlides: z.enum(["none", "single", "per-category"]).optional(), columns: z.number().int().min(1).max(6).optional(), source: z.string().max(100).optional() },
+  }, guard("catalog_import_products", "catalogs:write", async ({ catalogId, products, addSlides = "none", columns = 3, source }) => {
+    const { id: rowId, document } = await catalogs.get(uid, catalogId);
+    const ids = products.map((p) => p.id ?? createId("prd"));
+    const commands: EditorCommand[] = [];
+    const warnings: string[] = [];
+    const imageFor = new Map<number, string>();
+    if (host.importImage) {
+      const wanted = products.map((p, i) => ({ i, url: p.imageUrl })).filter((x): x is { i: number; url: string } => !!x.url).slice(0, 60);
+      for (const { i, url } of wanted) {
+        try {
+          const asset = await host.importImage(rowId, url, products[i]!.name);
+          if (!document.assets.some((a) => a.id === asset.id) && !commands.some((c) => c.type === "asset.add" && c.asset.id === asset.id)) {
+            commands.push({ type: "asset.add", asset: { id: asset.id, kind: "image", mimeType: asset.mimeType, name: products[i]!.name, uri: `cloud://${asset.id}`, bytes: asset.bytes, hash: asset.hash, width: asset.width, height: asset.height } });
+          }
+          imageFor.set(i, asset.id);
+        } catch (e) {
+          warnings.push(`${products[i]!.name}: image not imported (${(e as Error).message})`);
+        }
+      }
+    } else if (products.some((p) => p.imageUrl)) warnings.push("Image import isn't available on this server");
+    products.forEach((p, i) => {
+      const { imageUrl: _u, ...rest } = p;
+      const existing = document.products.find((x) => x.id === ids[i]);
+      commands.push({ type: "product.upsert", product: { ...rest, id: ids[i], currency: p.currency?.toUpperCase(), source, imageAssetIds: imageFor.has(i) ? [imageFor.get(i)!] : existing?.imageAssetIds ?? [] } });
+    });
+    if (addSlides !== "none") {
+      const groups = new Map<string, string[]>();
+      products.forEach((p, i) => {
+        const key = addSlides === "per-category" ? (p.category ?? "Products") : "Products";
+        groups.set(key, [...(groups.get(key) ?? []), ids[i]!]);
+      });
+      const { width: W, height: H } = document.settings;
+      const m = Math.round(Math.min(W, H) * 0.07);
+      for (const [name, all] of groups) for (let k = 0; k < all.length; k += 6) {
+        const pids = all.slice(k, k + 6);
+        const slideId = createId("sld");
+        commands.push({ type: "slide.add", slide: { id: slideId, name } });
+        commands.push({ type: "element.add", slideId, element: { type: "text", position: { x: m, y: m, width: W - 2 * m, height: H * 0.1, rotation: 0 }, content: { paragraphs: [[{ text: name }]] }, style: { fontSize: Math.round(H * 0.05), fontWeight: 700, fontFamily: "token:heading" } } as unknown as NewElement });
+        commands.push({ type: "element.add", slideId, element: { type: "product-grid", position: { x: m, y: m + H * 0.14, width: W - 2 * m, height: H - 2 * m - H * 0.14, rotation: 0 }, content: { columns, products: pids.map((productId) => ({ productId })) } } as unknown as NewElement });
+      }
+    }
+    const r = await edit(catalogId, commands);
+    return ok({ ...r, productIds: ids, imagesImported: imageFor.size, warnings });
+  }));
+
+  // ---------- Preview & publishing ----------
+
+  server.registerTool("catalog_preview", {
+    title: "Preview slide", description: "Render a slide (finished state) as a PNG image so you can check the layout.",
+    inputSchema: { catalogId: id, slideIndex: z.number().int().min(0).optional() }, annotations: { readOnlyHint: true },
+  }, guard("catalog_preview", "catalogs:read", async ({ catalogId, slideIndex = 0 }) => {
+    if (!host.renderPreview) return fail("Previews aren't available on this server (no Chrome).");
+    const { document } = await catalogs.get(uid, catalogId);
+    if (!document.slides[slideIndex]) return fail(`Slide index out of range (0–${document.slides.length - 1})`);
+    const png = await host.renderPreview(document, slideIndex);
+    return { content: [{ type: "image", data: Buffer.from(png).toString("base64"), mimeType: "image/png" }, { type: "text", text: `Slide ${slideIndex + 1} of ${document.slides.length}: ${document.slides[slideIndex]!.name}` }] };
+  }));
+
+  server.registerTool("catalog_publish", {
+    title: "Publish website",
+    description: "Publish (or update) the catalog as a website. unlisted = anyone with the link; public = indexable; private = owner only. Password-protected publishing is set in the Kavero app.",
+    inputSchema: { catalogId: id, visibility: z.enum(["public", "unlisted", "private"]).optional(), slug: z.string().max(80).optional() },
+  }, guard("catalog_publish", "publish", async ({ catalogId, visibility, slug }) => {
+    const status = await pubs.status(uid, catalogId);
+    const r = await pubs.publish(uid, {
+      catalogId, slug: slug ?? status.publication?.slug ?? status.suggestedSlug,
+      visibility: visibility ?? (status.publication?.visibility === "password" ? "password" : (status.publication?.visibility as "public" | "unlisted" | "private" | undefined) ?? "unlisted"),
+    });
+    return ok({ url: host.publicUrl(r.slug), slug: r.slug, version: r.version, missingFiles: r.missingFiles });
+  }));
+
+  server.registerTool("catalog_unpublish", {
+    title: "Unpublish website", description: "Take the catalog's website offline.", inputSchema: { catalogId: id }, annotations: { destructiveHint: true },
+  }, guard("catalog_unpublish", "publish", async ({ catalogId }) => ok(await pubs.unpublish(uid, catalogId))));
+
+  return server;
+}
+
+export { slugify };

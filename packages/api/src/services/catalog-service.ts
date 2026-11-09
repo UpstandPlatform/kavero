@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
-import { parseCatalogDocument, type CatalogDocument } from "@Kavero/catalog-engine";
+import { checkIntegrity, parseCatalogDocument, type CatalogDocument } from "@Kavero/catalog-engine";
+import { applyCommand, type EditorCommand } from "@Kavero/editor-core";
 import type { Database } from "@Kavero/db";
 import { catalog, catalogAsset, catalogRevision } from "@Kavero/db/schema/catalog";
 import { TRPCError } from "@trpc/server";
@@ -128,6 +129,39 @@ export class CatalogService {
     const stored = await this.db.select({ assetId: catalogAsset.assetId, hash: catalogAsset.hash }).from(catalogAsset).where(eq(catalogAsset.catalogId, catalogId));
     const have = new Map(stored.map((a) => [a.assetId, a.hash]));
     return doc.assets.filter((a) => !have.has(a.id) || (a.hash && have.get(a.id) !== a.hash)).map((a) => a.id);
+  }
+
+  /** Create a new cloud catalog from a full document (fresh document id is the caller's job). */
+  async create(userId: string, doc: CatalogDocument) {
+    return this.save(userId, { document: doc });
+  }
+
+  /**
+   * Apply editor commands on the server (MCP, AI). Uses the same command
+   * implementation and validation as the visual editor, then saves with the
+   * usual revision check. Retries if another save landed in between.
+   */
+  async applyCommands(userId: string, id: string, commands: EditorCommand[]) {
+    for (let attempt = 0; ; attempt++) {
+      const { id: rowId, revision, document } = await this.get(userId, id);
+      const draft = structuredClone(document);
+      let createdIds: string[];
+      try {
+        createdIds = applyCommand(draft, commands.length === 1 ? commands[0]! : { type: "batch", commands }).createdIds;
+      } catch (e) {
+        throw new TRPCError({ code: "BAD_REQUEST", message: (e as Error).message });
+      }
+      const errors = checkIntegrity(draft).filter((i) => i.severity === "error");
+      if (errors.length) throw new TRPCError({ code: "BAD_REQUEST", message: errors.map((e) => `${e.path}: ${e.message}`).join("; ") });
+      draft.revision = document.revision + 1;
+      try {
+        const res = await this.save(userId, { document: draft, baseRevision: revision });
+        return { id: rowId, revision: res.revision, createdIds, document: draft };
+      } catch (e) {
+        if (e instanceof TRPCError && e.code === "CONFLICT" && attempt < 2) continue;
+        throw e;
+      }
+    }
   }
 
   async delete(userId: string, id: string) {
