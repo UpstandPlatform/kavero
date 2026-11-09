@@ -1,5 +1,5 @@
 import type { CatalogDocument } from "@Kavero/catalog-engine";
-import { assertValid, summarize, type CatalogRepository, type CatalogSummary, type StoredAsset } from "./repository";
+import { applyCloudLink, assertValid, summarize, type CatalogRepository, type CatalogSummary, type CloudLink, type StoredAsset } from "./repository";
 
 const DB_NAME = "kavero";
 const DB_VERSION = 1;
@@ -80,6 +80,16 @@ export class IndexedDbCatalogRepository implements CatalogRepository {
     tx.objectStore(SUMMARIES).delete(id);
     const keys = await req(tx.objectStore(ASSETS).index("catalogId").getAllKeys(id));
     for (const k of keys) tx.objectStore(ASSETS).delete(k);
+    await done(tx);
+  }
+
+  async setCloudLink(id: string, link: CloudLink | null, syncedRevision?: number): Promise<void> {
+    const db = await this.db();
+    const tx = db.transaction(SUMMARIES, "readwrite");
+    const store = tx.objectStore(SUMMARIES);
+    const prev = (await req(store.get(id))) as CatalogSummary | undefined;
+    if (!prev) throw new Error("Catalog not found");
+    store.put(applyCloudLink(prev, link, syncedRevision));
     await done(tx);
   }
 

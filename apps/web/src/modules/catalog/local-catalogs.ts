@@ -25,7 +25,7 @@ export function localCatalogs(): CatalogRepository {
 const CHANNEL = "kavero-catalogs";
 const listeners = new Set<() => void>();
 let channel: BroadcastChannel | null = null;
-function notify() {
+export function notifyCatalogsChanged() {
   for (const l of listeners) l();
   channel?.postMessage("changed");
 }
@@ -43,7 +43,7 @@ function onChange(l: () => void) {
 /** Save with a fresh dashboard thumbnail. */
 export async function saveLocalCatalog(doc: CatalogDocument) {
   const summary = await localCatalogs().save(doc, { thumbnail: slideThumbnail(doc) });
-  notify();
+  notifyCatalogsChanged();
   return summary;
 }
 
@@ -92,13 +92,13 @@ export async function duplicateLocalCatalog(id: string) {
   for (const asset of await r.listAssets(id)) {
     await r.putAsset({ ...asset, id: assetIdMap.get(asset.id) ?? asset.id, catalogId: copy.id });
   }
-  notify();
+  notifyCatalogsChanged();
   return copy;
 }
 
 export async function deleteLocalCatalog(id: string) {
   await localCatalogs().delete(id);
-  notify();
+  notifyCatalogsChanged();
 }
 
 export async function downloadProjectFile(id: string, title: string) {

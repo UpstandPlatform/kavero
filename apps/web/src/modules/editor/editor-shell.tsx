@@ -16,10 +16,15 @@ import type { AddFont } from "./font-picker";
 import { ExportMenu } from "./export-menu";
 import { PreviewPlayer } from "./preview-player";
 import { PropertiesPanel } from "./properties-panel";
+import { authClient } from "@/lib/auth-client";
+
 import { useCatalogEditor, useEditorState, useRun, type SaveStatus } from "./use-catalog-editor";
+import { CLOUD_LABEL, useCloudAutoSync } from "./use-cloud-autosync";
 
 export function CatalogEditorPage({ catalogId }: { catalogId: string }) {
   const { editor, loadError, assetUrls, saveStatus, uploadImage, uploadFont } = useCatalogEditor(catalogId);
+  const { data: session } = authClient.useSession();
+  const cloudStatus = useCloudAutoSync(catalogId, session?.user.id ?? null, saveStatus);
   if (loadError) {
     return (
       <div className="p-8">
@@ -29,12 +34,13 @@ export function CatalogEditorPage({ catalogId }: { catalogId: string }) {
     );
   }
   if (!editor) return <p className="p-8 text-sm text-muted-foreground">Opening catalog…</p>;
-  return <EditorShell editor={editor} assetUrls={assetUrls} saveStatus={saveStatus} uploadImage={uploadImage} uploadFont={uploadFont} />;
+  return <EditorShell editor={editor} assetUrls={assetUrls} saveStatus={saveStatus} cloudLabel={CLOUD_LABEL[cloudStatus]} uploadImage={uploadImage} uploadFont={uploadFont} />;
 }
 
 const SAVE_LABEL: Record<SaveStatus, string> = { saved: "Saved", saving: "Saving…", unsaved: "Unsaved changes", error: "Save failed" };
 
-function EditorShell({ editor, assetUrls, saveStatus, uploadImage, uploadFont }: {
+function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, uploadFont }: {
+  cloudLabel: string | null;
   editor: Editor;
   assetUrls: Record<string, string>;
   saveStatus: SaveStatus;
@@ -167,6 +173,7 @@ function EditorShell({ editor, assetUrls, saveStatus, uploadImage, uploadFont }:
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
         />
         <span className={`shrink-0 text-xs ${saveStatus === "error" ? "text-destructive" : "text-muted-foreground"}`} aria-live="polite">{SAVE_LABEL[saveStatus]}</span>
+        {cloudLabel && <span className="hidden shrink-0 text-xs text-muted-foreground lg:inline" aria-live="polite">· {cloudLabel}</span>}
         <Button variant="ghost" size="icon-sm" title="Undo (Ctrl+Z)" disabled={!state.canUndo} onClick={() => editor.undo()}><Undo2 /></Button>
         <Button variant="ghost" size="icon-sm" title="Redo (Ctrl+Shift+Z)" disabled={!state.canRedo} onClick={() => editor.redo()}><Redo2 /></Button>
         <ExportMenu doc={doc} onVideo={() => setPreviewing("export")} />

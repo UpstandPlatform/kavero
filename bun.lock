@@ -74,9 +74,11 @@
       "name": "@Kavero/api",
       "dependencies": {
         "@Kavero/auth": "workspace:*",
+        "@Kavero/catalog-engine": "workspace:*",
         "@Kavero/db": "workspace:*",
         "@trpc/client": "catalog:",
         "@trpc/server": "catalog:",
+        "drizzle-orm": "catalog:",
         "zod": "catalog:",
       },
       "devDependencies": {

@@ -1,6 +1,6 @@
 "use client";
 
-import type { CatalogSummary } from "@Kavero/local-storage";
+import { hasUnsyncedChanges, type CatalogSummary } from "@Kavero/local-storage";
 import { Button } from "@Kavero/ui/components/button";
 import {
   DropdownMenu,
@@ -11,7 +11,7 @@ import {
 } from "@Kavero/ui/components/dropdown-menu";
 import { Input } from "@Kavero/ui/components/input";
 import { Skeleton } from "@Kavero/ui/components/skeleton";
-import { Copy, Download, HardDrive, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Cloud, CloudOff, CloudUpload, Copy, Download, HardDrive, RefreshCw, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useRef, useState } from "react";
@@ -28,6 +28,8 @@ import {
   renameLocalCatalog,
   useLocalCatalogs,
 } from "./local-catalogs";
+import { SyncConflictError, deleteCloudCopy, pushCatalog } from "./cloud-sync";
+import { CloudOnlyList, ConflictDialog } from "./cloud-ui";
 import { NewCatalogDialog } from "./new-catalog-dialog";
 
 type Sort = "updated" | "created" | "title";
@@ -136,8 +138,12 @@ export function CatalogDashboard() {
       )}
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {visible.map((c) => <CatalogCard key={c.id} catalog={c} />)}
+        {visible.map((c) => <CatalogCard key={c.id} catalog={c} userId={session?.user.id ?? null} />)}
       </div>
+
+      {session && catalogs && (
+        <CloudOnlyList key={catalogs.map((c) => c.id + c.location).join()} userId={session.user.id} localDocumentIds={new Set(catalogs.map((c) => c.id))} />
+      )}
 
       <NewCatalogDialog
         open={creating}
@@ -156,17 +162,39 @@ export function CatalogDashboard() {
   );
 }
 
-function CatalogCard({ catalog: c }: { catalog: CatalogSummary }) {
+function CatalogCard({ catalog: c, userId }: { catalog: CatalogSummary; userId: string | null }) {
   const [renaming, setRenaming] = useState(false);
+  const [conflict, setConflict] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const linkedElsewhere = !!c.cloud && !!userId && c.cloud.userId !== userId;
 
   async function act(fn: () => Promise<unknown>, done?: string) {
     try {
       await fn();
       if (done) toast.success(done);
     } catch (e) {
-      toast.error((e as Error).message);
+      if (e instanceof SyncConflictError) setConflict(true);
+      else toast.error((e as Error).message);
     }
   }
+
+  async function sync() {
+    if (!userId) return;
+    setSyncing(true);
+    await act(async () => {
+      const r = await pushCatalog(c.id, userId);
+      toast.success(r.status === "unchanged" ? "Already up to date" : c.cloud ? "Synced to cloud" : "Saved to your cloud");
+    });
+    setSyncing(false);
+  }
+
+  const status = !c.cloud
+    ? { icon: <HardDrive className="size-2.5" />, label: "Local", title: "Only in this browser" }
+    : linkedElsewhere
+      ? { icon: <CloudOff className="size-2.5" />, label: "Other account", title: "Linked to a different account" }
+      : hasUnsyncedChanges(c)
+        ? { icon: <CloudUpload className="size-2.5" />, label: "Changed", title: "Has edits not in the cloud yet" }
+        : { icon: <Cloud className="size-2.5" />, label: "Synced", title: "Matches your cloud copy" };
 
   return (
     <div className="group relative flex flex-col border bg-card transition-shadow hover:shadow-md">
@@ -195,8 +223,8 @@ function CatalogCard({ catalog: c }: { catalog: CatalogSummary }) {
             <Link href={`/editor/${c.id}`} className="block truncate text-sm font-medium hover:underline">{c.title}</Link>
           )}
           <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span className="inline-flex items-center gap-1 border px-1 py-px text-[10px] uppercase tracking-wide">
-              <HardDrive className="size-2.5" /> {c.location === "synced" ? "Synced" : "Local"}
+            <span title={status.title} className="inline-flex items-center gap-1 border px-1 py-px text-[10px] uppercase tracking-wide">
+              {syncing ? <RefreshCw className="size-2.5 animate-spin" /> : status.icon} {status.label}
             </span>
             {c.slideCount} slide{c.slideCount === 1 ? "" : "s"} · {timeAgo(c.updatedAt)}
           </p>
@@ -209,11 +237,28 @@ function CatalogCard({ catalog: c }: { catalog: CatalogSummary }) {
             <DropdownMenuItem onClick={() => setRenaming(true)}><Pencil /> Rename</DropdownMenuItem>
             <DropdownMenuItem onClick={() => act(() => duplicateLocalCatalog(c.id), "Catalog duplicated")}><Copy /> Duplicate</DropdownMenuItem>
             <DropdownMenuItem onClick={() => act(() => downloadProjectFile(c.id, c.title))}><Download /> Export .kavero file</DropdownMenuItem>
+            {userId && !linkedElsewhere && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem onClick={sync}>{c.cloud ? <><RefreshCw /> Sync now</> : <><CloudUpload /> Save to cloud</>}</DropdownMenuItem>
+                {c.cloud && (
+                  <DropdownMenuItem
+                    onClick={() => {
+                      if (confirm(`Remove the cloud copy of "${c.title}"? The copy in this browser stays. Other devices will no longer see it.`)) {
+                        act(() => deleteCloudCopy(c.id), "Cloud copy removed");
+                      }
+                    }}
+                  >
+                    <CloudOff /> Remove cloud copy
+                  </DropdownMenuItem>
+                )}
+              </>
+            )}
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
               onClick={() => {
-                if (confirm(`Delete "${c.title}"? This removes it and its images from this browser and cannot be undone.`)) {
+                if (confirm(`Delete "${c.title}" from this browser? This removes it and its images here and cannot be undone.${c.cloud ? " Your cloud copy is kept." : ""}`)) {
                   act(() => deleteLocalCatalog(c.id), "Catalog deleted");
                 }
               }}
@@ -223,6 +268,9 @@ function CatalogCard({ catalog: c }: { catalog: CatalogSummary }) {
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
+      {conflict && userId && c.cloud && (
+        <ConflictDialog localId={c.id} cloudId={c.cloud.id} title={c.title} userId={userId} onClose={() => setConflict(false)} />
+      )}
     </div>
   );
 }

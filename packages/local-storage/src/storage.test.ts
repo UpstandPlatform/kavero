@@ -52,3 +52,21 @@ test(".kavero round trip, and re-import becomes a copy with remapped assets", as
 test("rejects non-kavero files", async () => {
   expect(importProjectFile(new MemoryCatalogRepository(), "{\"hello\":1}")).rejects.toThrow("not a Kavero project");
 });
+
+test("cloud link survives saves and marks unsynced edits", async () => {
+  const { hasUnsyncedChanges } = await import("./index");
+  const repo = new MemoryCatalogRepository();
+  const doc = createCatalog({ title: "A" });
+  await repo.save(doc);
+  await repo.setCloudLink(doc.id, { id: "srv1", revision: 3, userId: "u1", syncedAt: 1 }, doc.revision);
+  let s = (await repo.list())[0]!;
+  expect(s.location).toBe("synced");
+  expect(hasUnsyncedChanges(s)).toBe(false);
+  doc.revision += 1;
+  await repo.save(doc);
+  s = (await repo.list())[0]!;
+  expect(s.cloud?.id).toBe("srv1");
+  expect(hasUnsyncedChanges(s)).toBe(true);
+  await repo.setCloudLink(doc.id, null);
+  expect((await repo.list())[0]!.location).toBe("local");
+});

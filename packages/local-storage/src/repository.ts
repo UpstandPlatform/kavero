@@ -11,12 +11,29 @@ export interface CatalogSummary {
   createdAt: number;
   updatedAt: number;
   revision: number;
-  /** Where this copy lives. Cloud sync (Phase 9) will set "synced". */
+  /** "synced" once the catalog has a cloud copy. */
   location: "local" | "synced";
-  /** Revision last pushed to the cloud; null if never synced. */
+  /** Local revision that was last pushed to (or pulled from) the cloud; null if never synced. */
   syncedRevision: number | null;
+  /** Link to the cloud copy, when there is one. */
+  cloud?: CloudLink;
   /** Thumbnail data URL, if one has been rendered. */
   thumbnail?: string;
+}
+
+export interface CloudLink {
+  /** Server catalog row id. */
+  id: string;
+  /** Server revision this copy is based on; sent as baseRevision when saving. */
+  revision: number;
+  /** Account that owns the cloud copy, so another sign-in never syncs it by mistake. */
+  userId: string;
+  syncedAt: number;
+}
+
+/** True when the local copy has edits the cloud doesn't have yet. */
+export function hasUnsyncedChanges(s: CatalogSummary) {
+  return !!s.cloud && s.syncedRevision !== s.revision;
 }
 
 export interface StoredAsset {
@@ -32,6 +49,8 @@ export interface CatalogRepository {
   /** Validates before writing; throws on an invalid document. */
   save(doc: CatalogDocument, extra?: Partial<Pick<CatalogSummary, "thumbnail">>): Promise<CatalogSummary>;
   delete(id: string): Promise<void>;
+  /** Update (or clear, with null) the cloud link without touching the document. */
+  setCloudLink(id: string, link: CloudLink | null, syncedRevision?: number): Promise<void>;
   putAsset(asset: StoredAsset): Promise<void>;
   getAsset(id: string): Promise<StoredAsset | null>;
   listAssets(catalogId: string): Promise<StoredAsset[]>;
@@ -50,8 +69,17 @@ export function summarize(doc: CatalogDocument, prev: CatalogSummary | null, now
     revision: doc.revision,
     location: prev?.location ?? "local",
     syncedRevision: prev?.syncedRevision ?? null,
+    cloud: prev?.cloud,
     thumbnail: prev?.thumbnail,
   };
+}
+
+export function applyCloudLink(s: CatalogSummary, link: CloudLink | null, syncedRevision?: number): CatalogSummary {
+  if (!link) {
+    const { cloud: _c, ...rest } = s;
+    return { ...rest, location: "local", syncedRevision: null };
+  }
+  return { ...s, cloud: link, location: "synced", syncedRevision: syncedRevision ?? s.syncedRevision };
 }
 
 export function assertValid(doc: CatalogDocument): CatalogDocument {
@@ -84,6 +112,11 @@ export class MemoryCatalogRepository implements CatalogRepository {
     this.docs.delete(id);
     this.summaries.delete(id);
     for (const [k, a] of this.assets) if (a.catalogId === id) this.assets.delete(k);
+  }
+  async setCloudLink(id: string, link: CloudLink | null, syncedRevision?: number) {
+    const s = this.summaries.get(id);
+    if (!s) throw new Error("Catalog not found");
+    this.summaries.set(id, applyCloudLink(s, link, syncedRevision));
   }
   async putAsset(asset: StoredAsset) {
     this.assets.set(asset.id, asset);
