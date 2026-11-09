@@ -5,7 +5,7 @@ import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { CatalogFonts, SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
 import {
-  ArrowLeft, Circle, Code2, Copy, Play, ImagePlus, LayoutGrid, Minus, Plus, Redo2, Square, Tag, Trash2, Type, Undo2, ChevronUp, ChevronDown,
+  ArrowLeft, Circle, Code2, Copy, Globe, Play, ImagePlus, LayoutGrid, Minus, Plus, Redo2, Square, Tag, Trash2, Type, Undo2, ChevronUp, ChevronDown,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -14,6 +14,7 @@ import { toast } from "sonner";
 import { Canvas } from "./canvas";
 import type { AddFont } from "./font-picker";
 import { ExportMenu } from "./export-menu";
+import { PublishDialog } from "./publish-dialog";
 import { PreviewPlayer } from "./preview-player";
 import { PropertiesPanel } from "./properties-panel";
 import { authClient } from "@/lib/auth-client";
@@ -59,6 +60,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
   const { width: W, height: H } = doc.settings;
 
   const [previewing, setPreviewing] = useState<false | "play" | "export">(false);
+  const [publishing, setPublishing] = useState(false);
 
   /** Add an element centred on the slide and select it. */
   const addElement = useCallback(
@@ -177,6 +179,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
         <Button variant="ghost" size="icon-sm" title="Undo (Ctrl+Z)" disabled={!state.canUndo} onClick={() => editor.undo()}><Undo2 /></Button>
         <Button variant="ghost" size="icon-sm" title="Redo (Ctrl+Shift+Z)" disabled={!state.canRedo} onClick={() => editor.redo()}><Redo2 /></Button>
         <ExportMenu doc={doc} onVideo={() => setPreviewing("export")} />
+        <Button variant="outline" size="sm" onClick={() => setPublishing(true)} title="Publish as a website"><Globe /> Publish</Button>
         <Button size="sm" className="ml-1" onClick={() => setPreviewing("play")} title="Play from this slide"><Play /> Preview</Button>
       </header>
 
@@ -244,6 +247,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
         </aside>
       </div>
       <CatalogFonts doc={doc} resolveAsset={(id) => assetUrls[id]} />
+      {publishing && <PublishDialog doc={doc} onClose={() => setPublishing(false)} />}
       {previewing && <PreviewPlayer doc={doc} startSlide={previewing === "export" ? 0 : slideIndex} openExport={previewing === "export"} assetUrls={assetUrls} onClose={() => setPreviewing(false)} />}
     </div>
   );

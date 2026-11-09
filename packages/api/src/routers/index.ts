@@ -1,8 +1,10 @@
 import { protectedProcedure, publicProcedure, router } from "../index";
 import { catalogRouter } from "./catalog";
+import { publicationRouter } from "./publication";
 
 export const appRouter = router({
   catalog: catalogRouter,
+  publication: publicationRouter,
   healthCheck: publicProcedure.query(() => {
     return "OK";
   }),

@@ -8,7 +8,7 @@ import UserMenu from "./user-menu";
 export default function Header() {
   // The editor is full-screen and has its own top bar.
   const pathname = usePathname();
-  if (pathname.startsWith("/editor/") || pathname === "/render") return null;
+  if (pathname.startsWith("/editor/") || pathname.startsWith("/c/") || pathname === "/render") return null;
 
   const links = [
     { to: "/", label: "Home" },
