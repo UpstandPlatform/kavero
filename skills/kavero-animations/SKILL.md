@@ -10,7 +10,7 @@ Motion in Kavero is data, not code: it plays identically in Preview, on publishe
 ## Tools
 
 - `catalog_animate_element` — `elementId`, `category` (`entrance` | `emphasis` | `exit`), `preset` (`fade`, `slide`, `scale`, `bounce`, `rotate`, `blur`, `float`, `pulse`), `trigger` (`on-enter` = with the slide, `after-previous`, `with-previous`), `durationMs`, `delayMs`, `direction` (for `slide`: `up`, `down`, `left`, `right`).
-- `catalog_set_transition` — `slideId`, `type` (`none`, `fade`, `slide`, `push`, `zoom`, `wipe`, `flip`), `durationMs`, `direction`. Plays when that slide appears.
+- `catalog_set_transition` — `slideId`, `type` (`none`, `fade`, `morph`, `slide`, `push`, `zoom`, `wipe`, `flip`), `durationMs`, `direction`. Plays when that slide appears.
 - `slide_update` — `durationMs`: how long a slide stays on screen in video and autoplay.
 - Get element ids from `catalog_get`; check timing with the user in Preview.
 
@@ -47,7 +47,15 @@ Motion in Kavero is data, not code: it plays identically in Preview, on publishe
 | Into the closing slide | `zoom` or `fade`, 600 ms |
 | Image-led editorial slides | `wipe`, 700 ms |
 
-Keep `flip` for one special moment at most. Use `none` for slides meant to read as a continuation (e.g. two pages of the same table).
+Keep `flip` for one special moment at most.
+
+### Morph (hero / magic-move)
+
+`morph` moves elements that appear on both slides from their old position, size, rotation, color and font size to the new ones; the rest cross-fades. Use it for "the same scene, rearranged": a product image that grows from a grid into a hero shot, a title that slides aside to make room for details, a price that moves next to a chosen variant.
+
+- Elements match when they share an identity (`morphKey`, set on copies made by duplicating a slide or copy/paste), the same layer `name`, or the same unique content (same text, image asset or product). Give the paired elements the same `name` when you build both slides yourself.
+- 800–1200 ms with `ease-in-out` reads best. Keep most elements matched; morph between unrelated slides is just a fade.
+- Don't add entrance animations to matched elements: after a morph they are shown at rest anyway. Use `none` for slides meant to read as a continuation (e.g. two pages of the same table).
 
 ## Video and websites
 

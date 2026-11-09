@@ -1,8 +1,8 @@
-import { ease, scheduleSlide, transitionStyles } from "@Kavero/animation-engine";
+import { ease, matchMorph, scheduleSlide, transitionStyles } from "@Kavero/animation-engine";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
-import { SlideView, type AssetResolver } from "./slide-view";
+import { MorphView, SlideView, type AssetResolver } from "./slide-view";
 
 export interface PresentationProps {
   doc: CatalogDocument;
@@ -35,6 +35,8 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
   const [index, setIndex] = useState(() => initialSlide ?? 0);
   const [enteredAt, setEnteredAt] = useState(0);
   const [transition, setTransition] = useState<Transitioning | null>(null);
+  /** The slide we came from when that move was a Morph: its shared elements arrive at rest. */
+  const [morphedFrom, setMorphedFrom] = useState<number | null>(null);
   const [now, setNow] = useState(0);
   const [scale, setScale] = useState(0);
   const [reduced, setReduced] = useState(false);
@@ -67,6 +69,7 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
       const t = performance.now();
       const tr = doc.slides[Math.max(target, index)]?.transition;
       setTransition(!reduced && tr && tr.type !== "none" ? { from: index, startedAt: t } : null);
+      setMorphedFrom(tr?.type === "morph" ? index : null);
       setIndex(target);
       setEnteredAt(t);
       setNow(t);
@@ -81,6 +84,10 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
 
   // Animate only while something is moving.
   const slide = doc.slides[index]!;
+  const settledIds = useMemo(() => {
+    const from = morphedFrom === null ? undefined : doc.slides[morphedFrom];
+    return from ? new Set(matchMorph(from, slide).map(([, b]) => b.id)) : undefined;
+  }, [morphedFrom, slide, doc.slides]);
   const tr = transition ? (doc.slides[Math.max(index, transition.from)]?.transition ?? null) : null;
   const trTotal = tr ? tr.delayMs + tr.durationMs : 0;
   const local = reduced ? SETTLED : now - enteredAt;
@@ -122,8 +129,9 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
 
   const layer = (s?: CSSProperties): CSSProperties => ({ position: "absolute", inset: 0, transformOrigin: "50% 50%", backfaceVisibility: "hidden", ...s });
   let styles: ReturnType<typeof transitionStyles> | null = null;
+  let progress = 1;
   if (transition && tr) {
-    const p = ease(tr.easing, (now - transition.startedAt - tr.delayMs) / Math.max(1, tr.durationMs));
+    const p = (progress = ease(tr.easing, (now - transition.startedAt - tr.delayMs) / Math.max(1, tr.durationMs)));
     const forward = index > transition.from;
     // Going backwards mirrors directional transitions.
     const flip = { left: "right", right: "left", up: "down", down: "up" } as const;
@@ -153,14 +161,20 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
       >
         {scale > 0 && (
           <div style={{ position: "relative", width: W * scale, height: H * scale, overflow: "hidden", boxShadow: "0 10px 40px rgba(0,0,0,.4)" }}>
+            {transition && tr?.type === "morph" && doc.slides[transition.from] ? (
+              <div style={layer()} aria-roledescription="slide" aria-label={`${index + 1} of ${count}: ${slide.name}`}>
+                <MorphView doc={doc} from={doc.slides[transition.from]!} to={slide} progress={progress} scale={scale} timeMs={local} resolveAsset={resolveAsset} />
+              </div>
+            ) : (<>
             {transition && styles && doc.slides[transition.from] && (
               <div style={layer(styles.outgoing)} aria-hidden>
                 <SlideView doc={doc} slide={doc.slides[transition.from]!} scale={scale} timeMs={SETTLED} resolveAsset={resolveAsset} />
               </div>
             )}
             <div style={layer(styles?.incoming)} aria-roledescription="slide" aria-label={`${index + 1} of ${count}: ${slide.name}`}>
-              <SlideView doc={doc} slide={slide} scale={scale} timeMs={local} resolveAsset={resolveAsset} />
+              <SlideView doc={doc} slide={slide} scale={scale} timeMs={local} settledIds={settledIds} resolveAsset={resolveAsset} />
             </div>
+            </>)}
           </div>
         )}
       </div>

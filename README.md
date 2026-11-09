@@ -8,11 +8,11 @@ It's local-first: open it and start working, no account needed. Sign in to sync 
 
 ## Highlights
 
-- **Visual editor** — text, images, shapes, product cards and grids, HTML blocks; snapping, groups, layers, undo/redo, autosave.
+- **Visual editor** — text, images, shapes, product cards and grids, HTML blocks; snapping, groups, layers, undo/redo, autosave, and a PowerPoint-style Morph transition that moves shared elements between slides.
 - **AI generation and editing** — a designed first draft from a brief and a product list; slide edits you approve with a before/after preview. Works with Anthropic Claude, OpenRouter, OpenAI or local models — set on the server, or by each user with their own key in Settings → AI. A built-in planner takes over when no model is configured.
 - **MCP both ways** — import products from your store's MCP server; let Claude and other agents create, edit, preview, export and publish catalogs through Kavero's MCP server (24 tools, scoped tokens, audit log).
 - **Motion** — element animations and slide transitions that play the same in preview, on websites and in video.
-- **Every format from one document** — PDF with selectable text, PowerPoint with editable objects, MP4 up to 4K, published websites with SEO and social previews.
+- **Every format from one document** — PDF with selectable text, PowerPoint with editable objects, MP4 up to 4K, published websites with SEO and social previews, or a single self-contained HTML file to host anywhere.
 - **12 templates** for fashion, jewelry, electronics, furniture, cosmetics, food, real estate, industrial, automotive and general catalogs.
 - **Right-to-left** catalogs (Persian, Arabic, Hebrew, Urdu) with per-paragraph direction.
 - **Teams** — workspaces with owner, admin, editor and viewer roles.

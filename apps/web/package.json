@@ -3,8 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 3001",
-    "build": "next build",
+    "dev": "bun scripts/build-player.ts && next dev --port 3001",
+    "build": "bun scripts/build-player.ts && next build",
+    "build:player": "bun scripts/build-player.ts",
     "check-types": "tsc --noEmit",
     "start": "next start",
     "env:generate": "varlock codegen",

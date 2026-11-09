@@ -100,9 +100,18 @@ Click **AI** in the top bar, describe the change ("make this slide more minimal"
 ## Animations and transitions
 
 - **Element animations** (properties → Animation): entrance, emphasis or exit with effects fade, slide, scale, bounce, rotate, blur, float, pulse. Choose when it starts — **with the slide**, **after the previous animation**, or **with the previous** — and its duration and delay.
-- **Slide transitions** (slide properties): none, fade, slide, push, zoom, wipe, flip, with duration and direction. **Duration** sets how long the slide stays on screen in playback and video.
-- Animations play in Preview, on published websites and in MP4 exports exactly the same way. PDF shows the finished state; PowerPoint export keeps the content but not the motion.
+- **Slide transitions** (slide properties): none, fade, morph, slide, push, zoom, wipe, flip, with duration and direction. **Duration** sets how long the slide stays on screen in playback and video.
+- Animations play in Preview, on published websites, in HTML exports and in MP4 exports exactly the same way. PDF shows the finished state; PowerPoint export keeps the content but not the motion.
 
+### Morph
+
+Morph works like PowerPoint's Morph or Keynote's Magic Move: elements that are on both slides glide from where they were to where they are now, changing size, rotation, color and font size on the way. Everything else cross-fades.
+
+1. **Duplicate a slide** (Ctrl Shift D, or right-click the thumbnail). The copy gets the Morph transition automatically.
+2. On the copy, move, resize, recolor or restyle elements, add new ones or delete some.
+3. Preview: the elements animate from the first slide's layout to the second.
+
+Elements are matched when one is a copy of the other (duplicated slides, or copy/paste between slides), when they have the same layer name, or when they show the same thing (same text, image or product) and it appears only once on each slide. The slide properties show how many elements matched. Matched elements don't replay their entrance animations after the morph. Choose another transition to turn it off.
 ## Preview and export
 
 - **Preview** plays the catalog from the current slide (Space pauses, arrows change slides, Esc closes).
@@ -110,8 +119,9 @@ Click **AI** in the top bar, describe the change ("make this slide more minimal"
   - **PDF** (optionally with page numbers) — one page per slide, selectable text.
   - **PowerPoint** — text, shapes and images stay editable; you're told what can't be carried over (transitions, HTML styling, embedded fonts).
   - **Video (MP4)** — 720p to 4K at 24/30/60 fps, rendered frame by frame on the server.
+  - **Website (single HTML file)** — one `.html` file with the catalog, its images, fonts and videos built in, plus the player (animations, transitions, Morph, keyboard/touch navigation, full screen, `#3` slide links). Upload it to any web host or your own site, attach it to an email, or open it straight from disk — no Kavero server needed. Google Fonts load from the internet when online; embedded fonts always work.
   - **Kavero project file** — the whole catalog with its images and fonts, for backup or moving between browsers.
-- PDF and video need Chrome (or Chromium) on the machine running the Kavero server.
+- PDF and video need Chrome (or Chromium) on the machine running the Kavero server. PowerPoint and the HTML file are built in your browser and work offline.
 
 ## Cloud sync, conflicts and workspaces
 

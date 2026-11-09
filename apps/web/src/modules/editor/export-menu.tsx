@@ -1,6 +1,6 @@
 "use client";
 
-import { checkExportCompatibility, safeFileName, type CatalogDocument } from "@Kavero/catalog-engine";
+import { checkExportCompatibility, documentDirection, safeFileName, type CatalogDocument } from "@Kavero/catalog-engine";
 import { Button } from "@Kavero/ui/components/button";
 import {
   DropdownMenu,
@@ -11,7 +11,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@Kavero/ui/components/dropdown-menu";
-import { ChevronDown, FileDown, FileText, Film, Loader2, Package, Presentation } from "lucide-react";
+import { ChevronDown, FileCode, FileDown, FileText, Film, Loader2, Package, Presentation } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -48,6 +48,40 @@ function download(blob: Blob, name: string) {
   a.download = name;
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+const escapeHtml = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
+
+/**
+ * One self-contained .html file: the catalog, its images, fonts and videos as data
+ * URLs, and the standalone player (navigation, animations, transitions, Morph).
+ * Upload it anywhere or open it straight from disk.
+ */
+export async function buildSingleHtml(doc: CatalogDocument, assets: Record<string, string>, player: string) {
+  const lang = doc.metadata.language.replace(/[^\w-]/g, "") || "en";
+  const title = escapeHtml(doc.metadata.title || "Catalog");
+  const description = doc.metadata.description ? `<meta name="description" content="${escapeHtml(doc.metadata.description)}">` : "";
+  // JSON and JS go inside <script>: "<" can never close the tag early.
+  const data = JSON.stringify({ doc, assets }).replace(/</g, "\\u003c").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+  const js = player.replace(/<\/script/gi, "<\\/script");
+  return `<!doctype html>
+<html lang="${lang}" dir="${documentDirection(doc)}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title}</title>
+${description}
+<meta name="generator" content="Kavero">
+<style>html,body{margin:0;height:100%;background:#000}#kavero{position:fixed;inset:0}noscript{color:#fff;font:16px system-ui,sans-serif;display:block;padding:2rem}</style>
+</head>
+<body>
+<div id="kavero"></div>
+<noscript>This catalog needs JavaScript to play.</noscript>
+<script id="kavero-data" type="application/json">${data}</script>
+<script>${js}</script>
+</body>
+</html>
+`;
 }
 
 function showWarnings(title: string, warnings: string[]) {
@@ -91,6 +125,22 @@ export function ExportMenu({ doc, onVideo }: { doc: CatalogDocument; onVideo: ()
       showWarnings("PowerPoint exported — text, shapes and images stay editable", warnings);
     });
 
+  const exportHtml = () =>
+    run("html", async () => {
+      const res = await fetch("/kavero-player.js");
+      if (!res.ok) throw new Error("The website player is missing. Run `bun run build:player` in apps/web.");
+      const assets = await collectAssets(doc, ["image", "font", "video"]);
+      const html = await buildSingleHtml(doc, assets, await res.text());
+      const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+      download(blob, fileName(doc, "html"));
+      const mb = blob.size / 1024 / 1024;
+      const warnings = [
+        ...(mb > 25 ? [`The file is ${mb.toFixed(0)} MB — compress large images or videos for faster loading.`] : []),
+        ...(doc.assets.some((a) => a.kind === "video" && !assets[a.id]) ? ["Some videos aren't stored in this catalog and stay linked."] : []),
+      ];
+      showWarnings("Website exported — one HTML file you can upload anywhere", warnings);
+    });
+
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="outline" size="sm" disabled={!!busy} />}>
@@ -103,6 +153,7 @@ export function ExportMenu({ doc, onVideo }: { doc: CatalogDocument; onVideo: ()
           <DropdownMenuItem onClick={() => exportPdf(true)}><FileText /> PDF with page numbers</DropdownMenuItem>
           <DropdownMenuItem onClick={exportPowerPoint}><Presentation /> PowerPoint (.pptx)</DropdownMenuItem>
           <DropdownMenuItem onClick={onVideo}><Film /> Video (MP4)…</DropdownMenuItem>
+          <DropdownMenuItem onClick={exportHtml}><FileCode /> Website (single HTML file)</DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => run("file", () => downloadProjectFile(doc.id, doc.metadata.title))}><Package /> Kavero project file</DropdownMenuItem>

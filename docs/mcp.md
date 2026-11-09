@@ -134,7 +134,7 @@ Image downloads accept public http(s) URLs only (private network and cloud-metad
 
 | Tool | Input |
 | --- | --- |
-| `catalog_set_transition` | `catalogId`, `slideId`, `type` (`none`, `fade`, `slide`, `push`, `zoom`, `wipe`, `flip`), `durationMs?`, `direction?` |
+| `catalog_set_transition` | `catalogId`, `slideId`, `type` (`none`, `fade`, `morph`, `slide`, `push`, `zoom`, `wipe`, `flip`), `durationMs?`, `direction?`. `morph` moves elements shared with the previous slide (same `morphKey`/id, layer `name`, or unique content) |
 | `catalog_animate_element` | `catalogId`, `elementId`, `category` (`entrance`, `emphasis`, `exit`), `preset` (`fade`, `slide`, `scale`, `bounce`, `rotate`, `blur`, `float`, `pulse`), `trigger?` (`on-enter`, `after-previous`, `with-previous`), `durationMs?`, `delayMs?`, `direction?` |
 
 ### Preview, export, publish

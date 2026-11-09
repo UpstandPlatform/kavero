@@ -7,7 +7,7 @@ import {
   type ElementPosition,
   type Product,
 } from "@Kavero/catalog-engine";
-import { elementStateAt, scheduleSlide, stateToCss, type ScheduledAnimation } from "@Kavero/animation-engine";
+import { elementStateAt, matchMorph, morphElement, scheduleSlide, stateToCss, type ScheduledAnimation } from "@Kavero/animation-engine";
 import { createContext, memo, useContext, useMemo, type CSSProperties, type ReactNode } from "react";
 
 import { fontFaceCss, googleFontsUrls } from "./fonts";
@@ -42,6 +42,8 @@ export interface SlideViewProps {
   hiddenIds?: Set<string>;
   /** Slide-local time in ms. When set, element animations are applied at that moment. */
   timeMs?: number;
+  /** Elements shown at rest without their animations, e.g. ones that just arrived by Morph. */
+  settledIds?: Set<string>;
   className?: string;
   children?: ReactNode;
 }
@@ -59,6 +61,7 @@ export const SlideView = memo(function SlideView({
   overrides,
   hiddenIds,
   timeMs,
+  settledIds,
   className,
   children,
 }: SlideViewProps) {
@@ -90,7 +93,7 @@ export const SlideView = memo(function SlideView({
         >
           {elements.map((el) =>
             el.hidden || hiddenIds?.has(el.id) ? null : (
-              <ElementFrame key={el.id} element={el} position={{ ...el.position, ...overrides?.[el.id] }} schedule={schedule} timeMs={timeMs} />
+              <ElementFrame key={el.id} element={el} position={{ ...el.position, ...overrides?.[el.id] }} schedule={settledIds?.has(el.id) ? null : schedule} timeMs={timeMs} />
             ),
           )}
           {children}
@@ -99,6 +102,62 @@ export const SlideView = memo(function SlideView({
     </Ctx.Provider>
   );
 });
+
+/** A time after every element animation has finished. */
+const SETTLED_MS = 1e9;
+
+export interface MorphViewProps {
+  doc: CatalogDocument;
+  from: CatalogSlide;
+  to: CatalogSlide;
+  /** Eased transition progress, 0 → 1. */
+  progress: number;
+  scale?: number;
+  resolveAsset?: AssetResolver;
+  /** Local time of the incoming slide, so its other elements can start their animations. */
+  timeMs?: number;
+}
+
+/**
+ * Morph transition: both slides cross-fade without the elements they share, and
+ * the shared elements are drawn once on top, moving from their old geometry and
+ * style to the new one (PowerPoint's Morph, Keynote's Magic Move).
+ */
+export function MorphView({ doc, from, to, progress, scale = 1, resolveAsset = () => undefined, timeMs }: MorphViewProps) {
+  const pairs = useMemo(() => matchMorph(from, to), [from, to]);
+  const hideFrom = useMemo(() => new Set(pairs.map(([a]) => a.id)), [pairs]);
+  const hideTo = useMemo(() => new Set(pairs.map(([, b]) => b.id)), [pairs]);
+  const { width: W, height: H } = doc.settings;
+  const resolve = (v: string) => resolveToken(doc, v);
+  const layer: CSSProperties = { position: "absolute", inset: 0 };
+  return (
+    <div style={{ position: "relative", width: W * scale, height: H * scale, overflow: "hidden" }}>
+      <div style={layer}><SlideView doc={doc} slide={from} scale={scale} timeMs={SETTLED_MS} hiddenIds={hideFrom} resolveAsset={resolveAsset} /></div>
+      <div style={{ ...layer, opacity: progress }}><SlideView doc={doc} slide={to} scale={scale} timeMs={timeMs} hiddenIds={hideTo} resolveAsset={resolveAsset} /></div>
+      <Ctx.Provider value={{ doc, resolveAsset, mode: "present" }}>
+        <div
+          dir={documentDirection(doc)}
+          lang={doc.metadata.language}
+          style={{
+            width: W, height: H, position: "absolute", left: 0, top: 0, transform: `scale(${scale})`, transformOrigin: "0 0",
+            fontFamily: `${resolveToken(doc, "token:body", "fonts")}, system-ui, sans-serif`, color: resolve("token:text"),
+          }}
+        >
+          {pairs.map(([a, b]) => {
+            const f = morphElement(a, b, progress, resolve);
+            if (!f.from) return <ElementFrame key={b.id} element={f.to} position={f.to.position} schedule={null} />;
+            return (
+              <div key={b.id} style={layer}>
+                <div style={{ ...layer, opacity: 1 - f.mix }}><ElementFrame element={f.from} position={f.from.position} schedule={null} /></div>
+                <div style={{ ...layer, opacity: f.mix }}><ElementFrame element={f.to} position={f.to.position} schedule={null} /></div>
+              </div>
+            );
+          })}
+        </div>
+      </Ctx.Provider>
+    </div>
+  );
+}
 
 function ElementFrame({ element, position: p, schedule, timeMs }: {
   element: CatalogElement;

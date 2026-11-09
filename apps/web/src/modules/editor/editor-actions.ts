@@ -115,7 +115,7 @@ export function createActions({ editor, run, uploadImage }: ActionDeps) {
       const dx = at ? at.x - minX : offset;
       const dy = at ? at.y - minY : offset;
       const groupId = el.groupId ? (groups.get(el.groupId) ?? groups.set(el.groupId, createId("grp")).get(el.groupId)) : undefined;
-      return { type: "element.add", slideId: slide().id, element: { ...rest, groupId, animations: rest.animations.map((a) => ({ ...a, id: createId("anim") })), position: { ...el.position, x: el.position.x + dx, y: el.position.y + dy } } as NewElement };
+      return { type: "element.add", slideId: slide().id, element: { ...rest, groupId, morphKey: el.morphKey ?? el.id, animations: rest.animations.map((a) => ({ ...a, id: createId("anim") })), position: { ...el.position, x: el.position.x + dx, y: el.position.y + dy } } as NewElement };
     }));
     if (r) editor.select(r.createdIds);
     if (missing) toast.message("Some pasted images belong to another catalog and show as placeholders.");

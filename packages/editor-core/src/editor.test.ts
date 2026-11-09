@@ -45,9 +45,14 @@ test("rapid moves coalesce into one undo step", () => {
 test("slide ops and transitions", () => {
   const { editor, slideId } = setup();
   const [s2] = editor.execute({ type: "slide.duplicate", slideId }).createdIds;
-  editor.execute({ type: "slide.setTransition", slideId: s2!, transition: { type: "fade" } });
+  // Duplicates morph by default, and their elements remember the originals.
+  const dup = editor.getDocument().slides.find((s) => s.id === s2)!;
+  const orig = editor.getDocument().slides.find((s) => s.id === slideId)!;
+  expect(dup.transition).toMatchObject({ type: "morph", durationMs: 900 });
+  expect(dup.elements.map((e) => e.morphKey)).toEqual(orig.elements.map((e) => e.morphKey ?? e.id));
+  editor.execute({ type: "slide.setTransition", slideId: s2!, transition: { type: "fade", durationMs: 500 } });
   editor.execute({ type: "slide.move", slideId: s2!, toIndex: 0 });
-  expect(editor.getDocument().slides[0]!.transition?.durationMs).toBe(500);
+  expect(editor.getDocument().slides[0]!.transition).toMatchObject({ type: "fade", durationMs: 500 });
   editor.execute({ type: "slide.delete", slideId });
   expect(() => editor.execute({ type: "slide.delete", slideId: s2! })).toThrow();
 });

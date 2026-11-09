@@ -133,10 +133,14 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
       copy.name = `${copy.name} copy`;
       const groups = new Map<string, string>();
       for (const el of copy.elements) {
+        // Remember the original so the Morph transition can move it between the two slides.
+        el.morphKey = el.morphKey ?? el.id;
         el.id = createId("el");
         for (const a of el.animations) a.id = createId("anim");
         if (el.groupId) el.groupId = groups.get(el.groupId) ?? groups.set(el.groupId, createId("grp")).get(el.groupId);
       }
+      // A duplicate usually continues the same scene: morph into it unless a transition was chosen.
+      if (!copy.transition || copy.transition.type === "none") copy.transition = slideTransitionSchema.parse({ type: "morph", durationMs: 900 });
       doc.slides.splice(i + 1, 0, copy);
       created.push(copy.id);
       break;

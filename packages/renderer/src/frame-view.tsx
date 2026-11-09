@@ -1,9 +1,9 @@
-import { frameAt, transitionStyles, type Timeline } from "@Kavero/animation-engine";
+import { frameAt, matchMorph, transitionStyles, type Timeline } from "@Kavero/animation-engine";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import type { CSSProperties } from "react";
 
 import { fontFaceCss, googleFontsUrls } from "./fonts";
-import { SlideView, type AssetResolver } from "./slide-view";
+import { MorphView, SlideView, type AssetResolver } from "./slide-view";
 
 /**
  * Renders the whole catalog at a global time: the current slide with its element
@@ -24,6 +24,16 @@ export function FrameView({ doc, timeline, timeMs, scale = 1, resolveAsset }: {
   const current = doc.slides[frame.current.slideIndex];
   const previous = frame.previous ? doc.slides[frame.previous.slideIndex] : undefined;
   if (!current) return null;
+  // After a Morph, the shared elements are already in place: don't replay their entrances.
+  const before = doc.slides[frame.current.slideIndex - 1];
+  const settledIds = current.transition?.type === "morph" && before ? new Set(matchMorph(before, current).map(([, b]) => b.id)) : undefined;
+  if (previous && frame.transition?.type === "morph") {
+    return (
+      <div style={{ position: "relative", width: W * scale, height: H * scale, overflow: "hidden", background: "#000" }}>
+        <MorphView doc={doc} from={previous} to={current} progress={frame.transition.progress} scale={scale} timeMs={frame.current.localMs} resolveAsset={resolveAsset} />
+      </div>
+    );
+  }
   return (
     <div style={{ position: "relative", width: W * scale, height: H * scale, overflow: "hidden", background: "#000" }}>
       {previous && frame.previous && (
@@ -32,7 +42,7 @@ export function FrameView({ doc, timeline, timeMs, scale = 1, resolveAsset }: {
         </div>
       )}
       <div style={layer(styles?.incoming)}>
-        <SlideView doc={doc} slide={current} scale={scale} timeMs={frame.current.localMs} resolveAsset={resolveAsset} />
+        <SlideView doc={doc} slide={current} scale={scale} timeMs={frame.current.localMs} settledIds={settledIds} resolveAsset={resolveAsset} />
       </div>
     </div>
   );

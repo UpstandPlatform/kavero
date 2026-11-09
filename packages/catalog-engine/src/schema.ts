@@ -61,6 +61,8 @@ const elementBase = {
   hidden: z.boolean().default(false),
   opacity: z.number().min(0).max(1).default(1),
   groupId: id.optional(),
+  /** Identity shared by copies of an element (duplicated slides, copy/paste) so Morph can match them. */
+  morphKey: z.string().max(100).optional(),
   animations: z.array(elementAnimationSchema).default([]),
 };
 

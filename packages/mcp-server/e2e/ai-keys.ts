@@ -6,6 +6,8 @@
  * Needs the Kavero dev server (http://localhost:3001) with its database.
  * Run: `bun e2e/ai-keys.ts`
  */
+export {};
+
 const BASE = process.env.KAVERO_URL ?? "http://localhost:3001";
 const results: [string, boolean, string?][] = [];
 const check = (name: string, ok: boolean, info?: string) => results.push([name, !!ok, info]);

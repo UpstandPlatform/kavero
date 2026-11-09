@@ -8,7 +8,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { slideDurationMs } from "@Kavero/animation-engine";
+import { matchMorph, slideDurationMs } from "@Kavero/animation-engine";
 
 import { FontPicker, type AddFont } from "./font-picker";
 import { useRun } from "./use-catalog-editor";
@@ -362,7 +362,12 @@ function ProductProperties({ doc, el, run, update }: {
   );
 }
 
+const TRANSITIONS = [["none", "None"], ["fade", "Fade"], ["morph", "Morph"], ["slide", "Slide"], ["push", "Push"], ["zoom", "Zoom"], ["wipe", "Wipe"], ["flip", "Flip"]] as const;
+
 function SlideProperties({ doc, slide, run }: { doc: CatalogDocument; slide: CatalogSlide; run: (c: EditorCommand) => unknown }) {
+  const slideIndex = doc.slides.findIndex((s) => s.id === slide.id);
+  const prevSlide = slideIndex > 0 ? doc.slides[slideIndex - 1] : undefined;
+  const morphCount = slide.transition?.type === "morph" && prevSlide ? matchMorph(prevSlide, slide).length : 0;
   const bg = slide.background;
   return (
     <div>
@@ -377,19 +382,26 @@ function SlideProperties({ doc, slide, run }: { doc: CatalogDocument; slide: Cat
           <select
             className={inputCls}
             value={slide.transition?.type ?? "none"}
-            onChange={(e) => run({ type: "slide.setTransition", slideId: slide.id, transition: e.target.value === "none" ? null : { type: e.target.value as never } })}
+            onChange={(e) => run({ type: "slide.setTransition", slideId: slide.id, transition: e.target.value === "none" ? null : { type: e.target.value as never, ...(e.target.value === "morph" ? { durationMs: 900 } : {}) } })}
           >
-            {["none", "fade", "slide", "push", "zoom", "wipe", "flip"].map((t) => <option key={t}>{t}</option>)}
+            {TRANSITIONS.map(([t, label]) => <option key={t} value={t}>{label}</option>)}
           </select>
         </Field>
+        {slide.transition?.type === "morph" && (
+          <p className="-mt-1 text-xs text-muted-foreground">
+            {slideIndex === 0
+              ? "Morph plays when arriving from the previous slide — this is the first slide."
+              : `Elements also on the previous slide move into place (${morphCount} matched). Duplicate a slide or copy elements across to match more.`}
+          </p>
+        )}
         {slide.transition && slide.transition.type !== "none" && (
           <div className="grid grid-cols-2 gap-2">
             <Field compact label="Time"><NumberInput value={slide.transition.durationMs / 1000} min={0.1} max={10} step={0.1} suffix="s" onCommit={(v) => run({ type: "slide.setTransition", slideId: slide.id, transition: { durationMs: Math.round(v * 1000) } })} /></Field>
-            <Field compact label="From">
+            {slide.transition.type !== "morph" && slide.transition.type !== "fade" && <Field compact label="From">
               <select className={inputCls} value={slide.transition.direction ?? "left"} onChange={(e) => run({ type: "slide.setTransition", slideId: slide.id, transition: { direction: e.target.value as never } })}>
                 {["left", "right", "up", "down"].map((d) => <option key={d}>{d}</option>)}
               </select>
-            </Field>
+            </Field>}
           </div>
         )}
         <Field label="Duration">

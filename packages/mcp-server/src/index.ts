@@ -247,7 +247,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
 
   server.registerTool("catalog_set_transition", {
     title: "Set slide transition", description: "Transition played when this slide appears (none removes it).",
-    inputSchema: { catalogId: id, slideId: id, type: z.enum(["none", "fade", "slide", "push", "zoom", "wipe", "flip"]), durationMs: z.number().int().min(100).max(10_000).optional(), direction: z.enum(["left", "right", "up", "down"]).optional() },
+    inputSchema: { catalogId: id, slideId: id, type: z.enum(["none", "fade", "morph", "slide", "push", "zoom", "wipe", "flip"]), durationMs: z.number().int().min(100).max(10_000).optional(), direction: z.enum(["left", "right", "up", "down"]).optional() },
   }, guard("catalog_set_transition", "catalogs:write", async ({ catalogId, slideId, type, durationMs, direction }) =>
     ok(await edit(catalogId, [{ type: "slide.setTransition", slideId, transition: type === "none" ? null : { type, durationMs, direction } }]))));
 

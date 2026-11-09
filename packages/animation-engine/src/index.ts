@@ -1,4 +1,5 @@
 import type { CatalogDocument, CatalogElement, CatalogSlide, ElementAnimation, SlideTransition } from "@Kavero/catalog-engine";
+export * from "./morph";
 
 /**
  * Deterministic animation runtime. Everything is a pure function of time, so the
@@ -246,7 +247,7 @@ export function transitionStyles(type: SlideTransition["type"], p: number, direc
   const pct = (v: number) => `translate${axis}(${(v * 100).toFixed(3)}%)`;
   switch (type) {
     case "fade":
-    case "morph": // morph falls back to a cross-fade until element matching lands
+    case "morph": // the slide layers cross-fade; matched elements are drawn by MorphView
       return { outgoing: { opacity: 1 }, incoming: { opacity: p, zIndex: 1 } };
     case "slide":
       return { outgoing: {}, incoming: { transform: pct(-sign * (1 - p)), zIndex: 1 } };
