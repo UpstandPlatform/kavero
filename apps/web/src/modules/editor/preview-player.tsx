@@ -1,10 +1,11 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon, PauseIcon, PlayIcon, SkipBackIcon } from "@hugeicons/core-free-icons";
 import { buildTimeline } from "@Kavero/animation-engine";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { FrameView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
-import { Pause, Play, SkipBack, X } from "lucide-react";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { VideoExportButton } from "./video-export";
@@ -81,8 +82,8 @@ export function PreviewPlayer({ doc, startSlide, assetUrls, onClose, openExport 
         <FrameView doc={doc} timeline={timeline} timeMs={time} scale={scale} resolveAsset={(id) => assetUrls[id]} />
       </div>
       <div className="flex items-center gap-2 border-t border-white/10 px-4 py-2 text-xs">
-        <Button variant="ghost" size="icon-sm" className="text-white hover:bg-white/10" title="Restart" onClick={() => { setTime(0); setPlaying(true); }}><SkipBack /></Button>
-        <Button variant="ghost" size="icon-sm" className="text-white hover:bg-white/10" title={playing ? "Pause (Space)" : "Play (Space)"} onClick={() => { if (time >= timeline.totalMs - 1) setTime(0); setPlaying(!playing); }}>{playing ? <Pause /> : <Play />}</Button>
+        <Button variant="ghost" size="icon-sm" className="text-white hover:bg-white/10" title="Restart" onClick={() => { setTime(0); setPlaying(true); }}><HugeiconsIcon icon={SkipBackIcon} /></Button>
+        <Button variant="ghost" size="icon-sm" className="text-white hover:bg-white/10" title={playing ? "Pause (Space)" : "Play (Space)"} onClick={() => { if (time >= timeline.totalMs - 1) setTime(0); setPlaying(!playing); }}>{playing ? <HugeiconsIcon icon={PauseIcon} /> : <HugeiconsIcon icon={PlayIcon} />}</Button>
         <span className="w-20 tabular-nums">{fmt(time)} / {fmt(timeline.totalMs)}</span>
         <div className="relative flex-1">
           <input
@@ -96,7 +97,7 @@ export function PreviewPlayer({ doc, startSlide, assetUrls, onClose, openExport 
           ))}
         </div>
         <VideoExportButton doc={doc} defaultOpen={openExport} />
-        <Button variant="ghost" size="icon-sm" className="text-white hover:bg-white/10" title="Close (Esc)" onClick={onClose}><X /></Button>
+        <Button variant="ghost" size="icon-sm" className="text-white hover:bg-white/10" title="Close (Esc)" onClick={onClose}><HugeiconsIcon icon={Cancel01Icon} /></Button>
       </div>
     </div>
   );

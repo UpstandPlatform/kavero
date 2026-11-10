@@ -1,7 +1,8 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
-import { X } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { SHORTCUTS, kbd } from "./editor-actions";
@@ -15,7 +16,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
     <dialog ref={ref} onClose={onClose} className="m-auto w-[min(760px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50">
       <div className="flex items-center justify-between border-b px-5 py-3">
         <h2 className="text-sm font-semibold">Keyboard shortcuts</h2>
-        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><X /></Button>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><HugeiconsIcon icon={Cancel01Icon} /></Button>
       </div>
       <div className="grid max-h-[75vh] gap-6 overflow-y-auto p-5 text-xs sm:grid-cols-2">
         {groups.map((g) => (

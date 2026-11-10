@@ -1,10 +1,11 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon, Delete02Icon, Loading02Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
 import { CopyField } from "@Kavero/ui/components/code-block";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
-import { Loader2, Plus, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -52,7 +53,7 @@ export function WorkspacesTab() {
       <p className="text-sm text-muted-foreground">Workspaces let a team share catalogs. Save a catalog to a workspace from the dashboard (catalog menu → Save to cloud).</p>
       <div className="flex flex-wrap items-end gap-2">
         <label className="grid gap-1.5">New workspace<Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Marketing team" maxLength={80} /></label>
-        <Button onClick={create} disabled={!name.trim()}><Plus /> Create</Button>
+        <Button onClick={create} disabled={!name.trim()}><HugeiconsIcon icon={Add01Icon} /> Create</Button>
       </div>
       {!list ? <p className="text-muted-foreground">Loading…</p> : list.length === 0 ? <p className="text-muted-foreground">You’re not in any workspace yet.</p> : (
         <div className="grid gap-4 sm:grid-cols-[200px_1fr]">
@@ -135,7 +136,7 @@ function WorkspaceDetail({ workspaceId, me, onChanged, onGone }: { workspaceId: 
               const r = await api().workspace.invite.mutate({ workspaceId, email, role });
               setLink(`${window.location.origin}/invite/${r.token}`);
               setEmail("");
-            })}>{busy && <Loader2 className="animate-spin" />} Create invite link</Button>
+            })}>{busy && <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />} Create invite link</Button>
           </div>
           <p className="text-muted-foreground">{ROLE_HELP[role]}. Kavero doesn’t send email yet: share the link yourself. Only {email || "that address"} can accept it, within 7 days.</p>
           {link && (
@@ -164,7 +165,7 @@ function WorkspaceDetail({ workspaceId, me, onChanged, onGone }: { workspaceId: 
             <p className="text-muted-foreground">Members lose access. Its catalogs return to their creators as personal catalogs.</p>
           </div>
           <Button variant="destructive" size="sm" disabled={busy} onClick={() => confirm("Delete this workspace? Members lose access. Its catalogs return to their creators as personal catalogs.") && act(() => api().workspace.remove.mutate({ workspaceId }), "Workspace deleted").then(onGone)}>
-            <Trash2 /> Delete workspace
+            <HugeiconsIcon icon={Delete02Icon} /> Delete workspace
           </Button>
         </section>
       )}

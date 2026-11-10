@@ -1,8 +1,9 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon, ArrowDown01Icon, ArrowUp01Icon, Cancel01Icon, PackageAddIcon, PackageIcon, Search01Icon } from "@hugeicons/core-free-icons";
 import { formatMoney, matchesProduct, type CatalogDocument, type Product } from "@Kavero/catalog-engine";
 import { Button } from "@Kavero/ui/components/button";
-import { ArrowDown, ArrowUp, PackagePlus, Package, Plus, Search, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 /** Opens the shared product picker and product form; implemented by the editor shell. */
@@ -27,7 +28,7 @@ export function ProductThumb({ product, assetUrls, className = "size-10" }: { pr
   return (
     <span className={`grid shrink-0 place-items-center overflow-hidden rounded-md border bg-muted/50 text-muted-foreground ${className}`}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      {src ? <img src={src} alt="" className="size-full object-contain" /> : <Package className="size-1/2" aria-hidden />}
+      {src ? <img src={src} alt="" className="size-full object-contain" /> : <HugeiconsIcon icon={PackageIcon} className="size-1/2" aria-hidden />}
     </span>
   );
 }
@@ -39,12 +40,12 @@ export function productPrice(doc: CatalogDocument, p: Product): string | null {
 export function NoProducts({ onNew, onImport, compact }: { onNew: () => void; onImport: () => void; compact?: boolean }) {
   return (
     <div className={`grid justify-items-center gap-2 text-center text-xs text-muted-foreground ${compact ? "px-2 py-6" : "px-6 py-10"}`}>
-      <Package className="size-6" aria-hidden />
+      <HugeiconsIcon icon={PackageIcon} className="size-6" aria-hidden />
       <p className="font-medium text-foreground">No products yet</p>
       <p className="max-w-72">Add one with its name, price, photos and specs, or import many at once from a connected store (MCP).</p>
       <div className="flex flex-wrap justify-center gap-1">
-        <Button type="button" size="sm" onClick={onNew}><Plus /> New product</Button>
-        <Button type="button" size="sm" variant="outline" onClick={onImport}><PackagePlus /> Import products</Button>
+        <Button type="button" size="sm" onClick={onNew}><HugeiconsIcon icon={Add01Icon} /> New product</Button>
+        <Button type="button" size="sm" variant="outline" onClick={onImport}><HugeiconsIcon icon={PackageAddIcon} /> Import products</Button>
       </div>
     </div>
   );
@@ -94,7 +95,7 @@ export function ProductPickerDialog({ doc, assetUrls, options, ui, onClose }: {
       <div className="flex max-h-[min(85vh,760px)] flex-col">
         <div className="flex items-center justify-between border-b px-5 py-3">
           <h2 id={`${uid}-t`} className="text-sm font-semibold">{options.title}</h2>
-          <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><X /></Button>
+          <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><HugeiconsIcon icon={Cancel01Icon} /></Button>
         </div>
 
         {doc.products.length === 0 ? (
@@ -103,7 +104,7 @@ export function ProductPickerDialog({ doc, assetUrls, options, ui, onClose }: {
           <div className={`grid min-h-0 flex-1 ${multiple ? "md:grid-cols-[minmax(0,1fr)_240px]" : ""}`}>
             <div className="flex min-h-0 flex-col">
               <div className="flex items-center gap-2 border-b px-5 py-2">
-                <Search className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
+                <HugeiconsIcon icon={Search01Icon} className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
                 <input
                   autoFocus type="search" value={query} onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search by name, SKU, brand or category" aria-label="Search products"
@@ -149,9 +150,9 @@ export function ProductPickerDialog({ doc, assetUrls, options, ui, onClose }: {
                         <li key={id} className="flex items-center gap-1 rounded-md px-2 py-1 text-xs hover:bg-muted/60">
                           <span className="w-4 shrink-0 text-muted-foreground tabular-nums">{i + 1}</span>
                           <span className="min-w-0 flex-1 truncate">{p.name}</span>
-                          <Button variant="ghost" size="icon-xs" aria-label={`Move ${p.name} up`} title="Move up" disabled={i === 0} onClick={() => move(i, -1)}><ArrowUp /></Button>
-                          <Button variant="ghost" size="icon-xs" aria-label={`Move ${p.name} down`} title="Move down" disabled={i === selected.length - 1} onClick={() => move(i, 1)}><ArrowDown /></Button>
-                          <Button variant="ghost" size="icon-xs" aria-label={`Remove ${p.name}`} title="Remove" onClick={() => toggle(id)}><X /></Button>
+                          <Button variant="ghost" size="icon-xs" aria-label={`Move ${p.name} up`} title="Move up" disabled={i === 0} onClick={() => move(i, -1)}><HugeiconsIcon icon={ArrowUp01Icon} /></Button>
+                          <Button variant="ghost" size="icon-xs" aria-label={`Move ${p.name} down`} title="Move down" disabled={i === selected.length - 1} onClick={() => move(i, 1)}><HugeiconsIcon icon={ArrowDown01Icon} /></Button>
+                          <Button variant="ghost" size="icon-xs" aria-label={`Remove ${p.name}`} title="Remove" onClick={() => toggle(id)}><HugeiconsIcon icon={Cancel01Icon} /></Button>
                         </li>
                       );
                     })}
@@ -163,7 +164,7 @@ export function ProductPickerDialog({ doc, assetUrls, options, ui, onClose }: {
         )}
 
         <div className="flex items-center gap-2 border-t px-5 py-3">
-          {doc.products.length > 0 && <Button variant="outline" size="sm" onClick={newProduct}><Plus /> New product</Button>}
+          {doc.products.length > 0 && <Button variant="outline" size="sm" onClick={newProduct}><HugeiconsIcon icon={Add01Icon} /> New product</Button>}
           <span className="flex-1" />
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
           <Button size="sm" disabled={!selected.length} onClick={() => confirm()}>{options.confirmLabel}</Button>

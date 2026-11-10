@@ -1,6 +1,6 @@
 "use client";
-
-import { ChevronRight } from "lucide-react";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowRight01Icon } from "@hugeicons/core-free-icons";
 import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
@@ -141,7 +141,7 @@ function MenuList({ x, y, items, onClose, root, onBack, focus }: { x: number; y:
             <span className="flex size-3.5 items-center justify-center">{item.icon ?? ("checked" in item && item.checked ? "✓" : null)}</span>
             <span className="flex-1">{item.label}</span>
             {"shortcut" in item && item.shortcut && <kbd className="ml-4 font-sans text-[10px] tracking-wide text-muted-foreground">{item.shortcut}</kbd>}
-            {item.type === "submenu" && <ChevronRight className="text-muted-foreground" />}
+            {item.type === "submenu" && <HugeiconsIcon icon={ArrowRight01Icon} className="text-muted-foreground" />}
           </div>
         );
       })}

@@ -1,3 +1,5 @@
+import { HugeiconsIcon } from "@hugeicons/react";
+import { BotIcon, Key02Icon, LayoutGridIcon, Logout01Icon, Plug01Icon, Refresh01Icon, Shield01Icon, UserGroupIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
 import {
   DropdownMenu,
@@ -9,7 +11,6 @@ import {
   DropdownMenuTrigger,
 } from "@Kavero/ui/components/dropdown-menu";
 import { Skeleton } from "@Kavero/ui/components/skeleton";
-import { Bot, KeyRound, LayoutGrid, LogOut, Plug, RefreshCw, Shield, Users } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
@@ -61,13 +62,13 @@ export default function UserMenu() {
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
-          <DropdownMenuItem onClick={go("/dashboard" as Route)}><LayoutGrid /> Catalogs</DropdownMenuItem>
-          <DropdownMenuItem onClick={go("/settings#workspaces" as Route)}><Users /> Workspaces</DropdownMenuItem>
-          <DropdownMenuItem onClick={go("/settings#ai" as Route)}><Bot /> AI model</DropdownMenuItem>
-          <DropdownMenuItem onClick={go("/settings#tokens" as Route)}><KeyRound /> API tokens &amp; MCP</DropdownMenuItem>
-          <DropdownMenuItem onClick={go("/settings#connections" as Route)}><Plug /> Product sources</DropdownMenuItem>
-          {session.user.role === "admin" && <DropdownMenuItem onClick={go("/admin" as Route)}><Shield /> Admin</DropdownMenuItem>}
-          {desktop?.updates && <DropdownMenuItem onClick={() => void desktop.updates!.check()}><RefreshCw /> Check for updates</DropdownMenuItem>}
+          <DropdownMenuItem onClick={go("/dashboard" as Route)}><HugeiconsIcon icon={LayoutGridIcon} /> Catalogs</DropdownMenuItem>
+          <DropdownMenuItem onClick={go("/settings#workspaces" as Route)}><HugeiconsIcon icon={UserGroupIcon} /> Workspaces</DropdownMenuItem>
+          <DropdownMenuItem onClick={go("/settings#ai" as Route)}><HugeiconsIcon icon={BotIcon} /> AI model</DropdownMenuItem>
+          <DropdownMenuItem onClick={go("/settings#tokens" as Route)}><HugeiconsIcon icon={Key02Icon} /> API tokens &amp; MCP</DropdownMenuItem>
+          <DropdownMenuItem onClick={go("/settings#connections" as Route)}><HugeiconsIcon icon={Plug01Icon} /> Product sources</DropdownMenuItem>
+          {session.user.role === "admin" && <DropdownMenuItem onClick={go("/admin" as Route)}><HugeiconsIcon icon={Shield01Icon} /> Admin</DropdownMenuItem>}
+          {desktop?.updates && <DropdownMenuItem onClick={() => void desktop.updates!.check()}><HugeiconsIcon icon={Refresh01Icon} /> Check for updates</DropdownMenuItem>}
         </DropdownMenuGroup>
         {!localMode && (<>
         <DropdownMenuSeparator />
@@ -75,7 +76,7 @@ export default function UserMenu() {
           variant="destructive"
           onClick={() => authClient.signOut({ fetchOptions: { onSuccess: () => router.push("/") } })}
         >
-          <LogOut /> Sign out
+          <HugeiconsIcon icon={Logout01Icon} /> Sign out
         </DropdownMenuItem>
         </>)}
       </DropdownMenuContent>

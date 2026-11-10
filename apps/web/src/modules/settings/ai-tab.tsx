@@ -1,9 +1,10 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { CheckmarkCircle02Icon, Delete02Icon, Key02Icon, LinkSquare01Icon, Loading02Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
-import { CheckCircle2, ExternalLink, KeyRound, Loader2, Trash2 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
@@ -96,7 +97,7 @@ export function AiTab() {
     <div className="grid gap-8 text-xs">
       <section className={`grid gap-1 ${surface.panel}`}>
         <p className="flex items-center gap-2 text-sm font-medium">
-          {status?.configured ? <CheckCircle2 className="size-4 text-green-600" /> : <KeyRound className="size-4 text-muted-foreground" />}
+          {status?.configured ? <HugeiconsIcon icon={CheckmarkCircle02Icon} className="size-4 text-green-600" /> : <HugeiconsIcon icon={Key02Icon} className="size-4 text-muted-foreground" />}
           {status?.configured ? `Using ${status.model} · ${status.source === "personal" ? "your key" : "the server's key"}` : "No AI model connected"}
         </p>
         <p className="text-muted-foreground">
@@ -118,7 +119,7 @@ export function AiTab() {
           )}
           <label className="grid gap-1.5">
             <span className="flex items-center justify-between">API key
-              {meta.keyUrl && <a className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground" href={meta.keyUrl} target="_blank" rel="noreferrer">Get a key <ExternalLink className="size-3" /></a>}
+              {meta.keyUrl && <a className="inline-flex items-center gap-1 text-muted-foreground hover:text-foreground" href={meta.keyUrl} target="_blank" rel="noreferrer">Get a key <HugeiconsIcon icon={LinkSquare01Icon} className="size-3" /></a>}
             </span>
             <Input type="password" autoComplete="off" value={apiKey} onChange={(e) => setApiKey(e.target.value)}
               placeholder={keepsKey ? `Saved key ending in ${cred?.keyHint ?? "…"} (leave empty to keep it)` : meta.keyHint} />
@@ -128,10 +129,10 @@ export function AiTab() {
           </label>
           <div className="flex flex-wrap items-center gap-2">
             <Button onClick={save} disabled={!!busy || (!apiKey && !keepsKey && provider !== "openai-compatible") || (meta.modelRequired && !model)}>
-              {busy === "save" && <Loader2 className="animate-spin" />} Save and test
+              {busy === "save" && <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />} Save and test
             </Button>
-            {cred && <Button variant="outline" onClick={test} disabled={!!busy}>{busy === "test" && <Loader2 className="animate-spin" />} Test connection</Button>}
-            {cred && <Button variant="ghost" onClick={remove} disabled={!!busy}><Trash2 /> Remove</Button>}
+            {cred && <Button variant="outline" onClick={test} disabled={!!busy}>{busy === "test" && <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />} Test connection</Button>}
+            {cred && <Button variant="ghost" onClick={remove} disabled={!!busy}><HugeiconsIcon icon={Delete02Icon} /> Remove</Button>}
           </div>
           {cred && <p className="text-muted-foreground">Saved: {cred.label}{cred.model ? ` · ${cred.model}` : ""}{cred.keyHint ? ` · key …${cred.keyHint}` : ""}</p>}
         </div>

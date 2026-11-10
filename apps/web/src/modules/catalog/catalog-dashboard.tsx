@@ -1,5 +1,7 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon, CloudIcon, CloudLoadingIcon, CloudUploadIcon, Copy01Icon, Delete02Icon, Download01Icon, HardDriveIcon, MoreHorizontalIcon, PencilIcon, Presentation01Icon, Refresh01Icon, Search01Icon, SparklesIcon, Upload01Icon } from "@hugeicons/core-free-icons";
 import { hasUnsyncedChanges, type CatalogSummary } from "@Kavero/local-storage";
 import { Badge } from "@Kavero/ui/components/badge";
 import { Button } from "@Kavero/ui/components/button";
@@ -13,7 +15,6 @@ import {
 import { Input } from "@Kavero/ui/components/input";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { Skeleton } from "@Kavero/ui/components/skeleton";
-import { Sparkles, Cloud, CloudOff, CloudUpload, Copy, Download, HardDrive, RefreshCw, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload, Presentation } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -136,7 +137,7 @@ export function CatalogDashboard() {
         <div>
           <h1 className="text-2xl font-semibold tracking-tight">Your catalogs</h1>
           <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
-            <HardDrive className="size-3.5" />
+            <HugeiconsIcon icon={HardDriveIcon} className="size-3.5" />
             Saved in this browser.{" "}
             {session ? "Catalogs you save to the cloud stay in sync across your devices." : (
               <>
@@ -148,13 +149,13 @@ export function CatalogDashboard() {
         <div className="flex gap-2">
           <input ref={fileInput} type="file" accept=".kavero,application/json" className="hidden" onChange={(e) => onImport(e.target.files?.[0])} />
           <Button variant="outline" size="lg" onClick={() => fileInput.current?.click()}>
-            <Upload /> Import
+            <HugeiconsIcon icon={Upload01Icon} /> Import
           </Button>
           <Button variant="outline" size="lg" onClick={() => setGenerating(true)}>
-            <Sparkles /> Generate with AI
+            <HugeiconsIcon icon={SparklesIcon} /> Generate with AI
           </Button>
           <Button size="lg" onClick={() => setCreating(true)}>
-            <Plus /> New catalog
+            <HugeiconsIcon icon={Add01Icon} /> New catalog
           </Button>
         </div>
       </div>
@@ -162,7 +163,7 @@ export function CatalogDashboard() {
       {catalogs && catalogs.length > 0 && (
         <div className="mb-4 flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1 sm:max-w-xs">
-            <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <HugeiconsIcon icon={Search01Icon} className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search catalogs" className="pl-7" aria-label="Search catalogs" />
           </div>
           <SimpleSelect
@@ -188,9 +189,9 @@ export function CatalogDashboard() {
           <h2 className="text-lg font-medium">No catalogs yet</h2>
           <p className="max-w-sm text-sm text-muted-foreground">Start from a template or a blank page. Everything is saved in your browser — no account needed.</p>
           <div className="flex flex-wrap justify-center gap-2">
-            <Button size="lg" onClick={() => setCreating(true)}><Plus /> Create your first catalog</Button>
+            <Button size="lg" onClick={() => setCreating(true)}><HugeiconsIcon icon={Add01Icon} /> Create your first catalog</Button>
             <Button size="lg" variant="outline" onClick={() => void addExampleCatalogs().then((n) => toast.success(`Added ${n} example presentations`), (e: Error) => toast.error(e.message))}>
-              <Presentation /> Add example presentations
+              <HugeiconsIcon icon={Presentation01Icon} /> Add example presentations
             </Button>
           </div>
         </div>
@@ -260,16 +261,16 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
   }
 
   const status = !c.cloud
-    ? { icon: <HardDrive className="size-2.5" />, label: "Local", title: "Only in this browser" }
+    ? { icon: <HugeiconsIcon icon={HardDriveIcon} className="size-2.5" />, label: "Local", title: "Only in this browser" }
     : !userId
-      ? { icon: <CloudOff className="size-2.5" />, label: "Sign in to sync", title: "Linked to a cloud catalog. Sign in to check for changes and sync." }
+      ? { icon: <HugeiconsIcon icon={CloudLoadingIcon} className="size-2.5" />, label: "Sign in to sync", title: "Linked to a cloud catalog. Sign in to check for changes and sync." }
     : linkedElsewhere
-      ? { icon: <CloudOff className="size-2.5" />, label: "Other account", title: "Linked to a different account" }
+      ? { icon: <HugeiconsIcon icon={CloudLoadingIcon} className="size-2.5" />, label: "Other account", title: "Linked to a different account" }
       : cloudConflict
-        ? { icon: <CloudOff className="size-2.5 text-destructive" />, label: "Conflict", title: "Changed here and in the cloud. Use Sync now to choose a version." }
+        ? { icon: <HugeiconsIcon icon={CloudLoadingIcon} className="size-2.5 text-destructive" />, label: "Conflict", title: "Changed here and in the cloud. Use Sync now to choose a version." }
       : hasUnsyncedChanges(c)
-        ? { icon: <CloudUpload className="size-2.5" />, label: "Changed", title: "Has edits not in the cloud yet" }
-        : { icon: <Cloud className="size-2.5" />, label: "Synced", title: "Matches your cloud copy" };
+        ? { icon: <HugeiconsIcon icon={CloudUploadIcon} className="size-2.5" />, label: "Changed", title: "Has edits not in the cloud yet" }
+        : { icon: <HugeiconsIcon icon={CloudIcon} className="size-2.5" />, label: "Synced", title: "Matches your cloud copy" };
 
   return (
     <div className="group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md">
@@ -299,7 +300,7 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
           )}
           <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
             <Badge variant="outline" title={status.title} className="h-4 px-1.5 text-[10px] font-normal tracking-wide uppercase">
-              {syncing ? <RefreshCw className="animate-spin" /> : status.icon} {status.label}
+              {syncing ? <HugeiconsIcon icon={Refresh01Icon} className="animate-spin" /> : status.icon} {status.label}
             </Badge>
             {cloud?.workspaceName && <span className="truncate" title={`Workspace · your role: ${cloud.role}`}>{cloud.workspaceName}{cloud.role === "viewer" ? " (view only)" : ""} ·</span>}
             {c.slideCount} slide{c.slideCount === 1 ? "" : "s"} · {timeAgo(c.updatedAt)}
@@ -307,22 +308,22 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
         </div>
         <DropdownMenu>
           <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${c.title}`} />}>
-            <MoreHorizontal />
+            <HugeiconsIcon icon={MoreHorizontalIcon} />
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="bg-card">
-            <DropdownMenuItem onClick={() => setRenaming(true)}><Pencil /> Rename</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => act(() => duplicateLocalCatalog(c.id), "Catalog duplicated")}><Copy /> Duplicate</DropdownMenuItem>
-            <DropdownMenuItem onClick={() => act(() => downloadProjectFile(c.id, c.title))}><Download /> Export .kavero file</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setRenaming(true)}><HugeiconsIcon icon={PencilIcon} /> Rename</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => act(() => duplicateLocalCatalog(c.id), "Catalog duplicated")}><HugeiconsIcon icon={Copy01Icon} /> Duplicate</DropdownMenuItem>
+            <DropdownMenuItem onClick={() => act(() => downloadProjectFile(c.id, c.title))}><HugeiconsIcon icon={Download01Icon} /> Export .kavero file</DropdownMenuItem>
             {userId && !linkedElsewhere && (
               <>
                 <DropdownMenuSeparator />
                 {c.cloud ? (
-                  <DropdownMenuItem onClick={() => sync()}><RefreshCw /> Sync now</DropdownMenuItem>
+                  <DropdownMenuItem onClick={() => sync()}><HugeiconsIcon icon={Refresh01Icon} /> Sync now</DropdownMenuItem>
                 ) : (
                   <>
-                    <DropdownMenuItem onClick={() => sync()}><CloudUpload /> Save to my cloud</DropdownMenuItem>
+                    <DropdownMenuItem onClick={() => sync()}><HugeiconsIcon icon={CloudUploadIcon} /> Save to my cloud</DropdownMenuItem>
                     {workspaces.filter((w) => w.role !== "viewer").map((w) => (
-                      <DropdownMenuItem key={w.id} onClick={() => sync(w)}><CloudUpload /> Save to {w.name}</DropdownMenuItem>
+                      <DropdownMenuItem key={w.id} onClick={() => sync(w)}><HugeiconsIcon icon={CloudUploadIcon} /> Save to {w.name}</DropdownMenuItem>
                     ))}
                   </>
                 )}
@@ -334,7 +335,7 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
                       }
                     }}
                   >
-                    <CloudOff /> Remove cloud copy
+                    <HugeiconsIcon icon={CloudLoadingIcon} /> Remove cloud copy
                   </DropdownMenuItem>
                 )}
               </>
@@ -348,7 +349,7 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
                 }
               }}
             >
-              <Trash2 /> Delete
+              <HugeiconsIcon icon={Delete02Icon} /> Delete
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>

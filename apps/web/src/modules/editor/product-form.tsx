@@ -1,12 +1,13 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon, ArrowDown01Icon, ArrowLeft01Icon, ArrowRight01Icon, ArrowUp01Icon, Cancel01Icon, Delete02Icon, Image02Icon, ImageAdd01Icon, Loading02Icon, StarIcon } from "@hugeicons/core-free-icons";
 import { AVAILABILITY_LABELS, PRODUCT_AVAILABILITY, productSchema, productUsage, type CatalogDocument, type Product } from "@Kavero/catalog-engine";
 import type { Editor } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { Textarea } from "@Kavero/ui/components/textarea";
-import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ImagePlus, Images, Loader2, Plus, Star, Trash2, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
@@ -179,7 +180,7 @@ export function ProductFormDialog({ editor, doc, productId, assetUrls, uploadIma
       >
         <div className="flex items-center justify-between border-b px-5 py-3">
           <h2 id={`${uid}-title`} className="text-sm font-semibold">{existing ? `Edit product` : "New product"}</h2>
-          <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><X /></Button>
+          <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><HugeiconsIcon icon={Cancel01Icon} /></Button>
         </div>
 
         <div className="grid min-h-0 flex-1 gap-5 overflow-y-auto p-5 text-xs md:grid-cols-[minmax(0,240px)_minmax(0,1fr)]">
@@ -200,10 +201,10 @@ export function ProductFormDialog({ editor, doc, productId, assetUrls, uploadIma
                       : <div className="grid aspect-square place-items-center text-muted-foreground">Missing</div>}
                     {i === 0 && <span className="absolute start-1 top-1 rounded-full bg-primary px-1.5 py-0.5 text-[10px] font-medium text-primary-foreground">Primary</span>}
                     <div className="absolute inset-x-0 bottom-0 flex justify-center gap-0.5 bg-background/85 p-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
-                      {i > 0 && <Button type="button" variant="ghost" size="icon-xs" title="Make primary" aria-label={`Make image ${i + 1} primary`} onClick={() => setD((x) => ({ ...x, images: [id, ...x.images.filter((v) => v !== id)] }))}><Star /></Button>}
-                      <Button type="button" variant="ghost" size="icon-xs" title="Move earlier" aria-label={`Move image ${i + 1} earlier`} disabled={i === 0} onClick={() => moveImage(i, -1)}><ArrowLeft className="rtl:rotate-180" /></Button>
-                      <Button type="button" variant="ghost" size="icon-xs" title="Move later" aria-label={`Move image ${i + 1} later`} disabled={i === d.images.length - 1} onClick={() => moveImage(i, 1)}><ArrowRight className="rtl:rotate-180" /></Button>
-                      <Button type="button" variant="ghost" size="icon-xs" title="Remove image" aria-label={`Remove image ${i + 1}`} onClick={() => setD((x) => ({ ...x, images: x.images.filter((v) => v !== id) }))}><Trash2 /></Button>
+                      {i > 0 && <Button type="button" variant="ghost" size="icon-xs" title="Make primary" aria-label={`Make image ${i + 1} primary`} onClick={() => setD((x) => ({ ...x, images: [id, ...x.images.filter((v) => v !== id)] }))}><HugeiconsIcon icon={StarIcon} /></Button>}
+                      <Button type="button" variant="ghost" size="icon-xs" title="Move earlier" aria-label={`Move image ${i + 1} earlier`} disabled={i === 0} onClick={() => moveImage(i, -1)}><HugeiconsIcon icon={ArrowLeft01Icon} className="rtl:rotate-180" /></Button>
+                      <Button type="button" variant="ghost" size="icon-xs" title="Move later" aria-label={`Move image ${i + 1} later`} disabled={i === d.images.length - 1} onClick={() => moveImage(i, 1)}><HugeiconsIcon icon={ArrowRight01Icon} className="rtl:rotate-180" /></Button>
+                      <Button type="button" variant="ghost" size="icon-xs" title="Remove image" aria-label={`Remove image ${i + 1}`} onClick={() => setD((x) => ({ ...x, images: x.images.filter((v) => v !== id) }))}><HugeiconsIcon icon={Delete02Icon} /></Button>
                     </div>
                   </li>
                 ))}
@@ -212,10 +213,10 @@ export function ProductFormDialog({ editor, doc, productId, assetUrls, uploadIma
             <input ref={fileInput} type="file" accept="image/*" multiple className="hidden" onChange={(e) => addFiles(e.target.files)} />
             <div className="flex flex-wrap gap-1">
               <Button type="button" variant="outline" size="sm" disabled={uploading} onClick={() => fileInput.current?.click()}>
-                {uploading ? <Loader2 className="animate-spin" /> : <ImagePlus />} Upload
+                {uploading ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={ImageAdd01Icon} />} Upload
               </Button>
               {libraryImages.length > 0 && (
-                <Button type="button" variant="outline" size="sm" aria-expanded={libraryOpen} onClick={() => setLibraryOpen((o) => !o)}><Images /> From catalog</Button>
+                <Button type="button" variant="outline" size="sm" aria-expanded={libraryOpen} onClick={() => setLibraryOpen((o) => !o)}><HugeiconsIcon icon={Image02Icon} /> From catalog</Button>
               )}
             </div>
             {libraryOpen && (
@@ -303,13 +304,13 @@ export function ProductFormDialog({ editor, doc, productId, assetUrls, uploadIma
                       onChange={(e) => setD((x) => ({ ...x, specs: x.specs.map((v, j) => (j === i ? { ...v, key: e.target.value } : v)) }))} />
                     <Input placeholder="Value, e.g. 120 × 60 cm" aria-label={`Spec ${i + 1} value`} value={s.value}
                       onChange={(e) => setD((x) => ({ ...x, specs: x.specs.map((v, j) => (j === i ? { ...v, value: e.target.value } : v)) }))} />
-                    <Button type="button" variant="ghost" size="icon-xs" title="Move up" aria-label={`Move spec ${i + 1} up`} disabled={i === 0} onClick={() => moveSpec(i, -1)}><ArrowUp /></Button>
-                    <Button type="button" variant="ghost" size="icon-xs" title="Move down" aria-label={`Move spec ${i + 1} down`} disabled={i === d.specs.length - 1} onClick={() => moveSpec(i, 1)}><ArrowDown /></Button>
-                    <Button type="button" variant="ghost" size="icon-xs" title="Remove spec" aria-label={`Remove spec ${i + 1}`} onClick={() => setD((x) => ({ ...x, specs: x.specs.filter((_, j) => j !== i) }))}><Trash2 /></Button>
+                    <Button type="button" variant="ghost" size="icon-xs" title="Move up" aria-label={`Move spec ${i + 1} up`} disabled={i === 0} onClick={() => moveSpec(i, -1)}><HugeiconsIcon icon={ArrowUp01Icon} /></Button>
+                    <Button type="button" variant="ghost" size="icon-xs" title="Move down" aria-label={`Move spec ${i + 1} down`} disabled={i === d.specs.length - 1} onClick={() => moveSpec(i, 1)}><HugeiconsIcon icon={ArrowDown01Icon} /></Button>
+                    <Button type="button" variant="ghost" size="icon-xs" title="Remove spec" aria-label={`Remove spec ${i + 1}`} onClick={() => setD((x) => ({ ...x, specs: x.specs.filter((_, j) => j !== i) }))}><HugeiconsIcon icon={Delete02Icon} /></Button>
                   </div>
                 ))}
                 {errors.specs && <span className="text-[11px] text-destructive" role="alert">{errors.specs}</span>}
-                <div><Button type="button" variant="outline" size="xs" onClick={() => setD((x) => ({ ...x, specs: [...x.specs, { key: "", value: "" }] }))}><Plus /> Add spec</Button></div>
+                <div><Button type="button" variant="outline" size="xs" onClick={() => setD((x) => ({ ...x, specs: [...x.specs, { key: "", value: "" }] }))}><HugeiconsIcon icon={Add01Icon} /> Add spec</Button></div>
               </fieldset>
               <Labeled label="Tags" hint="Comma-separated, for search only">
                 <Input value={d.tags} onChange={(e) => set("tags", e.target.value)} placeholder="outdoor, oak" />

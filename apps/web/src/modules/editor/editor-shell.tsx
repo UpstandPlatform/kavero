@@ -1,12 +1,11 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon, ArrowDown01Icon, ArrowLeft01Icon, ArrowUp01Icon, CircleIcon, CodeIcon, Copy01Icon, Delete02Icon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PackageAddIcon, PlayIcon, Redo02Icon, SquareIcon, Tag01Icon, TextIcon, Undo02Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
 import { createBlankSlide, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { CatalogFonts, SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
-import {
-  ArrowLeft, Circle, Code2, Copy, Globe, Keyboard, PackagePlus, Play, ImagePlus, LayoutGrid, Minus, Plus, Redo2, Square, Tag, Trash2, Type, Undo2, ChevronUp, ChevronDown, Heading1, MessagesSquare, ZoomIn, ZoomOut,
-} from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -79,7 +78,7 @@ function LoadedEditor({ catalogId, userId }: { catalogId: string; userId: string
     return (
       <div className="p-8">
         <p className="mb-4 text-sm">{loadError === "not-found" ? "This catalog isn't in this browser." : `Could not open this catalog: ${loadError}`}</p>
-        <Link href="/dashboard"><Button variant="outline"><ArrowLeft /> Back to catalogs</Button></Link>
+        <Link href="/dashboard"><Button variant="outline"><HugeiconsIcon icon={ArrowLeft01Icon} /> Back to catalogs</Button></Link>
       </div>
     );
   }
@@ -189,7 +188,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
     <div className="flex h-svh w-full min-w-0 flex-col overflow-hidden">
       {/* Top bar */}
       <header className="flex min-w-0 items-center gap-2 border-b px-3 py-1.5">
-        <Link href="/dashboard" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" /> Catalogs</Link>
+        <Link href="/dashboard" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><HugeiconsIcon icon={ArrowLeft01Icon} className="size-3.5" /> Catalogs</Link>
         <input
           key={doc.metadata.title}
           defaultValue={doc.metadata.title}
@@ -200,12 +199,12 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
         />
         <span className={`shrink-0 text-xs ${saveStatus === "error" ? "text-destructive" : "text-muted-foreground"}`} aria-live="polite">{SAVE_LABEL[saveStatus]}</span>
         {cloudLabel && <span className="hidden shrink-0 text-xs text-muted-foreground lg:inline" aria-live="polite">· {cloudLabel}</span>}
-        <Button variant="ghost" size="icon-sm" title="Undo (Ctrl+Z)" disabled={!state.canUndo} onClick={() => editor.undo()}><Undo2 /></Button>
-        <Button variant="ghost" size="icon-sm" title="Redo (Ctrl+Shift+Z)" disabled={!state.canRedo} onClick={() => editor.redo()}><Redo2 /></Button>
-        <Button variant={workspace.isOpen("chat") ? "secondary" : "ghost"} size="sm" aria-pressed={workspace.isOpen("chat")} onClick={() => workspace.toggle("chat")} title="Chat with your AI model about this catalog"><MessagesSquare /> <span className="hidden lg:inline">Chat</span></Button>
+        <Button variant="ghost" size="icon-sm" title="Undo (Ctrl+Z)" disabled={!state.canUndo} onClick={() => editor.undo()}><HugeiconsIcon icon={Undo02Icon} /></Button>
+        <Button variant="ghost" size="icon-sm" title="Redo (Ctrl+Shift+Z)" disabled={!state.canRedo} onClick={() => editor.redo()}><HugeiconsIcon icon={Redo02Icon} /></Button>
+        <Button variant={workspace.isOpen("chat") ? "secondary" : "ghost"} size="sm" aria-pressed={workspace.isOpen("chat")} onClick={() => workspace.toggle("chat")} title="Chat with your AI model about this catalog"><HugeiconsIcon icon={MessageMultiple01Icon} /> <span className="hidden lg:inline">Chat</span></Button>
         <ExportMenu doc={doc} onVideo={() => setPreviewing("export")} />
-        <Button variant="outline" size="sm" onClick={() => setPublishing(true)} title="Publish as a website"><Globe /> Publish</Button>
-        <Button size="sm" className="ml-1" onClick={() => setPreviewing("play")} title="Play from this slide"><Play /> Preview</Button>
+        <Button variant="outline" size="sm" onClick={() => setPublishing(true)} title="Publish as a website"><HugeiconsIcon icon={GlobeIcon} /> Publish</Button>
+        <Button size="sm" className="ml-1" onClick={() => setPreviewing("play")} title="Play from this slide"><HugeiconsIcon icon={PlayIcon} /> Preview</Button>
       </header>
 
       {conflict && (
@@ -224,28 +223,28 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
           <ToolRail
             groups={[
               [
-                { id: "heading", icon: <Heading1 />, label: "Heading", description: "Add a large title in the theme's heading font.", onClick: () => addElement({ type: "text", content: { paragraphs: [[{ text: "Heading" }]] }, style: { fontSize: Math.round(H * 0.06), fontWeight: 700, fontFamily: "token:heading" }, size: [W * 0.5, H * 0.1] } as never) },
-                { id: "text", icon: <Type />, label: "Text", description: "Add a paragraph of body text. Double-click it on the slide to type.", onClick: () => addElement({ type: "text", content: { paragraphs: [[{ text: "Body text" }]] }, style: { fontSize: Math.round(H * 0.025) }, size: [W * 0.4, H * 0.08] } as never) },
+                { id: "heading", icon: <HugeiconsIcon icon={Heading01Icon} />, label: "Heading", description: "Add a large title in the theme's heading font.", onClick: () => addElement({ type: "text", content: { paragraphs: [[{ text: "Heading" }]] }, style: { fontSize: Math.round(H * 0.06), fontWeight: 700, fontFamily: "token:heading" }, size: [W * 0.5, H * 0.1] } as never) },
+                { id: "text", icon: <HugeiconsIcon icon={TextIcon} />, label: "Text", description: "Add a paragraph of body text. Double-click it on the slide to type.", onClick: () => addElement({ type: "text", content: { paragraphs: [[{ text: "Body text" }]] }, style: { fontSize: Math.round(H * 0.025) }, size: [W * 0.4, H * 0.08] } as never) },
               ],
               [
-                { id: "rect", icon: <Square />, label: "Rectangle", description: "Add a rectangle for backgrounds, cards and color blocks.", onClick: () => addElement({ type: "shape", content: { shape: "rect" }, size: [W * 0.2, H * 0.2] } as never) },
-                { id: "ellipse", icon: <Circle />, label: "Ellipse", description: "Add a circle or ellipse.", onClick: () => addElement({ type: "shape", content: { shape: "ellipse" }, size: [H * 0.2, H * 0.2] } as never) },
-                { id: "line", icon: <Minus />, label: "Line", description: "Add a divider line.", onClick: () => addElement({ type: "shape", content: { shape: "line" }, style: { fill: "token:text", strokeWidth: 3 }, size: [W * 0.25, 20] } as never) },
+                { id: "rect", icon: <HugeiconsIcon icon={SquareIcon} />, label: "Rectangle", description: "Add a rectangle for backgrounds, cards and color blocks.", onClick: () => addElement({ type: "shape", content: { shape: "rect" }, size: [W * 0.2, H * 0.2] } as never) },
+                { id: "ellipse", icon: <HugeiconsIcon icon={CircleIcon} />, label: "Ellipse", description: "Add a circle or ellipse.", onClick: () => addElement({ type: "shape", content: { shape: "ellipse" }, size: [H * 0.2, H * 0.2] } as never) },
+                { id: "line", icon: <HugeiconsIcon icon={MinusSignIcon} />, label: "Line", description: "Add a divider line.", onClick: () => addElement({ type: "shape", content: { shape: "line" }, style: { fill: "token:text", strokeWidth: 3 }, size: [W * 0.25, 20] } as never) },
               ],
               [
-                { id: "image", icon: <ImagePlus />, label: "Image", description: "Upload a photo, logo or illustration from your computer. You can also paste images onto the slide.", onClick: () => fileInput.current?.click() },
-                { id: "product", icon: <Tag />, label: "Product card", description: "Pick a product from this catalog and add its card: photo, name, price and details.", onClick: () => productUi.pick({ multiple: false, title: "Add a product card", confirmLabel: "Add to slide", onConfirm: ([id]) => id && insertProduct(id) }) },
-                { id: "grid", icon: <LayoutGrid />, label: "Product grid", description: "Pick several products and lay them out as a grid of cards.", onClick: () => productUi.pick({ multiple: true, title: "Add a product grid", confirmLabel: "Add grid to slide", onConfirm: insertGrid }) },
-                { id: "html", icon: <Code2 />, label: "HTML block", description: "Add your own HTML and CSS, rendered safely in a sandbox (no scripts).", onClick: () => addElement({ type: "html", content: { html: SAMPLE_HTML, css: SAMPLE_CSS }, size: [W * 0.4, H * 0.3] } as never) },
+                { id: "image", icon: <HugeiconsIcon icon={ImageAdd01Icon} />, label: "Image", description: "Upload a photo, logo or illustration from your computer. You can also paste images onto the slide.", onClick: () => fileInput.current?.click() },
+                { id: "product", icon: <HugeiconsIcon icon={Tag01Icon} />, label: "Product card", description: "Pick a product from this catalog and add its card: photo, name, price and details.", onClick: () => productUi.pick({ multiple: false, title: "Add a product card", confirmLabel: "Add to slide", onConfirm: ([id]) => id && insertProduct(id) }) },
+                { id: "grid", icon: <HugeiconsIcon icon={LayoutGridIcon} />, label: "Product grid", description: "Pick several products and lay them out as a grid of cards.", onClick: () => productUi.pick({ multiple: true, title: "Add a product grid", confirmLabel: "Add grid to slide", onConfirm: insertGrid }) },
+                { id: "html", icon: <HugeiconsIcon icon={CodeIcon} />, label: "HTML block", description: "Add your own HTML and CSS, rendered safely in a sandbox (no scripts).", onClick: () => addElement({ type: "html", content: { html: SAMPLE_HTML, css: SAMPLE_CSS }, size: [W * 0.4, H * 0.3] } as never) },
               ],
               [
-                { id: "import", icon: <PackagePlus />, label: "Import products", description: "Bring products in from a connected store or MCP source, or paste a list.", onClick: () => setImporting(true) },
-                { id: "chat", icon: <MessagesSquare />, label: "Chat", description: "Talk to your connected AI model about this catalog. It proposes edits you preview and apply.", active: workspace.isOpen("chat"), onClick: () => workspace.toggle("chat") },
+                { id: "import", icon: <HugeiconsIcon icon={PackageAddIcon} />, label: "Import products", description: "Bring products in from a connected store or MCP source, or paste a list.", onClick: () => setImporting(true) },
+                { id: "chat", icon: <HugeiconsIcon icon={MessageMultiple01Icon} />, label: "Chat", description: "Talk to your connected AI model about this catalog. It proposes edits you preview and apply.", active: workspace.isOpen("chat"), onClick: () => workspace.toggle("chat") },
               ],
             ]}
             bottom={
               <>
-                <RailButton tool={{ id: "shortcuts", icon: <Keyboard />, label: "Keyboard shortcuts", description: "See every shortcut for editing, arranging, aligning and navigating.", shortcut: "?", onClick: () => setShortcutsOpen(true) }} />
+                <RailButton tool={{ id: "shortcuts", icon: <HugeiconsIcon icon={KeyboardIcon} />, label: "Keyboard shortcuts", description: "See every shortcut for editing, arranging, aligning and navigating.", shortcut: "?", onClick: () => setShortcutsOpen(true) }} />
                 <WorkspaceMenu api={workspace} />
               </>
             }
@@ -257,9 +256,9 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
             <Canvas editor={editor} state={state} slide={slide} assetUrls={assetUrls} zoom={zoom} onFitScale={onFitScale} actions={actions} />
             {/* Zoom */}
             <div className="absolute right-3 bottom-3 z-10 flex items-center gap-0.5 rounded-lg border bg-background/90 p-0.5 text-xs shadow-sm backdrop-blur">
-              <Button variant="ghost" size="icon-sm" title={`Zoom out (${kbd("Ctrl+-")})`} aria-label="Zoom out" onClick={() => zoomBy(0.8)}><ZoomOut /></Button>
+              <Button variant="ghost" size="icon-sm" title={`Zoom out (${kbd("Ctrl+-")})`} aria-label="Zoom out" onClick={() => zoomBy(0.8)}><HugeiconsIcon icon={ZoomOutIcon} /></Button>
               <button type="button" className="w-12 rounded-md py-1 text-center tabular-nums hover:bg-muted" title={`Fit to window (${kbd("Ctrl+0")})`} onClick={() => setZoom("fit")}>{Math.round(scale * 100)}%</button>
-              <Button variant="ghost" size="icon-sm" title={`Zoom in (${kbd("Ctrl+=")})`} aria-label="Zoom in" onClick={() => zoomBy(1.25)}><ZoomIn /></Button>
+              <Button variant="ghost" size="icon-sm" title={`Zoom in (${kbd("Ctrl+=")})`} aria-label="Zoom in" onClick={() => zoomBy(1.25)}><HugeiconsIcon icon={ZoomInIcon} /></Button>
             </div>
           </>
         }
@@ -280,7 +279,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
                     </button>
                   ))}
                 </div>
-                {sidebar === "slides" && <Button variant="ghost" size="icon-xs" className="ml-auto" title={`Add slide (${kbd("Ctrl+M")})`} aria-label="Add slide" onClick={() => actions.addSlide()}><Plus /></Button>}
+                {sidebar === "slides" && <Button variant="ghost" size="icon-xs" className="ml-auto" title={`Add slide (${kbd("Ctrl+M")})`} aria-label="Add slide" onClick={() => actions.addSlide()}><HugeiconsIcon icon={Add01Icon} /></Button>}
               </>
             ),
             body:
@@ -304,10 +303,10 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
                           <span className="truncate" onDoubleClick={() => setRenamingSlide(s.id)}>{s.name}</span>
                         )}
                         <span className="ml-auto hidden gap-0.5 group-hover:flex group-focus-within:flex">
-                          <button type="button" title="Move up" disabled={i === 0} onClick={() => actions.moveSlide(s.id, i - 1)} className="disabled:opacity-30"><ChevronUp className="size-3.5" /></button>
-                          <button type="button" title="Move down" disabled={i === doc.slides.length - 1} onClick={() => actions.moveSlide(s.id, i + 1)} className="disabled:opacity-30"><ChevronDown className="size-3.5" /></button>
-                          <button type="button" title="Duplicate slide" onClick={() => actions.duplicateSlide(s.id)}><Copy className="size-3.5" /></button>
-                          <button type="button" title="Delete slide" disabled={doc.slides.length === 1} onClick={() => actions.deleteSlide(s.id)} className="disabled:opacity-30"><Trash2 className="size-3.5" /></button>
+                          <button type="button" title="Move up" disabled={i === 0} onClick={() => actions.moveSlide(s.id, i - 1)} className="disabled:opacity-30"><HugeiconsIcon icon={ArrowUp01Icon} className="size-3.5" /></button>
+                          <button type="button" title="Move down" disabled={i === doc.slides.length - 1} onClick={() => actions.moveSlide(s.id, i + 1)} className="disabled:opacity-30"><HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5" /></button>
+                          <button type="button" title="Duplicate slide" onClick={() => actions.duplicateSlide(s.id)}><HugeiconsIcon icon={Copy01Icon} className="size-3.5" /></button>
+                          <button type="button" title="Delete slide" disabled={doc.slides.length === 1} onClick={() => actions.deleteSlide(s.id)} className="disabled:opacity-30"><HugeiconsIcon icon={Delete02Icon} className="size-3.5" /></button>
                         </span>
                       </div>
                       <button

@@ -1,5 +1,7 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { BanIcon, DashboardCircleIcon, Delete02Icon, GlobeIcon, LinkSquare01Icon, Loading02Icon, Logout01Icon, MoreHorizontalIcon, ScrollIcon, Search01Icon, Settings02Icon, Shield01Icon, Shield02Icon, UserCheck01Icon, UserGroupIcon } from "@hugeicons/core-free-icons";
 import { Badge } from "@Kavero/ui/components/badge";
 import { Button } from "@Kavero/ui/components/button";
 import {
@@ -11,9 +13,6 @@ import {
 } from "@Kavero/ui/components/dropdown-menu";
 import { Input } from "@Kavero/ui/components/input";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
-import {
-  Ban, ExternalLink, Globe, LayoutDashboard, Loader2, LogOut, MoreHorizontal, ScrollText, Search, Settings2, Shield, ShieldOff, Trash2, UserCheck, Users,
-} from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -33,11 +32,11 @@ type SiteRow = Awaited<ReturnType<Api["admin"]["sites"]["list"]["query"]>>["site
 type ActivityRow = Awaited<ReturnType<Api["admin"]["activity"]["query"]>>[number];
 type Tab = "overview" | "users" | "sites" | "activity" | "settings";
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
-  { id: "overview", label: "Overview", icon: <LayoutDashboard /> },
-  { id: "users", label: "Users", icon: <Users /> },
-  { id: "sites", label: "Published sites", icon: <Globe /> },
-  { id: "activity", label: "Activity", icon: <ScrollText /> },
-  { id: "settings", label: "Sign-ups", icon: <Settings2 /> },
+  { id: "overview", label: "Overview", icon: <HugeiconsIcon icon={DashboardCircleIcon} /> },
+  { id: "users", label: "Users", icon: <HugeiconsIcon icon={UserGroupIcon} /> },
+  { id: "sites", label: "Published sites", icon: <HugeiconsIcon icon={GlobeIcon} /> },
+  { id: "activity", label: "Activity", icon: <HugeiconsIcon icon={ScrollIcon} /> },
+  { id: "settings", label: "Sign-ups", icon: <HugeiconsIcon icon={Settings02Icon} /> },
 ];
 
 const fmtBytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(2)} GB`);
@@ -88,7 +87,7 @@ export function AdminPage() {
 
   return (
     <div className="mx-auto w-full max-w-6xl px-4 py-8">
-      <h1 className="mb-1 flex items-center gap-2 text-2xl font-semibold tracking-tight"><Shield className="size-6" /> Admin</h1>
+      <h1 className="mb-1 flex items-center gap-2 text-2xl font-semibold tracking-tight"><HugeiconsIcon icon={Shield01Icon} className="size-6" /> Admin</h1>
       <p className="mb-6 text-sm text-muted-foreground">Manage accounts, sign-ups and published sites on this Kavero server.</p>
       <PageTabs label="Admin" tabs={TABS} value={tab} onChange={(id) => { setTab(id); history.replaceState(null, "", `#${id}`); }} />
       {tab === "overview" && <OverviewTab onOpen={(t) => { setTab(t); history.replaceState(null, "", `#${t}`); }} />}
@@ -174,7 +173,7 @@ function UsersTab() {
     <div className="grid gap-4 text-sm">
       <div className="flex items-center gap-2">
         <div className="relative max-w-sm flex-1">
-          <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <HugeiconsIcon icon={Search01Icon} className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input className="ps-8" placeholder="Search by name or email" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search users" />
         </div>
         <span className="text-xs text-muted-foreground">{total} account{total === 1 ? "" : "s"}</span>
@@ -205,28 +204,28 @@ function UsersTab() {
                   </td>
                   <td className="px-3 py-2">
                     <Badge variant={u.role === "admin" ? "default" : "secondary"}>
-                      {u.role === "admin" && <Shield />} {u.role === "admin" ? "Admin" : "User"}
+                      {u.role === "admin" && <HugeiconsIcon icon={Shield01Icon} />} {u.role === "admin" ? "Admin" : "User"}
                     </Badge>
                   </td>
                   <td className="px-3 py-2 text-end tabular-nums">{u.catalogs}</td>
                   <td className="px-3 py-2 text-muted-foreground">{fmtDate(u.createdAt)}</td>
                   <td className="px-3 py-2 text-muted-foreground">{ago(u.lastSeenAt)}</td>
                   <td className="px-3 py-2">
-                    {busy === u.id ? <Loader2 className="size-4 animate-spin" /> : (
+                    {busy === u.id ? <HugeiconsIcon icon={Loading02Icon} className="size-4 animate-spin" /> : (
                       <DropdownMenu>
-                        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${u.email}`} />}><MoreHorizontal /></DropdownMenuTrigger>
+                        <DropdownMenuTrigger render={<Button variant="ghost" size="icon-sm" aria-label={`Actions for ${u.email}`} />}><HugeiconsIcon icon={MoreHorizontalIcon} /></DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="min-w-52">
                           {u.role === "admin"
-                            ? <DropdownMenuItem disabled={u.isYou} onClick={() => act(u, "Admin removed", () => api().admin.users.setRole.mutate({ userId: u.id, role: "user" }))}><ShieldOff /> Remove admin</DropdownMenuItem>
-                            : <DropdownMenuItem disabled={u.banned} onClick={() => act(u, `${u.name} is now an admin`, () => api().admin.users.setRole.mutate({ userId: u.id, role: "admin" }))}><Shield /> Make admin</DropdownMenuItem>}
+                            ? <DropdownMenuItem disabled={u.isYou} onClick={() => act(u, "Admin removed", () => api().admin.users.setRole.mutate({ userId: u.id, role: "user" }))}><HugeiconsIcon icon={Shield02Icon} /> Remove admin</DropdownMenuItem>
+                            : <DropdownMenuItem disabled={u.banned} onClick={() => act(u, `${u.name} is now an admin`, () => api().admin.users.setRole.mutate({ userId: u.id, role: "admin" }))}><HugeiconsIcon icon={Shield01Icon} /> Make admin</DropdownMenuItem>}
                           {u.banned
-                            ? <DropdownMenuItem onClick={() => act(u, "Suspension lifted", () => api().admin.users.unban.mutate({ userId: u.id }))}><UserCheck /> Lift suspension</DropdownMenuItem>
-                            : <DropdownMenuItem disabled={u.isYou || u.role === "admin"} onClick={() => setSuspending(u)}><Ban /> Suspend…</DropdownMenuItem>}
+                            ? <DropdownMenuItem onClick={() => act(u, "Suspension lifted", () => api().admin.users.unban.mutate({ userId: u.id }))}><HugeiconsIcon icon={UserCheck01Icon} /> Lift suspension</DropdownMenuItem>
+                            : <DropdownMenuItem disabled={u.isYou || u.role === "admin"} onClick={() => setSuspending(u)}><HugeiconsIcon icon={BanIcon} /> Suspend…</DropdownMenuItem>}
                           <DropdownMenuItem
                             disabled={u.isYou}
                             onClick={() => act(u, "Signed out everywhere", () => api().admin.users.revokeSessions.mutate({ userId: u.id }))}
                           >
-                            <LogOut /> Sign out everywhere
+                            <HugeiconsIcon icon={Logout01Icon} /> Sign out everywhere
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
                           <DropdownMenuItem
@@ -237,7 +236,7 @@ function UsersTab() {
                               void act(u, "Account deleted", () => api().admin.users.remove.mutate({ userId: u.id }));
                             }}
                           >
-                            <Trash2 /> Delete account…
+                            <HugeiconsIcon icon={Delete02Icon} /> Delete account…
                           </DropdownMenuItem>
                         </DropdownMenuContent>
                       </DropdownMenu>
@@ -284,7 +283,7 @@ function SuspendForm({ user, onClose, onDone }: { user: UserRow; onClose: () => 
         </label>
       </div>
       <div className="flex gap-2">
-        <Button type="submit" variant="destructive" disabled={busy}>{busy && <Loader2 className="animate-spin" />} Suspend</Button>
+        <Button type="submit" variant="destructive" disabled={busy}>{busy && <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />} Suspend</Button>
         <Button type="button" variant="ghost" onClick={onClose}>Cancel</Button>
       </div>
     </form>
@@ -310,7 +309,7 @@ function SitesTab() {
   return (
     <div className="grid gap-4 text-sm">
       <div className="relative max-w-sm">
-        <Search className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+        <HugeiconsIcon icon={Search01Icon} className="pointer-events-none absolute start-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
         <Input className="ps-8" placeholder="Search by title, address or owner" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search sites" />
       </div>
       {!rows ? <p className="text-muted-foreground">Loading…</p> : !rows.length ? <p className="text-muted-foreground">No published sites.</p> : (
@@ -322,7 +321,7 @@ function SitesTab() {
                 <p className="text-xs text-muted-foreground">/c/{s.slug} · {s.visibility} · v{s.version} · {s.views.toLocaleString()} views · {s.ownerEmail} · updated {ago(s.updatedAt)}</p>
               </div>
               {s.visibility !== "private" && (
-                <a href={`/c/${s.slug}`} target="_blank" rel="noreferrer"><Button variant="ghost" size="sm"><ExternalLink /> Open</Button></a>
+                <a href={`/c/${s.slug}`} target="_blank" rel="noreferrer"><Button variant="ghost" size="sm"><HugeiconsIcon icon={LinkSquare01Icon} /> Open</Button></a>
               )}
               <Button
                 variant="outline"

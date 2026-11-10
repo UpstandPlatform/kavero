@@ -1,7 +1,8 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon, Download01Icon, LinkSquare01Icon, Loading02Icon, Refresh01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
-import { Download, ExternalLink, Loader2, RefreshCw, X } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { useDesktop, type UpdateStatus } from "@/lib/desktop";
@@ -41,7 +42,7 @@ export function DesktopUpdateNotice() {
           </p>
         </div>
         {status.state === "available" && (
-          <Button variant="ghost" size="icon-sm" aria-label="Remind me later" onClick={() => setDismissed(status.version)}><X /></Button>
+          <Button variant="ghost" size="icon-sm" aria-label="Remind me later" onClick={() => setDismissed(status.version)}><HugeiconsIcon icon={Cancel01Icon} /></Button>
         )}
       </div>
       {status.state === "downloading" && (
@@ -50,11 +51,11 @@ export function DesktopUpdateNotice() {
         </div>
       )}
       <div className="mt-3 flex items-center gap-2">
-        {status.state === "available" && <Button size="sm" onClick={() => void updates.download()}><Download /> Download</Button>}
-        {status.state === "downloading" && <Button size="sm" disabled><Loader2 className="animate-spin" /> Downloading</Button>}
-        {status.state === "downloaded" && <Button size="sm" onClick={() => void updates.install()}><RefreshCw /> Restart to update</Button>}
+        {status.state === "available" && <Button size="sm" onClick={() => void updates.download()}><HugeiconsIcon icon={Download01Icon} /> Download</Button>}
+        {status.state === "downloading" && <Button size="sm" disabled><HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> Downloading</Button>}
+        {status.state === "downloaded" && <Button size="sm" onClick={() => void updates.install()}><HugeiconsIcon icon={Refresh01Icon} /> Restart to update</Button>}
         <a href={status.releaseUrl} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground">
-          What&apos;s new <ExternalLink className="size-3" />
+          What&apos;s new <HugeiconsIcon icon={LinkSquare01Icon} className="size-3" />
         </a>
       </div>
     </div>

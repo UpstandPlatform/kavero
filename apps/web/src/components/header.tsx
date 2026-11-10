@@ -1,7 +1,8 @@
 "use client";
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon, Cancel01Icon, LayoutGridIcon, Menu01Icon, Settings01Icon, Shield01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
 import { cn } from "@Kavero/ui/lib/utils";
-import { LayoutGrid, Menu, Plus, Settings, Shield, Sparkles, X } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
@@ -24,8 +25,8 @@ export function KaveroLogo({ className }: { className?: string }) {
 }
 
 const LINKS = [
-  { to: "/dashboard", label: "Catalogs", icon: LayoutGrid },
-  { to: "/settings", label: "Settings", icon: Settings },
+  { to: "/dashboard", label: "Catalogs", icon: LayoutGridIcon },
+  { to: "/settings", label: "Settings", icon: Settings01Icon },
 ] as const;
 
 export default function Header() {
@@ -53,7 +54,7 @@ export default function Header() {
   };
   const onDashboard = pathname === "/dashboard";
   const active = (to: string) => pathname === to || pathname.startsWith(`${to}/`);
-  const navLink = (to: Route, label: string, Icon: typeof LayoutGrid, mobile = false) => (
+  const navLink = (to: Route, label: string, Icon: typeof LayoutGridIcon, mobile = false) => (
     <Link
       key={to}
       href={to}
@@ -64,7 +65,7 @@ export default function Header() {
         active(to) ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
       )}
     >
-      <Icon className="size-4" /> {label}
+      <HugeiconsIcon icon={Icon} className="size-4" /> {label}
     </Link>
   );
 
@@ -78,35 +79,35 @@ export default function Header() {
 
         <nav className="hidden items-center gap-1 sm:flex" aria-label="Main">
           {LINKS.map((l) => navLink(l.to, l.label, l.icon))}
-          {isAdmin && navLink("/admin" as Route, "Admin", Shield)}
+          {isAdmin && navLink("/admin" as Route, "Admin", Shield01Icon)}
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
           {/* Shortcuts to create; the dashboard has its own buttons, so they'd repeat there. */}
           {!onDashboard && <div className="hidden items-center gap-2 md:flex">
             <Link href="/dashboard?generate=1" onClick={dashboardAction("generate")}>
-              <Button variant="outline" size="sm"><Sparkles /> Generate</Button>
+              <Button variant="outline" size="sm"><HugeiconsIcon icon={SparklesIcon} /> Generate</Button>
             </Link>
             <Link href="/dashboard?new=1" onClick={dashboardAction("new")}>
-              <Button size="sm"><Plus /> New catalog</Button>
+              <Button size="sm"><HugeiconsIcon icon={Add01Icon} /> New catalog</Button>
             </Link>
           </div>}
           <ModeToggle />
           <UserMenu />
           <Button variant="ghost" size="icon" className="sm:hidden" aria-label={open ? "Close menu" : "Open menu"} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
-            {open ? <X /> : <Menu />}
+            {open ? <HugeiconsIcon icon={Cancel01Icon} /> : <HugeiconsIcon icon={Menu01Icon} />}
           </Button>
         </div>
       </div>
 
       {open && (
         <nav className="grid gap-1 border-t px-4 py-3 sm:hidden" aria-label="Main">
-          {navLink("/", "Home", Sparkles, true)}
+          {navLink("/", "Home", SparklesIcon, true)}
           {LINKS.map((l) => navLink(l.to, l.label, l.icon, true))}
-          {isAdmin && navLink("/admin" as Route, "Admin", Shield, true)}
+          {isAdmin && navLink("/admin" as Route, "Admin", Shield01Icon, true)}
           {!onDashboard && <div className="mt-2 grid grid-cols-2 gap-2">
-            <Link href="/dashboard?generate=1" onClick={dashboardAction("generate")}><Button variant="outline" className="w-full"><Sparkles /> Generate</Button></Link>
-            <Link href="/dashboard?new=1" onClick={dashboardAction("new")}><Button className="w-full"><Plus /> New catalog</Button></Link>
+            <Link href="/dashboard?generate=1" onClick={dashboardAction("generate")}><Button variant="outline" className="w-full"><HugeiconsIcon icon={SparklesIcon} /> Generate</Button></Link>
+            <Link href="/dashboard?new=1" onClick={dashboardAction("new")}><Button className="w-full"><HugeiconsIcon icon={Add01Icon} /> New catalog</Button></Link>
           </div>}
           {!session && <p className="mt-2 text-xs text-muted-foreground">Catalogs are saved on this device. Sign in to sync them and publish.</p>}
         </nav>

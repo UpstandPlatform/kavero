@@ -1,12 +1,13 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon, Loading02Icon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { buildCatalog, heuristicPlan } from "@Kavero/ai/browser";
 import { PAGE_PRESETS, TEMPLATES, createId, type CatalogDocument, type PagePreset, type Product } from "@Kavero/catalog-engine";
 import { SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { Textarea } from "@Kavero/ui/components/textarea";
-import { Loader2, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -150,8 +151,8 @@ export function AiGenerateDialog({ onClose, initialBrief = "" }: { onClose: () =
   return (
     <dialog ref={ref} onClose={onClose} className="m-auto w-[min(820px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50">
       <div className="flex items-center justify-between border-b px-5 py-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold"><Sparkles className="size-4" /> Generate a catalog</h2>
-        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><X /></Button>
+        <h2 className="flex items-center gap-2 text-sm font-semibold"><HugeiconsIcon icon={SparklesIcon} className="size-4" /> Generate a catalog</h2>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><HugeiconsIcon icon={Cancel01Icon} /></Button>
       </div>
       <div className="grid max-h-[78vh] gap-4 overflow-y-auto p-5 text-xs">
         {!result ? (
@@ -193,7 +194,7 @@ export function AiGenerateDialog({ onClose, initialBrief = "" }: { onClose: () =
                 <div className="flex flex-wrap items-end gap-2">
                   <label className="grid gap-1.5">Source<SimpleSelect className="w-48" value={connId} onValueChange={setConnId} options={conns.map((c) => ({ value: c.id, label: c.name }))} /></label>
                   <label className="grid gap-1.5">Tool<SimpleSelect className="w-48" value={tool} onValueChange={setTool} options={(conn?.tools ?? []).map((t) => ({ value: t.name, label: t.name }))} /></label>
-                  <Button variant="outline" onClick={fetchMcp} disabled={!tool || !!busy}>{busy === "mcp" && <Loader2 className="animate-spin" />} Fetch</Button>
+                  <Button variant="outline" onClick={fetchMcp} disabled={!tool || !!busy}>{busy === "mcp" && <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />} Fetch</Button>
                   <span className="text-muted-foreground">{mcpProducts.length} products loaded</span>
                 </div>
               )}
@@ -223,12 +224,12 @@ export function AiGenerateDialog({ onClose, initialBrief = "" }: { onClose: () =
       </div>
       <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
         {!result ? (
-          <Button onClick={generate} disabled={!!busy || (!brief.trim() && !products.length)}>{busy === "generate" ? <Loader2 className="animate-spin" /> : <Sparkles />} Generate</Button>
+          <Button onClick={generate} disabled={!!busy || (!brief.trim() && !products.length)}>{busy === "generate" ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={SparklesIcon} />} Generate</Button>
         ) : (
           <>
             <Button variant="ghost" className="me-auto" onClick={() => setResult(null)} disabled={!!busy}>Back</Button>
-            <Button variant="outline" onClick={generate} disabled={!!busy}>{busy === "generate" && <Loader2 className="animate-spin" />} Try again</Button>
-            <Button onClick={create} disabled={!!busy}>{busy === "create" && <Loader2 className="animate-spin" />} Create catalog</Button>
+            <Button variant="outline" onClick={generate} disabled={!!busy}>{busy === "generate" && <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />} Try again</Button>
+            <Button onClick={create} disabled={!!busy}>{busy === "create" && <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />} Create catalog</Button>
           </>
         )}
       </div>

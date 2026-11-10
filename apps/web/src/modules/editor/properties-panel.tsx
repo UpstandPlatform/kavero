@@ -1,16 +1,13 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon, AlignEndHorizontalIcon, AlignEndVerticalIcon, AlignHorizontalCenterIcon, AlignHorizontalDistributeCenterIcon, AlignStartHorizontalIcon, AlignStartVerticalIcon, AlignVerticalCenterIcon, AlignVerticalDistributeCenterIcon, ArrowDown01Icon, ArrowDownToLineIcon, ArrowUp01Icon, ArrowUpToLineIcon, Cancel01Icon, Delete02Icon, LockIcon, PencilIcon, ReplaceIcon, SquareUnlock01Icon, Tag01Icon, TextAlignCenterIcon, TextAlignLeftIcon, TextAlignRightIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
 import { cardDisplay, documentDirection, resolveToken, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
 import { Checkbox } from "@Kavero/ui/components/checkbox";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@Kavero/ui/components/select";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
-import {
-  AlignCenter, AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter, AlignLeft, AlignRight,
-  AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Eye, EyeOff, Lock, Pencil, Plus,
-  Replace, Tag, Trash2, Unlock, X,
-} from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { matchMorph, slideDurationMs } from "@Kavero/animation-engine";
@@ -149,7 +146,7 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
             <Button variant="outline" size="sm" onClick={() => run({ type: "element.ungroup", groupId: selected[0]!.groupId! })}>Ungroup</Button>
           )}
           <Button variant="destructive" size="sm" onClick={() => run({ type: "batch", commands: selected.map((e) => ({ type: "element.delete", elementId: e.id })) })}>
-            <Trash2 /> Delete
+            <HugeiconsIcon icon={Delete02Icon} /> Delete
           </Button>
         </div>
       </Section>
@@ -165,9 +162,9 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
       <div className="flex items-center justify-between border-b px-3 py-2">
         <span className="text-xs font-semibold capitalize">{el.type.replace("-", " ")}</span>
         <div className="flex">
-          <Button variant="ghost" size="icon-sm" title={el.locked ? "Unlock" : "Lock"} onClick={() => update({ locked: !el.locked })}>{el.locked ? <Lock /> : <Unlock />}</Button>
-          <Button variant="ghost" size="icon-sm" title={el.hidden ? "Show" : "Hide"} onClick={() => update({ hidden: !el.hidden })}>{el.hidden ? <EyeOff /> : <Eye />}</Button>
-          <Button variant="ghost" size="icon-sm" title="Delete" onClick={() => run({ type: "element.delete", elementId: el.id })}><Trash2 /></Button>
+          <Button variant="ghost" size="icon-sm" title={el.locked ? "Unlock" : "Lock"} onClick={() => update({ locked: !el.locked })}>{el.locked ? <HugeiconsIcon icon={LockIcon} /> : <HugeiconsIcon icon={SquareUnlock01Icon} />}</Button>
+          <Button variant="ghost" size="icon-sm" title={el.hidden ? "Show" : "Hide"} onClick={() => update({ hidden: !el.hidden })}>{el.hidden ? <HugeiconsIcon icon={ViewOffIcon} /> : <HugeiconsIcon icon={ViewIcon} />}</Button>
+          <Button variant="ghost" size="icon-sm" title="Delete" onClick={() => run({ type: "element.delete", elementId: el.id })}><HugeiconsIcon icon={Delete02Icon} /></Button>
         </div>
       </div>
 
@@ -183,8 +180,8 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
         <AlignTools elements={[el]} run={run} doc={doc} />
         <div className="flex gap-1">
           <span className="mr-auto self-center text-xs text-muted-foreground">Layer</span>
-          {([["front", ArrowUpToLine, "Bring to front"], ["forward", ArrowUp, "Bring forward"], ["backward", ArrowDown, "Send backward"], ["back", ArrowDownToLine, "Send to back"]] as const).map(([to, Icon, label]) => (
-            <Button key={to} variant="outline" size="icon-sm" title={label} onClick={() => run({ type: "element.reorder", elementId: el.id, to })}><Icon /></Button>
+          {([["front", ArrowUpToLineIcon, "Bring to front"], ["forward", ArrowUp01Icon, "Bring forward"], ["backward", ArrowDown01Icon, "Send backward"], ["back", ArrowDownToLineIcon, "Send to back"]] as const).map(([to, Icon, label]) => (
+            <Button key={to} variant="outline" size="icon-sm" title={label} onClick={() => run({ type: "element.reorder", elementId: el.id, to })}><HugeiconsIcon icon={Icon} /></Button>
           ))}
         </div>
       </Section>
@@ -207,8 +204,8 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
           <Field label="Color"><ColorInput doc={doc} value={el.style.color} onChange={(color) => update({ style: { color } })} /></Field>
           <div className="flex gap-1">
             {/* start/end follow the text direction, so RTL catalogs mirror correctly */}
-            {([["start", rtl ? AlignRight : AlignLeft, "Align to start"], ["center", AlignCenter, "Center"], ["end", rtl ? AlignLeft : AlignRight, "Align to end"]] as const).map(([a, Icon, label]) => (
-              <Button key={a} variant={el.style.align === a || (a === "start" && el.style.align === (rtl ? "right" : "left")) || (a === "end" && el.style.align === (rtl ? "left" : "right")) ? "secondary" : "ghost"} size="icon-sm" title={label} onClick={() => update({ style: { align: a } })}><Icon /></Button>
+            {([["start", rtl ? TextAlignRightIcon : TextAlignLeftIcon, "Align to start"], ["center", TextAlignCenterIcon, "Center"], ["end", rtl ? TextAlignLeftIcon : TextAlignRightIcon, "Align to end"]] as const).map(([a, Icon, label]) => (
+              <Button key={a} variant={el.style.align === a || (a === "start" && el.style.align === (rtl ? "right" : "left")) || (a === "end" && el.style.align === (rtl ? "left" : "right")) ? "secondary" : "ghost"} size="icon-sm" title={label} onClick={() => update({ style: { align: a } })}><HugeiconsIcon icon={Icon} /></Button>
             ))}
             <Button variant={el.style.italic ? "secondary" : "ghost"} size="icon-sm" title="Italic" className="italic" onClick={() => update({ style: { italic: !el.style.italic } })}>I</Button>
             <Button variant={el.style.decoration === "underline" ? "secondary" : "ghost"} size="icon-sm" title="Underline" className="underline" onClick={() => update({ style: { decoration: el.style.decoration === "underline" ? "none" : "underline" } })}>U</Button>
@@ -276,12 +273,12 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
 }
 
 const ALIGN_BUTTONS = [
-  ["l", AlignStartVertical, "Align left", "Alt+A"],
-  ["c", AlignCenterVertical, "Align center", "Alt+H"],
-  ["r", AlignEndVertical, "Align right", "Alt+D"],
-  ["t", AlignStartHorizontal, "Align top", "Alt+W"],
-  ["m", AlignCenterHorizontal, "Align middle", "Alt+V"],
-  ["b", AlignEndHorizontal, "Align bottom", "Alt+S"],
+  ["l", AlignStartVerticalIcon, "Align left", "Alt+A"],
+  ["c", AlignVerticalCenterIcon, "Align center", "Alt+H"],
+  ["r", AlignEndVerticalIcon, "Align right", "Alt+D"],
+  ["t", AlignStartHorizontalIcon, "Align top", "Alt+W"],
+  ["m", AlignHorizontalCenterIcon, "Align middle", "Alt+V"],
+  ["b", AlignEndHorizontalIcon, "Align bottom", "Alt+S"],
 ] as const;
 
 const segment = "inline-flex overflow-hidden rounded-[min(var(--radius-md),10px)] border border-input divide-x divide-input";
@@ -332,15 +329,15 @@ function AlignTools({ elements, run, doc }: { elements: CatalogElement[]; run: (
           <div key={gi} className={segment} role="group" aria-label={gi === 0 ? "Horizontal" : "Vertical"}>
             {group.map(([k, Icon, label, keys]) => (
               <button key={k} type="button" className={segmentBtn} onClick={() => align(k)} title={`${label} (${kbd(keys)})`} aria-label={`${label} ${target} (${kbd(keys)})`} aria-keyshortcuts={keys}>
-                <Icon aria-hidden />
+                <HugeiconsIcon icon={Icon} aria-hidden />
               </button>
             ))}
           </div>
         ))}
         {elements.length > 2 && (
           <div className={segment} role="group" aria-label="Distribute">
-            <button type="button" className={segmentBtn} onClick={() => distribute("x")} title="Distribute horizontally" aria-label="Distribute horizontally"><AlignHorizontalDistributeCenter aria-hidden /></button>
-            <button type="button" className={segmentBtn} onClick={() => distribute("y")} title="Distribute vertically" aria-label="Distribute vertically"><AlignVerticalDistributeCenter aria-hidden /></button>
+            <button type="button" className={segmentBtn} onClick={() => distribute("x")} title="Distribute horizontally" aria-label="Distribute horizontally"><HugeiconsIcon icon={AlignHorizontalDistributeCenterIcon} aria-hidden /></button>
+            <button type="button" className={segmentBtn} onClick={() => distribute("y")} title="Distribute vertically" aria-label="Distribute vertically"><HugeiconsIcon icon={AlignVerticalDistributeCenterIcon} aria-hidden /></button>
           </div>
         )}
       </div>
@@ -387,7 +384,7 @@ function ProductProperties({ doc, el, run, update, assetUrls, ui }: {
           {!current ? (
             <>
               <p className="text-[11px] text-muted-foreground">No product chosen for this card.</p>
-              <Button variant="outline" size="sm" onClick={chooseProduct} aria-haspopup="dialog"><Tag /> Choose product…</Button>
+              <Button variant="outline" size="sm" onClick={chooseProduct} aria-haspopup="dialog"><HugeiconsIcon icon={Tag01Icon} /> Choose product…</Button>
             </>
           ) : (
             <>
@@ -399,8 +396,8 @@ function ProductProperties({ doc, el, run, update, assetUrls, ui }: {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-1">
-                <Button variant="outline" size="sm" onClick={chooseProduct} aria-haspopup="dialog"><Replace /> Change…</Button>
-                <Button variant="outline" size="sm" onClick={() => ui.edit(current.id)} aria-haspopup="dialog"><Pencil /> Edit product</Button>
+                <Button variant="outline" size="sm" onClick={chooseProduct} aria-haspopup="dialog"><HugeiconsIcon icon={ReplaceIcon} /> Change…</Button>
+                <Button variant="outline" size="sm" onClick={() => ui.edit(current.id)} aria-haspopup="dialog"><HugeiconsIcon icon={PencilIcon} /> Edit product</Button>
               </div>
             </>
           )}
@@ -420,10 +417,10 @@ function ProductProperties({ doc, el, run, update, assetUrls, ui }: {
                     {p ? <ProductThumb product={p} assetUrls={assetUrls} className="size-6" /> : <span className="size-6 shrink-0 rounded-md border border-dashed" />}
                     <span className={`min-w-0 flex-1 truncate ${p ? "" : "text-muted-foreground italic"}`} title={name}>{name}</span>
                     <span className="flex opacity-60 group-hover:opacity-100 group-focus-within:opacity-100">
-                      <Button variant="ghost" size="icon-xs" title="Move earlier" aria-label={`Move ${name} earlier`} disabled={i === 0} onClick={() => moveInGrid(i, -1)}><ArrowUp /></Button>
-                      <Button variant="ghost" size="icon-xs" title="Move later" aria-label={`Move ${name} later`} disabled={i === gridIds.length - 1} onClick={() => moveInGrid(i, 1)}><ArrowDown /></Button>
-                      {p && <Button variant="ghost" size="icon-xs" title="Edit product" aria-label={`Edit ${name}`} onClick={() => ui.edit(id)}><Pencil /></Button>}
-                      <Button variant="ghost" size="icon-xs" title="Remove from grid" aria-label={`Remove ${name} from grid`} onClick={() => setGrid(gridIds.filter((_, j) => j !== i))}><X /></Button>
+                      <Button variant="ghost" size="icon-xs" title="Move earlier" aria-label={`Move ${name} earlier`} disabled={i === 0} onClick={() => moveInGrid(i, -1)}><HugeiconsIcon icon={ArrowUp01Icon} /></Button>
+                      <Button variant="ghost" size="icon-xs" title="Move later" aria-label={`Move ${name} later`} disabled={i === gridIds.length - 1} onClick={() => moveInGrid(i, 1)}><HugeiconsIcon icon={ArrowDown01Icon} /></Button>
+                      {p && <Button variant="ghost" size="icon-xs" title="Edit product" aria-label={`Edit ${name}`} onClick={() => ui.edit(id)}><HugeiconsIcon icon={PencilIcon} /></Button>}
+                      <Button variant="ghost" size="icon-xs" title="Remove from grid" aria-label={`Remove ${name} from grid`} onClick={() => setGrid(gridIds.filter((_, j) => j !== i))}><HugeiconsIcon icon={Cancel01Icon} /></Button>
                     </span>
                   </li>
                 );
@@ -432,7 +429,7 @@ function ProductProperties({ doc, el, run, update, assetUrls, ui }: {
           )}
           <Button variant="outline" size="sm" aria-haspopup="dialog"
             onClick={() => ui.pick({ multiple: true, initial: gridIds, title: "Products in this grid", confirmLabel: "Update grid", onConfirm: setGrid })}>
-            <Plus /> Add or reorder products…
+            <HugeiconsIcon icon={Add01Icon} /> Add or reorder products…
           </Button>
         </Section>
       )}
@@ -561,7 +558,7 @@ function AnimationProperties({ el, run }: { el: CatalogElement; run: (c: EditorC
           <span className="tabular-nums text-muted-foreground">{i + 1}</span>
           <span className="flex-1 truncate capitalize">{a.category} · {a.preset}{a.direction && a.preset === "slide" ? ` ${a.direction}` : ""}</span>
           <span className="tabular-nums text-muted-foreground">{(a.durationMs / 1000).toFixed(1)}s</span>
-          <Button variant="ghost" size="icon-xs" title="Remove animation" onClick={() => run({ type: "element.removeAnimation", elementId: el.id, animationId: a.id })}><Trash2 /></Button>
+          <Button variant="ghost" size="icon-xs" title="Remove animation" onClick={() => run({ type: "element.removeAnimation", elementId: el.id, animationId: a.id })}><HugeiconsIcon icon={Delete02Icon} /></Button>
         </div>
       ))}
       <div className="grid grid-cols-2 gap-1">

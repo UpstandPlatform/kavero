@@ -1,7 +1,8 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { CloudDownloadIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
-import { CloudDownload } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -102,7 +103,7 @@ export function CloudOnlyList({ userId, localDocumentIds, onCount }: { userId: s
                   }
                 }}
               >
-                <CloudDownload /> {busy === c.id ? "Opening…" : "Open"}
+                <HugeiconsIcon icon={CloudDownloadIcon} /> {busy === c.id ? "Opening…" : "Open"}
               </Button>
             </div>
           </div>

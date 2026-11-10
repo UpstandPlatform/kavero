@@ -1,12 +1,13 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon } from "@hugeicons/core-free-icons";
 import { PAGE_PRESETS, TEMPLATES, type PagePreset } from "@Kavero/catalog-engine";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
 import { Label } from "@Kavero/ui/components/label";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { Textarea } from "@Kavero/ui/components/textarea";
-import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { surface } from "@/components/surface";
@@ -74,7 +75,7 @@ export function NewCatalogDialog({ open, onClose, onCreate }: { open: boolean; o
         <div className="flex items-center justify-between border-b px-5 py-3">
           <h2 className="text-sm font-semibold">New catalog</h2>
           <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
-            <X />
+            <HugeiconsIcon icon={Cancel01Icon} />
           </Button>
         </div>
         <div className="grid gap-4 overflow-y-auto px-5 py-4">

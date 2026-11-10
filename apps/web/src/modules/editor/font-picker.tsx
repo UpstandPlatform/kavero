@@ -1,8 +1,9 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon, Search01Icon, Upload01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
-import { Search, Upload, X } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -129,7 +130,7 @@ export function FontPicker({ onAdd, onPick, onClose }: { onAdd: AddFont; onPick:
       <div ref={panel} tabIndex={-1} className="flex max-h-[80vh] w-[min(440px,100%)] flex-col overflow-hidden rounded-xl border bg-background shadow-xl outline-none" role="dialog" aria-modal="true" aria-label="Choose a font">
         <div className="flex items-center justify-between border-b px-5 py-3">
           <h2 className="text-sm font-semibold">Fonts on this computer</h2>
-          <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><X /></Button>
+          <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><HugeiconsIcon icon={Cancel01Icon} /></Button>
         </div>
         <div className="border-b px-4 py-2 text-[11px] text-muted-foreground">
           The font file is copied into this catalog so previews, PDF and video exports look the same anywhere. Only use fonts whose license allows embedding.
@@ -137,7 +138,7 @@ export function FontPicker({ onAdd, onPick, onClose }: { onAdd: AddFont; onPick:
         {supported ? (
           <>
             <div className="relative border-b px-4 py-2">
-              <Search className="pointer-events-none absolute top-1/2 left-6 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <HugeiconsIcon icon={Search01Icon} className="pointer-events-none absolute top-1/2 left-6 size-3.5 -translate-y-1/2 text-muted-foreground" />
               <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search fonts" aria-label="Search fonts" autoFocus className="pl-7" />
             </div>
             <ul className="min-h-0 flex-1 overflow-y-auto py-1">
@@ -163,7 +164,7 @@ export function FontPicker({ onAdd, onPick, onClose }: { onAdd: AddFont; onPick:
         )}
         <div className="flex justify-end border-t px-4 py-2">
           <input ref={fileInput} type="file" multiple accept=".ttf,.otf,.woff,.woff2" className="hidden" onChange={(e) => upload(e.target.files)} />
-          <Button variant="outline" size="sm" onClick={() => fileInput.current?.click()}><Upload /> Upload font files</Button>
+          <Button variant="outline" size="sm" onClick={() => fileInput.current?.click()}><HugeiconsIcon icon={Upload01Icon} /> Upload font files</Button>
         </div>
       </div>
     </div>

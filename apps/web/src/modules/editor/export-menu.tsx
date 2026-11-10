@@ -1,5 +1,7 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowDown01Icon, FileAttachmentIcon, FileDownloadIcon, FileScriptIcon, Film01Icon, Image01Icon, Loading02Icon, PackageIcon, Presentation01Icon } from "@hugeicons/core-free-icons";
 import { checkExportCompatibility, documentDirection, safeFileName, type CatalogDocument } from "@Kavero/catalog-engine";
 import { Button } from "@Kavero/ui/components/button";
 import {
@@ -11,7 +13,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@Kavero/ui/components/dropdown-menu";
-import { ChevronDown, FileCode, FileDown, FileImage, FileText, Film, Loader2, Package, Presentation } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -158,21 +159,21 @@ export function ExportMenu({ doc, onVideo }: { doc: CatalogDocument; onVideo: ()
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="outline" size="sm" disabled={!!busy} />}>
-        {busy ? <Loader2 className="animate-spin" /> : <FileDown />} {busy ? `Exporting ${busy.toUpperCase()}…` : "Export"} <ChevronDown className="size-3" />
+        {busy ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={FileDownloadIcon} />} {busy ? `Exporting ${busy.toUpperCase()}…` : "Export"} <HugeiconsIcon icon={ArrowDown01Icon} className="size-3" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-60 bg-card">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Export as</DropdownMenuLabel>
-          <DropdownMenuItem onClick={() => exportPdf(false)}><FileText /> PDF</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => exportPdf(true)}><FileText /> PDF with page numbers</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => exportImages(1920)}><FileImage /> JPG images (.zip)</DropdownMenuItem>
-          <DropdownMenuItem onClick={() => exportImages(3840)}><FileImage /> JPG images, 4K (.zip)</DropdownMenuItem>
-          <DropdownMenuItem onClick={exportPowerPoint}><Presentation /> PowerPoint (.pptx)</DropdownMenuItem>
-          <DropdownMenuItem onClick={onVideo}><Film /> Video (MP4)…</DropdownMenuItem>
-          <DropdownMenuItem onClick={exportHtml}><FileCode /> Website (single HTML file)</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => exportPdf(false)}><HugeiconsIcon icon={FileAttachmentIcon} /> PDF</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => exportPdf(true)}><HugeiconsIcon icon={FileAttachmentIcon} /> PDF with page numbers</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => exportImages(1920)}><HugeiconsIcon icon={Image01Icon} /> JPG images (.zip)</DropdownMenuItem>
+          <DropdownMenuItem onClick={() => exportImages(3840)}><HugeiconsIcon icon={Image01Icon} /> JPG images, 4K (.zip)</DropdownMenuItem>
+          <DropdownMenuItem onClick={exportPowerPoint}><HugeiconsIcon icon={Presentation01Icon} /> PowerPoint (.pptx)</DropdownMenuItem>
+          <DropdownMenuItem onClick={onVideo}><HugeiconsIcon icon={Film01Icon} /> Video (MP4)…</DropdownMenuItem>
+          <DropdownMenuItem onClick={exportHtml}><HugeiconsIcon icon={FileScriptIcon} /> Website (single HTML file)</DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => run("file", () => flushEditorSave(doc.id).then(() => downloadProjectFile(doc.id, doc.metadata.title)))}><Package /> Kavero project file</DropdownMenuItem>
+        <DropdownMenuItem onClick={() => run("file", () => flushEditorSave(doc.id).then(() => downloadProjectFile(doc.id, doc.metadata.title)))}><HugeiconsIcon icon={PackageIcon} /> Kavero project file</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

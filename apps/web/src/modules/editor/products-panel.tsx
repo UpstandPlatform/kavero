@@ -1,9 +1,10 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon, AddSquareIcon, Copy01Icon, Delete02Icon, PackageAddIcon, PencilIcon } from "@hugeicons/core-free-icons";
 import { matchesProduct, productUsage, type CatalogDocument } from "@Kavero/catalog-engine";
 import type { Editor } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
-import { Copy, PackagePlus, Pencil, Plus, SquarePlus, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -45,8 +46,8 @@ export function ProductsPanel({ editor, doc, assetUrls, ui, onInsert }: {
         <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products" aria-label="Search products"
           className="h-7 w-full min-w-0 rounded-[min(var(--radius-md),10px)] border border-input bg-transparent px-2 text-xs transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30" />
         <div className="flex gap-1">
-          <Button size="xs" className="flex-1" onClick={() => ui.edit()}><Plus /> New</Button>
-          <Button size="xs" variant="outline" className="flex-1" title="Import products from MCP" onClick={ui.import}><PackagePlus /> Import</Button>
+          <Button size="xs" className="flex-1" onClick={() => ui.edit()}><HugeiconsIcon icon={Add01Icon} /> New</Button>
+          <Button size="xs" variant="outline" className="flex-1" title="Import products from MCP" onClick={ui.import}><HugeiconsIcon icon={PackageAddIcon} /> Import</Button>
         </div>
       </div>
       <ul className="min-h-0 flex-1 overflow-y-auto px-1 pb-2" aria-label="Products">
@@ -67,10 +68,10 @@ export function ProductsPanel({ editor, doc, assetUrls, ui, onInsert }: {
               </button>
               {/* Revealed on hover/focus, like slide actions. */}
               <span className="absolute end-1 top-1 hidden gap-0.5 rounded-md bg-background/95 shadow-sm group-hover:flex group-focus-within:flex">
-                <Button variant="ghost" size="icon-xs" title="Add to slide" aria-label={`Add ${p.name} to slide`} onClick={() => onInsert(p.id)}><SquarePlus /></Button>
-                <Button variant="ghost" size="icon-xs" title="Edit" aria-label={`Edit ${p.name}`} onClick={() => ui.edit(p.id)}><Pencil /></Button>
-                <Button variant="ghost" size="icon-xs" title="Duplicate" aria-label={`Duplicate ${p.name}`} onClick={() => run({ type: "product.duplicate", productId: p.id })}><Copy /></Button>
-                <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete ${p.name}`} onClick={() => deleteProduct(editor, run, p.id)}><Trash2 /></Button>
+                <Button variant="ghost" size="icon-xs" title="Add to slide" aria-label={`Add ${p.name} to slide`} onClick={() => onInsert(p.id)}><HugeiconsIcon icon={AddSquareIcon} /></Button>
+                <Button variant="ghost" size="icon-xs" title="Edit" aria-label={`Edit ${p.name}`} onClick={() => ui.edit(p.id)}><HugeiconsIcon icon={PencilIcon} /></Button>
+                <Button variant="ghost" size="icon-xs" title="Duplicate" aria-label={`Duplicate ${p.name}`} onClick={() => run({ type: "product.duplicate", productId: p.id })}><HugeiconsIcon icon={Copy01Icon} /></Button>
+                <Button variant="ghost" size="icon-xs" title="Delete" aria-label={`Delete ${p.name}`} onClick={() => deleteProduct(editor, run, p.id)}><HugeiconsIcon icon={Delete02Icon} /></Button>
               </span>
             </li>
           );

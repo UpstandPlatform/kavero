@@ -1,5 +1,7 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowLeftToLineIcon, ArrowRightToLineIcon, Cancel01Icon, DragDropVerticalIcon, LayoutLeftIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
 import {
   DropdownMenu,
@@ -12,7 +14,6 @@ import {
   DropdownMenuTrigger,
 } from "@Kavero/ui/components/dropdown-menu";
 import { cn } from "@Kavero/ui/lib/utils";
-import { ArrowLeftToLine, ArrowRightToLine, GripVertical, LayoutPanelLeft, X } from "lucide-react";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 /**
@@ -239,7 +240,7 @@ function PanelFrame({
           title={`Drag to move ${title}`}
           aria-label={`Move the ${title} panel (drag to the other side or reorder)`}
         >
-          <GripVertical className="size-3.5" />
+          <HugeiconsIcon icon={DragDropVerticalIcon} className="size-3.5" />
         </button>
         <div className="flex min-w-0 flex-1 items-center gap-1">{header ?? <span className="truncate text-xs font-medium">{title}</span>}</div>
         <Button
@@ -249,9 +250,9 @@ function PanelFrame({
           aria-label={panel.side === "left" ? `Move ${title} to the right side` : `Move ${title} to the left side`}
           onClick={() => api.move(panel.id, panel.side === "left" ? "right" : "left", panel.side === "left" ? 0 : Number.MAX_SAFE_INTEGER)}
         >
-          {panel.side === "left" ? <ArrowRightToLine /> : <ArrowLeftToLine />}
+          {panel.side === "left" ? <HugeiconsIcon icon={ArrowRightToLineIcon} /> : <HugeiconsIcon icon={ArrowLeftToLineIcon} />}
         </Button>
-        <Button variant="ghost" size="icon-xs" title={`Hide ${title}`} aria-label={`Hide the ${title} panel`} onClick={() => api.toggle(panel.id, false)}><X /></Button>
+        <Button variant="ghost" size="icon-xs" title={`Hide ${title}`} aria-label={`Hide the ${title} panel`} onClick={() => api.toggle(panel.id, false)}><HugeiconsIcon icon={Cancel01Icon} /></Button>
       </div>
       <div className="flex min-h-0 flex-1 flex-col">{body}</div>
       {/* Resize from the edge facing the canvas. */}
@@ -282,7 +283,7 @@ export function WorkspaceMenu({ api }: { api: WorkspaceApi }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label="Workspace: show, hide and reset panels" title="Workspace" />}>
-        <LayoutPanelLeft />
+        <HugeiconsIcon icon={LayoutLeftIcon} />
       </DropdownMenuTrigger>
       <DropdownMenuContent side="right" align="end" className="min-w-52">
         <DropdownMenuGroup>

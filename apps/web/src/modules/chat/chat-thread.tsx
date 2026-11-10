@@ -1,5 +1,7 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowUp01Icon, Loading02Icon, RotateLeft01Icon, SquareIcon } from "@hugeicons/core-free-icons";
 import { useChat } from "@ai-sdk/react";
 import { Bubble, BubbleContent } from "@Kavero/ui/components/bubble";
 import { Button } from "@Kavero/ui/components/button";
@@ -15,7 +17,6 @@ import {
 } from "@Kavero/ui/components/message-scroller";
 import { cn } from "@Kavero/ui/lib/utils";
 import { DefaultChatTransport, type UIMessage } from "ai";
-import { ArrowUp, Loader2, RotateCcw, Square } from "lucide-react";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 export type ChatMode = "landing" | "editor";
@@ -187,7 +188,7 @@ export function ChatThread({
                 </MessageScrollerItem>
               ))}
               {status === "submitted" && (
-                <p className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Thinking…</p>
+                <p className="flex items-center gap-2 text-sm text-muted-foreground"><HugeiconsIcon icon={Loading02Icon} className="size-4 animate-spin" /> Thinking…</p>
               )}
               {error && (
                 <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{errorMessage(error)}</p>
@@ -225,15 +226,15 @@ export function ChatThread({
             <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
               {messages.length > 0 && (
                 <InputGroupButton type="button" size="xs" variant="ghost" onClick={clear} title="Start over: forget this conversation">
-                  <RotateCcw /> New chat
+                  <HugeiconsIcon icon={RotateLeft01Icon} /> New chat
                 </InputGroupButton>
               )}
               <span className="truncate">Enter to send · Shift+Enter for a new line</span>
             </span>
             {busy ? (
-              <InputGroupButton type="button" size="icon-sm" variant="secondary" aria-label="Stop" onClick={() => void stop()}><Square /></InputGroupButton>
+              <InputGroupButton type="button" size="icon-sm" variant="secondary" aria-label="Stop" onClick={() => void stop()}><HugeiconsIcon icon={SquareIcon} /></InputGroupButton>
             ) : (
-              <InputGroupButton type="submit" size="icon-sm" variant="default" aria-label="Send" disabled={!input.trim()}><ArrowUp /></InputGroupButton>
+              <InputGroupButton type="submit" size="icon-sm" variant="default" aria-label="Send" disabled={!input.trim()}><HugeiconsIcon icon={ArrowUp01Icon} /></InputGroupButton>
             )}
           </InputGroupAddon>
         </InputGroup>

@@ -1,10 +1,11 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon, Copy01Icon, GlobeIcon, LinkSquare01Icon, Loading02Icon, Tick01Icon } from "@hugeicons/core-free-icons";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
 import { Textarea } from "@Kavero/ui/components/textarea";
-import { Check, Copy, ExternalLink, Globe, Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -137,8 +138,8 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
   return (
     <dialog ref={ref} onClose={onClose} className="m-auto w-[min(520px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50">
       <div className="flex items-center justify-between border-b px-5 py-3">
-        <h2 className="flex items-center gap-2 text-sm font-semibold"><Globe className="size-4" /> Publish as a website</h2>
-        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><X /></Button>
+        <h2 className="flex items-center gap-2 text-sm font-semibold"><HugeiconsIcon icon={GlobeIcon} className="size-4" /> Publish as a website</h2>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><HugeiconsIcon icon={Cancel01Icon} /></Button>
       </div>
 
       {!isPending && !session ? (
@@ -148,7 +149,7 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
           <Link href="/login"><Button>Sign in to publish</Button></Link>
         </div>
       ) : phase === "syncing" ? (
-        <p className="flex items-center gap-2 p-5 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Saving the latest version to your cloud…</p>
+        <p className="flex items-center gap-2 p-5 text-sm text-muted-foreground"><HugeiconsIcon icon={Loading02Icon} className="size-4 animate-spin" /> Saving the latest version to your cloud…</p>
       ) : phase === "error" ? (
         <p className="p-5 text-sm text-destructive">{error}</p>
       ) : (
@@ -164,9 +165,9 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
               <div className="flex items-center gap-1">
                 <code className="min-w-0 flex-1 truncate font-mono">{url}</code>
                 <Button variant="ghost" size="icon-xs" title="Copy link" onClick={async () => { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
-                  {copied ? <Check /> : <Copy />}
+                  {copied ? <HugeiconsIcon icon={Tick01Icon} /> : <HugeiconsIcon icon={Copy01Icon} />}
                 </Button>
-                <a href={url} target="_blank" rel="noreferrer" title="Open"><Button variant="ghost" size="icon-xs"><ExternalLink /></Button></a>
+                <a href={url} target="_blank" rel="noreferrer" title="Open"><Button variant="ghost" size="icon-xs"><HugeiconsIcon icon={LinkSquare01Icon} /></Button></a>
               </div>
               {status && status.daily.length > 0 && (
                 <div className="grid gap-1">
@@ -223,7 +224,7 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
           <div className="flex items-center justify-between gap-2 border-t pt-4">
             {pub ? <Button variant="ghost" size="sm" disabled={busy} onClick={unpublish}>Unpublish</Button> : <span />}
             <Button disabled={busy || !slugState.ok || slugState.checking || !slug || needsPassword} onClick={publish}>
-              {busy ? <Loader2 className="animate-spin" /> : <Globe />} {pub ? "Update" : "Publish"}
+              {busy ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={GlobeIcon} />} {pub ? "Update" : "Publish"}
             </Button>
           </div>
           <p className="text-[11px] text-muted-foreground">The website shows the version you publish. Later edits stay private until you click Update.</p>

@@ -1,11 +1,12 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Add01Icon, Delete02Icon, Key02Icon, Loading02Icon, Plug01Icon, Refresh01Icon, ScrollIcon, SparklesIcon, UserGroupIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
 import { Checkbox } from "@Kavero/ui/components/checkbox";
-import { CodeBlock, CopyField } from "@Kavero/ui/components/code-block";
+import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton, CodeBlockHeader, CodeBlockTitle, CopyField } from "@Kavero/ui/components/code-block";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
-import { KeyRound, Loader2, Plug, Plus, RefreshCw, ScrollText, Sparkles, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -44,11 +45,11 @@ export function SettingsPage() {
     );
   }
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: "workspaces", label: "Workspaces", icon: <Users /> },
-    { id: "tokens", label: "API tokens & AI agents", icon: <KeyRound /> },
-    { id: "connections", label: "MCP connections", icon: <Plug /> },
-    { id: "ai", label: "AI", icon: <Sparkles /> },
-    { id: "activity", label: "Activity", icon: <ScrollText /> },
+    { id: "workspaces", label: "Workspaces", icon: <HugeiconsIcon icon={UserGroupIcon} /> },
+    { id: "tokens", label: "API tokens & AI agents", icon: <HugeiconsIcon icon={Key02Icon} /> },
+    { id: "connections", label: "MCP connections", icon: <HugeiconsIcon icon={Plug01Icon} /> },
+    { id: "ai", label: "AI", icon: <HugeiconsIcon icon={SparklesIcon} /> },
+    { id: "activity", label: "Activity", icon: <HugeiconsIcon icon={ScrollIcon} /> },
   ];
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8">
@@ -125,7 +126,7 @@ function TokensTab() {
               ))}
             </div>
           </fieldset>
-          <div><Button onClick={create} disabled={busy || !scopes.length || !name.trim()}>{busy ? <Loader2 className="animate-spin" /> : <Plus />} Create token</Button></div>
+          <div><Button onClick={create} disabled={busy || !scopes.length || !name.trim()}>{busy ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={Add01Icon} />} Create token</Button></div>
         </div>
 
         {created && (
@@ -138,7 +139,13 @@ function TokensTab() {
         <div className="grid gap-2 text-xs">
           <SectionHeader title="Connect an MCP client" />
           <p className="text-muted-foreground">Server URL: <code className={surface.code}>{endpoint}</code> (Streamable HTTP). Send the token as <code className={surface.code}>Authorization: Bearer …</code>. For example, in an MCP client config:</p>
-          <CodeBlock code={config} copyLabel="Copy config" />
+          <CodeBlock>
+            <CodeBlockHeader>
+              <CodeBlockTitle>MCP client config</CodeBlockTitle>
+              <CodeBlockActions><CodeBlockCopyButton value={config} aria-label="Copy config" title="Copy config" /></CodeBlockActions>
+            </CodeBlockHeader>
+            <CodeBlockContent>{config}</CodeBlockContent>
+          </CodeBlock>
         </div>
       </section>
 
@@ -156,7 +163,7 @@ function TokensTab() {
                   </p>
                 </div>
                 <Button variant="ghost" size="sm" onClick={async () => { if (confirm(`Revoke "${t.name}"? Agents using it will stop working.`)) { await api().integrations.tokens.revoke.mutate({ id: t.id }); refresh(); } }}>
-                  <Trash2 /> Revoke
+                  <HugeiconsIcon icon={Delete02Icon} /> Revoke
                 </Button>
               </li>
             ))}
@@ -216,7 +223,7 @@ function ConnectionsTab() {
             {form.authType !== "none" && <label className="grid gap-1.5">{form.authType === "bearer" ? "Token" : "Value"}<Input type="password" autoComplete="off" value={form.secret} onChange={(e) => setForm({ ...form, secret: e.target.value })} /></label>}
           </div>
           <p className="text-muted-foreground">Local (stdio) MCP servers need the Kavero desktop companion, which isn’t available yet.</p>
-          <div><Button onClick={add} disabled={!!busy || !form.name.trim() || !form.url.trim()}>{busy === "add" && <Loader2 className="animate-spin" />} Connect</Button></div>
+          <div><Button onClick={add} disabled={!!busy || !form.name.trim() || !form.url.trim()}>{busy === "add" && <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />} Connect</Button></div>
         </div>
       </section>
 
@@ -237,8 +244,8 @@ function ConnectionsTab() {
                       if (r.status === "ok") toast.success(`${r.tools.length} tools available`); else toast.error(r.error ?? "Failed");
                       setBusy(null);
                       refresh();
-                    }}>{busy === c.id ? <Loader2 className="animate-spin" /> : <RefreshCw />} Test</Button>
-                    <Button variant="ghost" size="sm" onClick={async () => { if (confirm(`Remove "${c.name}"? Its stored credentials are deleted.`)) { await api().integrations.connections.remove.mutate({ id: c.id }); refresh(); } }}><Trash2 /> Remove</Button>
+                    }}>{busy === c.id ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={Refresh01Icon} />} Test</Button>
+                    <Button variant="ghost" size="sm" onClick={async () => { if (confirm(`Remove "${c.name}"? Its stored credentials are deleted.`)) { await api().integrations.connections.remove.mutate({ id: c.id }); refresh(); } }}><HugeiconsIcon icon={Delete02Icon} /> Remove</Button>
                   </span>
                 </div>
                 {c.status === "error" && c.lastError && <p className="text-destructive">{c.lastError}</p>}

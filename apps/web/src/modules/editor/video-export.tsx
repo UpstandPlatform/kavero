@@ -1,10 +1,11 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon, Download01Icon, Film01Icon, Loading02Icon } from "@hugeicons/core-free-icons";
 import { buildTimeline } from "@Kavero/animation-engine";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { Button } from "@Kavero/ui/components/button";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
-import { Download, Film, Loader2, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
@@ -69,7 +70,7 @@ export function VideoExportButton({ doc, defaultOpen = false }: { doc: CatalogDo
   const trigger = "w-24 border-white/20 text-white dark:bg-transparent hover:bg-white/10 dark:hover:bg-white/10";
   return (
     <div className="relative">
-      <Button variant="ghost" size="sm" className="text-white hover:bg-white/10" onClick={() => setOpen(!open)}><Film /> Export video</Button>
+      <Button variant="ghost" size="sm" className="text-white hover:bg-white/10" onClick={() => setOpen(!open)}><HugeiconsIcon icon={Film01Icon} /> Export video</Button>
       {open && (
         <div className="absolute right-0 bottom-full mb-2 w-72 rounded-xl border border-white/15 bg-neutral-900 p-3 text-xs text-white shadow-xl">
           {!job || !running ? (
@@ -87,16 +88,16 @@ export function VideoExportButton({ doc, defaultOpen = false }: { doc: CatalogDo
                   options={[24, 30, 60].map((f) => ({ value: String(f), label: `${f} fps` }))} />
               </label>
               {job?.status === "done" && (
-                <a className="inline-flex items-center gap-1 text-sky-400 underline" href={`/api/export/video/${job.id}/file`}><Download className="size-3" /> Download again ({((job.bytes ?? 0) / 1e6).toFixed(1)} MB)</a>
+                <a className="inline-flex items-center gap-1 text-sky-400 underline" href={`/api/export/video/${job.id}/file`}><HugeiconsIcon icon={Download01Icon} className="size-3" /> Download again ({((job.bytes ?? 0) / 1e6).toFixed(1)} MB)</a>
               )}
               <p className="text-white/50">Rendered frame by frame with the same engine as Preview, then encoded with ffmpeg (H.264).</p>
-              <Button size="sm" onClick={start} disabled={starting}>{starting ? <><Loader2 className="animate-spin" /> Preparing…</> : "Render video"}</Button>
+              <Button size="sm" onClick={start} disabled={starting}>{starting ? <><HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> Preparing…</> : "Render video"}</Button>
             </div>
           ) : (
             <div className="grid gap-2">
               <div className="flex items-center justify-between">
                 <span>{job.status === "queued" ? "Waiting…" : job.status === "encoding" ? "Encoding…" : `Rendering frames ${pct}%`}</span>
-                <Button variant="ghost" size="icon-xs" onClick={cancel} title="Cancel" aria-label="Cancel" className="text-white/60 hover:bg-white/10 hover:text-white"><X /></Button>
+                <Button variant="ghost" size="icon-xs" onClick={cancel} title="Cancel" aria-label="Cancel" className="text-white/60 hover:bg-white/10 hover:text-white"><HugeiconsIcon icon={Cancel01Icon} /></Button>
               </div>
               <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/10"><div className="h-full rounded-full bg-sky-500 transition-[width]" style={{ width: `${job.status === "encoding" ? 100 : pct}%` }} /></div>
               <span className="text-white/50 tabular-nums">{job.frame} / {job.totalFrames || "…"} frames</span>

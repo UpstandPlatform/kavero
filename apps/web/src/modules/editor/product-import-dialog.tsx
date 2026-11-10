@@ -1,13 +1,14 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { Cancel01Icon, Loading02Icon } from "@hugeicons/core-free-icons";
 import { createId, type CatalogDocument } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
 import { Checkbox } from "@Kavero/ui/components/checkbox";
-import { CodeBlock } from "@Kavero/ui/components/code-block";
+import { CodeBlock, CodeBlockContent } from "@Kavero/ui/components/code-block";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { Textarea } from "@Kavero/ui/components/textarea";
-import { Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -170,7 +171,7 @@ export function ProductImportDialog({ editor, doc, uploadImage, activeSlideIndex
     <dialog ref={ref} onClose={onClose} className="m-auto w-[min(720px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50">
       <div className="flex items-center justify-between border-b px-5 py-3">
         <h2 className="text-sm font-semibold">Import products from MCP</h2>
-        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><X /></Button>
+        <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close"><HugeiconsIcon icon={Cancel01Icon} /></Button>
       </div>
       <div className="grid max-h-[75vh] gap-4 overflow-y-auto p-5 text-xs">
         {!isPending && !session ? (
@@ -194,12 +195,12 @@ export function ProductImportDialog({ editor, doc, uploadImage, activeSlideIndex
             <label className="grid gap-1.5">Arguments (JSON)
               <Textarea className="h-24 field-sizing-fixed font-mono text-xs md:text-xs" value={args} onChange={(e) => setArgs(e.target.value)} spellCheck={false} />
             </label>
-            <div><Button onClick={fetchProducts} disabled={!tool || !!busy}>{busy === "fetch" && <Loader2 className="animate-spin" />} Fetch products</Button></div>
+            <div><Button onClick={fetchProducts} disabled={!tool || !!busy}>{busy === "fetch" && <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />} Fetch products</Button></div>
 
             {found && found.length === 0 && (
               <div className={`grid gap-2 p-3 ${surface.empty}`}>
                 <p>No products recognised in the result.</p>
-                {raw && <CodeBlock code={raw} copyable={false} className="max-h-40 overflow-auto text-muted-foreground" />}
+                {raw && <CodeBlock className="max-h-40 text-muted-foreground"><CodeBlockContent className="max-h-40 overflow-auto">{raw}</CodeBlockContent></CodeBlock>}
               </div>
             )}
             {found && found.length > 0 && (
@@ -232,7 +233,7 @@ export function ProductImportDialog({ editor, doc, uploadImage, activeSlideIndex
                       options={[{ value: "single", label: "one product section" }, { value: "per-category", label: "one per category" }, { value: "none", label: "no, just add products" }]} />
                   </label>
                   <Button className="ml-auto" onClick={addToCatalog} disabled={!selected.size || !!busy}>
-                    {busy === "add" && <Loader2 className="animate-spin" />} Add {selected.size} to catalog
+                    {busy === "add" && <HugeiconsIcon icon={Loading02Icon} className="animate-spin" />} Add {selected.size} to catalog
                   </Button>
                 </div>
               </>

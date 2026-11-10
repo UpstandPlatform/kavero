@@ -1,8 +1,9 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { CodeIcon, Delete02Icon, Film01Icon, Image01Icon, LayoutGridIcon, Link02Icon, LockIcon, SquareIcon, SquareUnlock01Icon, StarIcon, Tag01Icon, TextIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
 import type { CatalogElement, CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor } from "@Kavero/editor-core";
-import { Code2, Eye, EyeOff, Film, Image as ImageIcon, LayoutGrid, Link2, Lock, Square, Star, Tag, Trash2, Type, Unlock } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 
 import { useContextMenu } from "./context-menu";
@@ -10,8 +11,8 @@ import type { EditorActions } from "./editor-actions";
 import { elementMenu, labelOf } from "./editor-menus";
 
 const ICONS: Record<CatalogElement["type"], ReactNode> = {
-  text: <Type />, shape: <Square />, image: <ImageIcon />, product: <Tag />, "product-grid": <LayoutGrid />,
-  html: <Code2 />, button: <Link2 />, video: <Film />, icon: <Star />,
+  text: <HugeiconsIcon icon={TextIcon} />, shape: <HugeiconsIcon icon={SquareIcon} />, image: <HugeiconsIcon icon={Image01Icon} />, product: <HugeiconsIcon icon={Tag01Icon} />, "product-grid": <HugeiconsIcon icon={LayoutGridIcon} />,
+  html: <HugeiconsIcon icon={CodeIcon} />, button: <HugeiconsIcon icon={Link02Icon} />, video: <HugeiconsIcon icon={Film01Icon} />, icon: <HugeiconsIcon icon={StarIcon} />,
 };
 
 /** A short readable name for a layer row. */
@@ -109,13 +110,13 @@ export function LayersPanel({ editor, slide, selection, actions }: { editor: Edi
             )}
             <span className={`flex items-center gap-0.5 ${el.hidden || el.locked ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"}`}>
               <button type="button" title={el.hidden ? "Show" : "Hide"} aria-label={el.hidden ? `Show ${layerName(el)}` : `Hide ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); actions.setFlag(el.id, "hidden", !el.hidden); }} className="rounded-sm p-0.5 hover:bg-background">
-                {el.hidden ? <EyeOff /> : <Eye />}
+                {el.hidden ? <HugeiconsIcon icon={ViewOffIcon} /> : <HugeiconsIcon icon={ViewIcon} />}
               </button>
               <button type="button" title={el.locked ? "Unlock" : "Lock"} aria-label={el.locked ? `Unlock ${layerName(el)}` : `Lock ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); actions.setFlag(el.id, "locked", !el.locked); }} className="rounded-sm p-0.5 hover:bg-background">
-                {el.locked ? <Lock /> : <Unlock />}
+                {el.locked ? <HugeiconsIcon icon={LockIcon} /> : <HugeiconsIcon icon={SquareUnlock01Icon} />}
               </button>
               <button type="button" title="Delete" aria-label={`Delete ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); editor.execute({ type: "element.delete", elementId: el.id }); }} className="rounded-sm p-0.5 hover:bg-background hover:text-destructive">
-                <Trash2 />
+                <HugeiconsIcon icon={Delete02Icon} />
               </button>
             </span>
           </li>

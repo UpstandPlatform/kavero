@@ -1,10 +1,11 @@
 "use client";
 
+import { HugeiconsIcon } from "@hugeicons/react";
+import { ArrowUp01Icon, Cancel01Icon, Loading02Icon, Presentation01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@Kavero/ui/components/input-group";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { SlideView } from "@Kavero/renderer";
-import { ArrowUp, Loader2, Presentation, Sparkles, X } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -54,8 +55,8 @@ export function LandingPrompt() {
     return (
       <div className="flex h-[min(640px,75vh)] flex-col overflow-hidden rounded-xl border bg-card shadow-sm">
         <div className="flex items-center justify-between border-b px-4 py-2">
-          <p className="flex items-center gap-2 text-sm font-medium"><Sparkles className="size-4" /> Kavero assistant</p>
-          <Button variant="ghost" size="icon-sm" aria-label="Close chat" onClick={() => setStarted(null)}><X /></Button>
+          <p className="flex items-center gap-2 text-sm font-medium"><HugeiconsIcon icon={SparklesIcon} className="size-4" /> Kavero assistant</p>
+          <Button variant="ghost" size="icon-sm" aria-label="Close chat" onClick={() => setStarted(null)}><HugeiconsIcon icon={Cancel01Icon} /></Button>
         </div>
         <ChatThread mode="landing" initialPrompt={started} renderTool={(part) => <CreateCatalogPart part={part} />} placeholder="Reply or add details…" className="min-h-0 flex-1" />
       </div>
@@ -90,7 +91,7 @@ export function LandingPrompt() {
           <span className="text-xs text-muted-foreground">
             {isPending ? " " : session && aiReady ? "Chat with your AI model" : "Generates with Kavero's built-in planner · connect a model for chat"}
           </span>
-          <InputGroupButton type="submit" size="icon-sm" variant="default" aria-label="Start" disabled={!prompt.trim()}><ArrowUp /></InputGroupButton>
+          <InputGroupButton type="submit" size="icon-sm" variant="default" aria-label="Start" disabled={!prompt.trim()}><HugeiconsIcon icon={ArrowUp01Icon} /></InputGroupButton>
         </InputGroupAddon>
       </InputGroup>
       <div className="flex flex-wrap gap-2">
@@ -126,7 +127,7 @@ function CreateCatalogPart({ part }: { part: ToolPart }) {
   if (part.type !== "tool-create_catalog") return null;
   if (part.state === "output-error") return <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">Couldn't create the catalog: {part.errorText}</p>;
   if (!output) {
-    return <p className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm text-muted-foreground"><Loader2 className="size-4 animate-spin" /> Designing your catalog…</p>;
+    return <p className="flex items-center gap-2 rounded-xl border px-3 py-2 text-sm text-muted-foreground"><HugeiconsIcon icon={Loading02Icon} className="size-4 animate-spin" /> Designing your catalog…</p>;
   }
   const doc = output.document;
   const cover = doc.slides[0];
@@ -138,7 +139,7 @@ function CreateCatalogPart({ part }: { part: ToolPart }) {
         <p className="truncate font-medium" dir="auto">{output.title}</p>
         <p className="text-xs text-muted-foreground">{output.slides} slides · {state === "saved" ? "saved in this browser" : state === "error" ? "couldn't save in this browser" : "saving…"}</p>
         <div className="mt-1">
-          <Button size="sm" disabled={state !== "saved"} nativeButton={false} render={<Link href={`/editor/${doc.id}` as Route} />}><Presentation /> Open in editor</Button>
+          <Button size="sm" disabled={state !== "saved"} nativeButton={false} render={<Link href={`/editor/${doc.id}` as Route} />}><HugeiconsIcon icon={Presentation01Icon} /> Open in editor</Button>
         </div>
       </div>
     </div>
