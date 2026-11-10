@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.6.0](https://github.com/UpstandPlatform/kavero/compare/v0.5.0...v0.6.0) - 2026-11-10
+
+### Features
+
+- Add Tabs, Toast, Toggle, and Trace components; update Textarea and Tooltip styles ([9523b1e](https://github.com/UpstandPlatform/kavero/commit/9523b1e93283101544bba7b6f20384a6fc88dcc9))
+
 ## [0.5.0](https://github.com/UpstandPlatform/kavero/compare/v0.4.0...v0.5.0) - 2026-11-10
 
 ### Features
