@@ -2,7 +2,8 @@
 
 import { HugeiconsIcon } from "@hugeicons/react";
 import { FileAttachmentIcon, FileDownloadIcon, FileScriptIcon, Film01Icon, Image01Icon, Loading02Icon, PackageIcon, Presentation01Icon } from "@hugeicons/core-free-icons";
-import { checkExportCompatibility, documentDirection, safeFileName, type CatalogDocument } from "@Kavero/catalog-engine";
+import { checkExportCompatibility, documentDirection, parseCatalogDocument, safeFileName, type CatalogDocument } from "@Kavero/catalog-engine";
+import type { PptxExtensionRendererRegistry } from "@Kavero/export-pptx";
 import { Button } from "@Kavero/ui/components/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@Kavero/ui/components/tooltip";
 import {
@@ -94,7 +95,12 @@ function showWarnings(title: string, warnings: string[]) {
   toast.success(title, { description: unique.slice(0, 3).join(" "), duration: 8000 });
 }
 
-export function ExportMenu({ doc, onVideo }: { doc: CatalogDocument; onVideo: () => void }) {
+export function ExportMenu({ doc, onVideo, prepareDocument, extensionRenderers }: {
+  doc: CatalogDocument;
+  onVideo: () => void;
+  prepareDocument?: (format: "pdf" | "images" | "pptx" | "html", document: CatalogDocument) => Promise<CatalogDocument>;
+  extensionRenderers?: PptxExtensionRendererRegistry;
+}) {
   const [busy, setBusy] = useState<string | null>(null);
 
   async function run(kind: string, fn: () => Promise<void>) {
@@ -110,43 +116,47 @@ export function ExportMenu({ doc, onVideo }: { doc: CatalogDocument; onVideo: ()
 
   const exportPdf = (pageNumbers: boolean) =>
     run("pdf", async () => {
+      const document = prepareDocument ? await prepareDocument("pdf", doc) : doc;
       const res = await fetch("/api/export/pdf", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document: doc, assets: await collectAssets(doc), pageNumbers }),
+        body: JSON.stringify({ document, assets: await collectAssets(document), pageNumbers }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "PDF export failed");
-      download(await res.blob(), fileName(doc, "pdf"));
-      showWarnings("PDF exported", checkExportCompatibility(doc, "pdf").map((w) => w.message));
+      download(await res.blob(), fileName(document, "pdf"));
+      showWarnings("PDF exported", checkExportCompatibility(document, "pdf").map((w) => w.message));
     });
 
   const exportImages = (width: 1920 | 3840) =>
     run("jpg", async () => {
+      const document = prepareDocument ? await prepareDocument("images", doc) : doc;
       const res = await fetch("/api/export/images", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document: doc, assets: await collectAssets(doc), width, quality: 90 }),
+        body: JSON.stringify({ document, assets: await collectAssets(document), width, quality: 90 }),
       });
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Image export failed");
-      download(await res.blob(), fileName(doc, "zip"));
-      showWarnings(`${doc.slides.length} slide image${doc.slides.length === 1 ? "" : "s"} exported`, checkExportCompatibility(doc, "pdf").map((w) => w.message.replace("PDF is static", "Images are static")));
+      download(await res.blob(), fileName(document, "zip"));
+      showWarnings(`${document.slides.length} slide image${document.slides.length === 1 ? "" : "s"} exported`, checkExportCompatibility(document, "pdf").map((w) => w.message.replace("PDF is static", "Images are static")));
     });
 
   const exportPowerPoint = () =>
     run("pptx", async () => {
+      const document = prepareDocument ? await prepareDocument("pptx", doc) : doc;
       // Built in the browser, so it also works offline.
       const { exportPptx } = await import("@Kavero/export-pptx");
-      const { data, warnings } = await exportPptx<Blob>(doc, { assets: await collectAssets(doc, ["image"]) });
-      download(data, fileName(doc, "pptx"));
+      const { data, warnings } = await exportPptx<Blob>(document, { assets: await collectAssets(document, ["image"]), extensionRenderers });
+      download(data, fileName(document, "pptx"));
       showWarnings("PowerPoint exported — text, shapes and images stay editable", warnings);
     });
 
   const exportHtml = () =>
     run("html", async () => {
+      const document = prepareDocument ? await prepareDocument("html", doc) : doc;
       const res = await fetch("/kavero-player.js");
       if (!res.ok) throw new Error("The website player is missing. Run `bun run build:player` in apps/web.");
-      const assets = await collectAssets(doc, ["image", "font", "video"]);
-      const html = await buildSingleHtml(doc, assets, await res.text());
+      const assets = await collectAssets(document, ["image", "font", "video"]);
+      const html = await buildSingleHtml(document, assets, await res.text());
       const blob = new Blob([html], { type: "text/html;charset=utf-8" });
       download(blob, fileName(doc, "html"));
       const mb = blob.size / 1024 / 1024;

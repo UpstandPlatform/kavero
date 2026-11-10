@@ -3,7 +3,6 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, AddSquareIcon, Copy01Icon, Delete02Icon, PackageAddIcon, PencilIcon } from "@hugeicons/core-free-icons";
 import { matchesProduct, productUsage, type CatalogDocument } from "@Kavero/catalog-engine";
-import type { Editor } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
 import { useState } from "react";
@@ -14,15 +13,16 @@ import { NoProducts, ProductThumb, productPrice, type ProductUi } from "./produc
 import { useRun } from "./use-catalog-editor";
 import { confirmAction } from "@/components/confirm-dialog";
 import { TooltipHint } from "@Kavero/ui/components/tooltip";
+import type { ExtensionEditorApi } from "./extensions/types";
 
 /** Delete a product, warning first when slides show it. Returns false when cancelled. */
-export async function deleteProduct(editor: Editor, run: ReturnType<typeof useRun>, productId: string): Promise<boolean> {
+export async function deleteProduct(editor: Pick<ExtensionEditorApi, "getDocument">, run: ReturnType<typeof useRun>, productId: string): Promise<boolean> {
   const doc = editor.getDocument();
   const product = doc.products.find((p) => p.id === productId);
   if (!product) return false;
   const usage = productUsage(doc, productId);
   if (usage.length) {
-    const where = usage.map((u) => `• Slide ${u.slideIndex + 1} “${u.slideName}”: ${u.elementType === "product" ? "product card (removed)" : "product grid (taken out)"}`).join("\n");
+    const where = usage.map((u) => `• Slide ${u.slideIndex + 1} “${u.slideName}”: ${u.elementType === "product" ? "product card (removed)" : u.elementType === "product-grid" ? "product grid (taken out)" : "Products extension element (removed)"}`).join("\n");
     if (!await confirmAction({ title: `Delete “${product.name}” from this catalog?`, description: `It is used on ${usage.length === 1 ? "1 element" : `${usage.length} elements`}:\n${where}\n\nYou can undo this.`, confirmLabel: "Delete product", destructive: true })) return false;
   }
   if (!run({ type: "product.delete", productId, removeFromSlides: true })) return false;
@@ -32,7 +32,7 @@ export async function deleteProduct(editor: Editor, run: ReturnType<typeof useRu
 
 /** Product library in the left sidebar: every product in the catalog. */
 export function ProductsPanel({ editor, doc, assetUrls, ui, onInsert }: {
-  editor: Editor;
+  editor: ExtensionEditorApi;
   doc: CatalogDocument;
   assetUrls: Record<string, string>;
   ui: ProductUi;

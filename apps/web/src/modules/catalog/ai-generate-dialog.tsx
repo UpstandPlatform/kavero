@@ -14,6 +14,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { authClient } from "@/lib/auth-client";
+import { builtInExtensionRenderers } from "@/modules/editor/extensions/built-in-renderers";
 import { makeTRPCClient } from "@/utils/trpc";
 
 import { localCatalogs, saveLocalCatalog } from "./local-catalogs";
@@ -215,7 +216,7 @@ export function AiGenerateDialog({ onClose, initialBrief = "" }: { onClose: () =
             <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
               {result.document.slides.map((s, i) => (
                 <figure key={s.id} className="grid gap-1">
-                  <div className="overflow-hidden rounded-md ring-1 ring-foreground/10"><SlideView doc={result.document} slide={s} scale={thumb} mode="edit" /></div>
+                  <div className="overflow-hidden rounded-md ring-1 ring-foreground/10"><SlideView doc={result.document} slide={s} scale={thumb} mode="edit" extensionRenderers={builtInExtensionRenderers} /></div>
                   <figcaption className="truncate text-muted-foreground">{i + 1}. {s.name}</figcaption>
                 </figure>
               ))}

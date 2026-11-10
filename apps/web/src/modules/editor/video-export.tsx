@@ -17,7 +17,11 @@ type Job = { id: string; status: string; frame: number; totalFrames: number; err
 const HEIGHTS = [720, 1080, 1440, 2160] as const;
 
 /** Renders the catalog to MP4 on the Kavero server (headless Chrome + ffmpeg). */
-export function VideoExportButton({ doc, defaultOpen = false }: { doc: CatalogDocument; defaultOpen?: boolean }) {
+export function VideoExportButton({ doc, defaultOpen = false, prepareDocument }: {
+  doc: CatalogDocument;
+  defaultOpen?: boolean;
+  prepareDocument?: (format: "video", document: CatalogDocument) => Promise<CatalogDocument>;
+}) {
   const [open, setOpen] = useState(defaultOpen);
   const [height, setHeight] = useState<(typeof HEIGHTS)[number]>(1080);
   const [fps, setFps] = useState<24 | 30 | 60>(30);
@@ -31,11 +35,12 @@ export function VideoExportButton({ doc, defaultOpen = false }: { doc: CatalogDo
   async function start() {
     setStarting(true);
     try {
-      const assets = await collectAssets(doc);
+      const document = prepareDocument ? await prepareDocument("video", doc) : doc;
+      const assets = await collectAssets(document);
       const res = await fetch("/api/export/video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document: doc, assets, fps, height }),
+        body: JSON.stringify({ document, assets, fps, height }),
       });
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "Export failed");

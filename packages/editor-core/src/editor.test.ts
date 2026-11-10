@@ -33,6 +33,15 @@ test("invalid command leaves document untouched", () => {
   expect(editor.getDocument()).toBe(before);
 });
 
+test("hydrates extension state for catalogs saved before extension support", () => {
+  const legacy = createCatalog({ title: "Legacy" });
+  delete (legacy as unknown as { extensions?: unknown }).extensions;
+
+  const editor = new Editor(legacy);
+  expect(editor.getDocument().extensions).toEqual({});
+  expect(() => editor.execute({ type: "catalog.updateMetadata", changes: { title: "Migrated" } })).not.toThrow();
+});
+
 test("rapid moves coalesce into one undo step", () => {
   const editor = new Editor(createCatalog({ title: "T" }), { coalesceMs: 10_000 });
   const slideId = editor.getState().activeSlideId;

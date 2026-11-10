@@ -1,6 +1,7 @@
 import {
   AVAILABILITY_LABELS, cardDisplay, discountPercent, documentDirection, formatMoney, resolveToken,
-  type CatalogDocument, type CatalogElement, type Product, type ProductCardStyle,
+  productCardStyleSchema, productGridStyleSchema, PRODUCTS_EXTENSION_ID,
+  type CatalogDocument, type CatalogElement, type ExtensionElement, type Product, type ProductCardStyle,
 } from "@Kavero/catalog-engine";
 import PptxGenJS from "pptxgenjs";
 
@@ -19,10 +20,21 @@ import PptxGenJS from "pptxgenjs";
  *   transitions / animations → not supported by PptxGenJS; reported as warnings
  */
 
+export type PptxExtensionElementRenderer = (context: {
+  slide: PptxGenJS.Slide;
+  doc: CatalogDocument;
+  element: ExtensionElement;
+  assets: Record<string, string>;
+}) => void;
+
+export type PptxExtensionRendererRegistry = Readonly<Record<string, PptxExtensionElementRenderer>>;
+
 export interface PptxOptions {
   /** assetId → data: URL for images. Missing images become placeholders. */
   assets: Record<string, string>;
   outputType?: "blob" | "nodebuffer" | "uint8array" | "arraybuffer";
+  /** Extension exporters receive each extension element and may add native PowerPoint objects. */
+  extensionRenderers?: PptxExtensionRendererRegistry;
 }
 
 export interface PptxResult<T> {
@@ -185,6 +197,55 @@ export async function exportPptx<T = Blob>(doc: CatalogDocument, opts: PptxOptio
           const pos = { x: p.x + (i % columns) * (cw + gap), y: p.y + Math.floor(i / columns) * (ch + gap), width: cw, height: ch, rotation: 0 };
           productCard(s, pos, product, el.style);
         });
+        return;
+      }
+      case "extension": {
+        const exporter = opts.extensionRenderers?.[el.extensionId];
+        if (exporter) {
+          exporter({ slide: s, doc, element: el, assets: opts.assets });
+          return;
+        }
+        if (el.extensionId === PRODUCTS_EXTENSION_ID && el.kind === "card") {
+          if (el.elementVersion !== 1) {
+            warnings.add(`Products element version ${el.elementVersion} has no PowerPoint converter.`);
+            placeholder(s, el, "Unsupported product element");
+            return;
+          }
+          const productId = el.content.productId;
+          const style = productCardStyleSchema.safeParse(el.style);
+          if (typeof productId === "string") productCard(s, el.position, doc.products.find((product) => product.id === productId), style.success ? style.data : productCardStyleSchema.parse({}));
+          else placeholder(s, el, "Invalid product card");
+          return;
+        }
+        if (el.extensionId === PRODUCTS_EXTENSION_ID && el.kind === "grid") {
+          if (el.elementVersion !== 1) {
+            warnings.add(`Products element version ${el.elementVersion} has no PowerPoint converter.`);
+            placeholder(s, el, "Unsupported product grid");
+            return;
+          }
+          const productIds = Array.isArray(el.content.products) ? el.content.products.flatMap((item) => {
+            if (typeof item !== "object" || item === null || !("productId" in item) || typeof item.productId !== "string") return [];
+            return [item.productId];
+          }) : [];
+          const columnsValue = el.content.columns;
+          const columns = typeof columnsValue === "number" && Number.isInteger(columnsValue) ? Math.min(8, Math.max(1, columnsValue)) : 3;
+          const style = productGridStyleSchema.safeParse(el.style);
+          const gridStyle = style.success ? style.data : productGridStyleSchema.parse({});
+          const gap = gridStyle.gap;
+          const p = el.position;
+          const cw = (p.width - gap * (columns - 1)) / columns;
+          const rows = Math.max(1, Math.ceil(productIds.length / columns));
+          const ch = Math.min(cw * 1.4, (p.height - gap * (rows - 1)) / rows);
+          if (p.rotation) warnings.add("Rotated product grids are exported unrotated.");
+          productIds.forEach((productId, i) => {
+            const product = doc.products.find((item) => item.id === productId);
+            const pos = { x: p.x + (i % columns) * (cw + gap), y: p.y + Math.floor(i / columns) * (ch + gap), width: cw, height: ch, rotation: 0 };
+            productCard(s, pos, product, gridStyle);
+          });
+          return;
+        }
+        warnings.add(`Extension element "${el.extensionId}" has no PowerPoint exporter and was replaced with a placeholder.`);
+        placeholder(s, el, `${el.extensionId} element`);
         return;
       }
       case "button": {

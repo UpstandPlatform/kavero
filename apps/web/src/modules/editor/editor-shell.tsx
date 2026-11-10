@@ -1,9 +1,10 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, ArrowLeft01Icon, CircleIcon, CodeIcon, Copy01Icon, Delete02Icon, DragDropVerticalIcon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PackageAddIcon, PlayIcon, Presentation01Icon, Redo02Icon, SquareIcon, Tag01Icon, TextIcon, Undo02Icon, Upload01Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
-import { createBlankSlide, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
+import { Add01Icon, ArrowLeft01Icon, CircleIcon, CodeIcon, Copy01Icon, Delete02Icon, DragDropVerticalIcon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PlayIcon, Presentation01Icon, PuzzleIcon, Redo02Icon, SquareIcon, TextIcon, Undo02Icon, Upload01Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
+import { createBlankSlide, parseCatalogDocument, productCardStyleSchema, productGridStyleSchema, PRODUCTS_EXTENSION_ID, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
+import type { ExtensionInstalledState, JsonValue } from "@Kavero/extensions";
 import { CatalogFonts, SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
@@ -24,7 +25,6 @@ import { useEditorKeyboard } from "./use-editor-keyboard";
 import { ProductImportDialog } from "./product-import-dialog";
 import { ProductFormDialog } from "./product-form";
 import { ProductPickerDialog, type PickOptions, type ProductUi } from "./product-picker";
-import { ProductsPanel } from "./products-panel";
 import { PublishDialog } from "./publish-dialog";
 import { PreviewPlayer } from "./preview-player";
 import { EditorLibraryPanel, type EditorLibraryTab } from "./editor-library-panel";
@@ -37,6 +37,12 @@ import { localCatalogs } from "@/modules/catalog/local-catalogs";
 
 import { FALLBACK_IMAGE_SIZE, useCatalogEditor, useEditorState, useRun, type SaveStatus } from "./use-catalog-editor";
 import { CLOUD_LABEL, useCloudAutoSync } from "./use-cloud-autosync";
+import { builtInExtensionRenderers, createEditorExtensionHost } from "./extensions/registry";
+import { ExtensionStoreDialog } from "./extensions/extension-store-dialog";
+import { describeCapability } from "./extensions/extension-store-dialog";
+import { scopeEditorExtensionContext, type EditorExportFormat, type EditorExtensionHostContext } from "./extensions/types";
+import { ExtensionUiBoundary } from "./extensions/extension-ui-boundary";
+import { confirmAction } from "@/components/confirm-dialog";
 
 export function CatalogEditorPage({ catalogId }: { catalogId: string }) {
   const { data: session, isPending } = authClient.useSession();
@@ -105,6 +111,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   uploadImage: (f: File) => Promise<{ assetId: string; width: number; height: number }>;
   uploadFont: AddFont;
 }) {
+  const editorExtensions = useMemo(createEditorExtensionHost, []);
   const state = useEditorState(editor);
   const run = useRun(editor);
   const doc = state.document;
@@ -121,6 +128,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   const [importing, setImporting] = useState(false);
   const [picking, setPicking] = useState<PickOptions | null>(null);
   const [productForm, setProductForm] = useState<{ productId?: string; onSaved?: (id: string) => void; key: number } | null>(null);
+  const [extensionStoreOpen, setExtensionStoreOpen] = useState(false);
 
   /** Add an element centred on the slide and select it. */
   const addElement = useCallback(
@@ -158,7 +166,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   const [chatAnnotations, setChatAnnotations] = useState<EditorChatAnnotationRef[]>([]);
   const [hoveredChatAnnotation, setHoveredChatAnnotation] = useState<EditorChatAnnotationRef | null>(null);
   const cancelAnnotationMode = useCallback(() => setAnnotationMode(false), []);
-  const [sidebar, setSidebar] = useState<"slides" | "layers" | "products">("slides");
+  const [sidebar, setSidebar] = useState("slides");
   const [libraryTab, setLibraryTab] = useState<EditorLibraryTab>("design");
   const workspace = useWorkspace();
 
@@ -184,11 +192,181 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
     edit: (productId, onSaved) => setProductForm({ productId, onSaved, key: Date.now() }),
     import: () => setImporting(true),
   }), []);
-  const insertProduct = (productId: string) => addElement({ type: "product", content: { productId }, size: [W * 0.22, H * 0.5] } as never);
+  const insertProduct = (productId: string) => addElement({
+    type: "extension", extensionId: PRODUCTS_EXTENSION_ID, kind: "card", content: { productId },
+    style: productCardStyleSchema.parse({}), size: [W * 0.22, H * 0.5],
+  } as never);
   const insertGrid = (productIds: string[]) => {
     const columns = Math.min(4, Math.max(1, productIds.length <= 4 ? productIds.length : Math.ceil(productIds.length / 2)));
-    addElement({ type: "product-grid", content: { products: productIds.map((productId) => ({ productId })), columns }, size: [W * 0.8, H * 0.6] } as never);
+    addElement({
+      type: "extension", extensionId: PRODUCTS_EXTENSION_ID, kind: "grid",
+      content: { products: productIds.map((productId) => ({ productId })), columns },
+      style: productGridStyleSchema.parse({}), size: [W * 0.8, H * 0.6],
+    } as never);
   };
+  const extensionHostContext: EditorExtensionHostContext = {
+    editor,
+    assetUrls,
+    products: productUi,
+    insertProduct,
+    insertGrid,
+    importProducts: () => setImporting(true),
+  };
+  const extensionContributions = editorExtensions.contribute(extensionHostContext, doc.extensions, (definition, context) =>
+    scopeEditorExtensionContext(
+      context,
+      definition.manifest,
+      definition.manifest.capabilities.filter((capability) =>
+        (doc.extensions[definition.manifest.id]?.grantedCapabilities ?? definition.manifest.capabilities).includes(capability),
+      ),
+    ),
+  );
+  const extensionPanels = extensionContributions.flatMap(({ definition, contribution }) =>
+    (contribution.panels ?? []).map((panel) => ({ ...panel, id: `${definition.manifest.id}/${panel.id}` })),
+  );
+  const extensionToolGroups = extensionContributions.flatMap(({ definition, contribution }) =>
+    (contribution.toolGroups ?? []).map((group) => group.map((tool) => ({
+      ...tool,
+      id: `${definition.manifest.id}/${tool.id}`,
+      onClick: () => {
+        try {
+          const result = (tool.onClick as () => unknown)();
+          if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+            void Promise.resolve(result).catch((error) => {
+              console.error(`[extension-tool:${definition.manifest.id}/${tool.id}]`, error);
+              toast.error(`Could not run ${tool.label}.`);
+            });
+          }
+        } catch (error) {
+          console.error(`[extension-tool:${definition.manifest.id}/${tool.id}]`, error);
+          toast.error(`Could not run ${tool.label}.`);
+        }
+      },
+    }))),
+  );
+  const extensionRenderers = Object.assign({}, builtInExtensionRenderers, ...extensionContributions.map(({ contribution }) => contribution.renderers ?? {}));
+  const extensionPptxRenderers = Object.assign({}, ...extensionContributions.map(({ contribution }) => contribution.pptxRenderers ?? {}));
+  const prepareDocumentForExport = useCallback(async (format: EditorExportFormat, source: CatalogDocument) => {
+    const prepared = await editorExtensions.runHook("catalog.export.prepare", { document: structuredClone(source), format });
+    if (prepared.document.id !== source.id) throw new Error("An extension cannot change the catalog identity during export preparation.");
+    const parsed = parseCatalogDocument(prepared.document);
+    if (!parsed.ok) throw new Error(`Export preparation returned an invalid catalog: ${parsed.issues.slice(0, 3).map((issue) => `${issue.path}: ${issue.message}`).join("; ")}`);
+    return parsed.document;
+  }, [editorExtensions]);
+  const enabledExtensionSignature = editorExtensions.list()
+    .filter((definition) => editorExtensions.isEnabled(definition.manifest.id, doc.extensions))
+    .map((definition) => `${definition.manifest.id}@${doc.extensions[definition.manifest.id]?.version ?? definition.manifest.version}:${[...(doc.extensions[definition.manifest.id]?.grantedCapabilities ?? definition.manifest.capabilities)].sort().join(",")}`)
+    .join("|");
+
+  useEffect(() => {
+    let disposed = false;
+    const cleanups: (() => void)[] = [];
+    const selection = { current: editor.getState().selection };
+    let wasDirty = editor.getState().dirty;
+    const unsubscribe = editor.subscribe((next, command) => {
+      if (command) {
+        editorExtensions.events.emit("editor.command", { catalogId: doc.id, commandType: command.type });
+        if (command.type === "extension.install") editorExtensions.events.emit("extension.installed", { catalogId: doc.id, extensionId: command.extensionId, version: command.version });
+        if (command.type === "extension.setEnabled") editorExtensions.events.emit(command.enabled ? "extension.enabled" : "extension.disabled", { catalogId: doc.id, extensionId: command.extensionId });
+        if (command.type === "asset.add") editorExtensions.events.emit("asset.added", { catalogId: doc.id, assetId: command.asset.id, kind: command.asset.kind });
+      }
+      if (wasDirty && !next.dirty) editorExtensions.events.emit("catalog.saved", { catalogId: doc.id, revision: next.document.revision });
+      wasDirty = next.dirty;
+      if (selection.current !== next.selection) {
+        selection.current = next.selection;
+        editorExtensions.events.emit("editor.selectionChanged", { catalogId: doc.id, elementIds: next.selection });
+      }
+    });
+    editorExtensions.events.emit("catalog.opened", { catalogId: doc.id });
+
+    void Promise.all(editorExtensions.list()
+      .filter((definition) => editorExtensions.isEnabled(definition.manifest.id, editor.getDocument().extensions))
+      .map(async (definition) => {
+        const extensionId = definition.manifest.id;
+        const version = editor.getDocument().extensions[extensionId]?.version ?? definition.manifest.version;
+        const createStorageArea = (area: "data" | "settings") => ({
+          get: <T extends JsonValue = JsonValue>(key: string) => editor.getDocument().extensions[extensionId]?.[area][key] as T | undefined,
+          set: (key: string, value: JsonValue) => {
+            if (!editor.getDocument().extensions[extensionId]) editor.execute({ type: "extension.install", extensionId, version, grantedCapabilities: [...definition.manifest.capabilities] });
+            editor.execute({ type: area === "data" ? "extension.setData" : "extension.setSetting", extensionId, key, value });
+          },
+          delete: (key: string) => {
+            if (editor.getDocument().extensions[extensionId]?.[area][key] !== undefined) {
+              editor.execute({ type: area === "data" ? "extension.deleteData" : "extension.deleteSetting", extensionId, key });
+            }
+          },
+        });
+        const storage = { data: createStorageArea("data"), settings: createStorageArea("settings") };
+        const grantedCapabilities = new Set(editor.getDocument().extensions[extensionId]?.grantedCapabilities ?? definition.manifest.capabilities);
+        const approvedCapabilities = definition.manifest.capabilities.filter((capability) => grantedCapabilities.has(capability));
+        try {
+          const extensionContext = scopeEditorExtensionContext({
+            editor,
+            assetUrls,
+            products: productUi,
+            insertProduct,
+            insertGrid,
+            importProducts: () => setImporting(true),
+          }, definition.manifest, approvedCapabilities);
+          const dispose = await editorExtensions.activate(extensionId, {
+            ...extensionContext,
+          }, { storage }, editor.getDocument().extensions[extensionId]);
+          if (disposed) await dispose();
+          else cleanups.push(() => { void dispose(); });
+        } catch (error) {
+          console.error(`[extension:${extensionId}] activation failed`, error);
+          toast.error(`The ${definition.manifest.name} extension could not start.`);
+        }
+      }));
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+      cleanups.forEach((dispose) => dispose());
+      void editorExtensions.deactivateAll();
+      editorExtensions.events.emit("catalog.closed", { catalogId: doc.id });
+    };
+  // Activation changes only when the catalog or its enabled extension set changes.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editor, doc.id, enabledExtensionSignature]);
+
+  const extensionStoreEntries = editorExtensions.list().map((definition) => ({
+    manifest: definition.manifest,
+    installed: !!doc.extensions[definition.manifest.id] || definition.manifest.defaultEnabled === true,
+    enabled: editorExtensions.isEnabled(definition.manifest.id, doc.extensions),
+    updateAvailable: !!doc.extensions[definition.manifest.id] && doc.extensions[definition.manifest.id]!.version !== definition.manifest.version,
+    canUpdate: !!doc.extensions[definition.manifest.id] && editorExtensions.canMigrate(definition.manifest.id, doc.extensions[definition.manifest.id]!.version),
+  }));
+  async function actOnExtension(extensionId: string, action: "install" | "enable" | "disable" | "update" | "uninstall") {
+    const definition = editorExtensions.get(extensionId);
+    if (!definition) return;
+    try {
+      const currentState = doc.extensions[extensionId];
+      const previousGrants = currentState?.grantedCapabilities ?? [];
+      const requested = definition.manifest.capabilities.filter((capability) => !previousGrants.includes(capability));
+      if ((action === "install" || action === "enable") && requested.length) {
+        const approved = await confirmAction({
+          title: `${action === "install" ? "Install" : "Enable"} ${definition.manifest.name}?`,
+          description: `This extension requests the following access for this catalog:\n\n${requested.map((capability) => `• ${describeCapability(capability)}`).join("\n")}\n\nThese capabilities are required for the extension to run. Review the request before continuing.`,
+          confirmLabel: action === "install" ? "Review and install" : "Review and enable",
+        });
+        if (!approved) return;
+      }
+      const grantedCapabilities = [...new Set([...previousGrants, ...definition.manifest.capabilities])];
+      if (action === "install") editor.execute({ type: "extension.install", extensionId, version: definition.manifest.version, grantedCapabilities });
+      else if (action === "enable") editor.execute({ type: "extension.setEnabled", extensionId, version: definition.manifest.version, enabled: true, grantedCapabilities });
+      else if (action === "disable") editor.execute({ type: "extension.setEnabled", extensionId, version: definition.manifest.version, enabled: false, grantedCapabilities: doc.extensions[extensionId]?.grantedCapabilities ?? grantedCapabilities });
+      else if (action === "update") {
+        if (!currentState) throw new Error("Extension is not installed.");
+        const migrated = editorExtensions.migrateState(extensionId, currentState as unknown as ExtensionInstalledState);
+        editor.execute({ type: "extension.update", extensionId, version: migrated.version, settings: migrated.settings, data: migrated.data });
+      } else editor.execute({ type: "extension.uninstall", extensionId });
+      if (action === "disable" || action === "uninstall") setSidebar("slides");
+      toast.success(action === "install" ? `${definition.manifest.name} installed.` : action === "uninstall" ? `${definition.manifest.name} uninstalled.` : action === "update" ? `${definition.manifest.name} updated.` : `${definition.manifest.name} ${action === "enable" ? "enabled" : "disabled"}.`);
+    } catch (error) {
+      toast.error((error as Error).message || `Could not ${action} ${definition.manifest.name}.`);
+    }
+  }
   const [renamingSlide, setRenamingSlide] = useState<string | null>(null);
   const openMenu = useContextMenu();
 
@@ -372,7 +550,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
         <TooltipHint content={`Undo (${kbd("Ctrl+Z")})`}><Button variant="ghost" size="icon-sm" aria-label="Undo" disabled={!state.canUndo} onClick={() => editor.undo()}><HugeiconsIcon icon={Undo02Icon} /></Button></TooltipHint>
         <TooltipHint content={`Redo (${kbd("Ctrl+Shift+Z")})`}><Button variant="ghost" size="icon-sm" aria-label="Redo" disabled={!state.canRedo} onClick={() => editor.redo()}><HugeiconsIcon icon={Redo02Icon} /></Button></TooltipHint>
         <TooltipHint content="Chat with your AI model about this catalog"><Button variant={workspace.isOpen("chat") ? "secondary" : "ghost"} size="icon-sm" aria-label="Chat" aria-pressed={workspace.isOpen("chat")} onClick={() => workspace.toggle("chat")}><HugeiconsIcon icon={MessageMultiple01Icon} /></Button></TooltipHint>
-        <ExportMenu doc={doc} onVideo={() => setPreviewing("export")} />
+        <ExportMenu doc={doc} onVideo={() => setPreviewing("export")} prepareDocument={prepareDocumentForExport} extensionRenderers={extensionPptxRenderers} />
         <TooltipHint content="Publish as a website"><Button variant="outline" size="icon-sm" aria-label="Publish" onClick={() => setPublishing(true)}><HugeiconsIcon icon={GlobeIcon} /></Button></TooltipHint>
         <TooltipHint content="Preview from this slide"><Button size="icon-sm" className="ml-1" aria-label="Preview" onClick={() => setPreviewing("play")}><HugeiconsIcon icon={PlayIcon} /></Button></TooltipHint>
       </header>
@@ -403,18 +581,17 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
               ],
               [
                 { id: "image", icon: <HugeiconsIcon icon={ImageAdd01Icon} />, label: "Image", description: "Upload a photo, logo or illustration from your computer. You can also paste images onto the slide.", onClick: () => fileInput.current?.click() },
-                { id: "product", icon: <HugeiconsIcon icon={Tag01Icon} />, label: "Product card", description: "Pick a product from this catalog and add its card: photo, name, price and details.", onClick: () => productUi.pick({ multiple: false, title: "Add a product card", confirmLabel: "Add to slide", onConfirm: ([id]) => id && insertProduct(id) }) },
-                { id: "grid", icon: <HugeiconsIcon icon={LayoutGridIcon} />, label: "Product grid", description: "Pick several products and lay them out as a grid of cards.", onClick: () => productUi.pick({ multiple: true, title: "Add a product grid", confirmLabel: "Add grid to slide", onConfirm: insertGrid }) },
                 { id: "html", icon: <HugeiconsIcon icon={CodeIcon} />, label: "HTML block", description: "Add your own HTML and CSS, rendered safely in a sandbox (no scripts).", onClick: () => addElement({ type: "html", content: { html: SAMPLE_HTML, css: SAMPLE_CSS }, size: [W * 0.4, H * 0.3] } as never) },
               ],
+              ...extensionToolGroups,
               [
-                { id: "import", icon: <HugeiconsIcon icon={PackageAddIcon} />, label: "Import products", description: "Bring products in from a connected store or MCP source, or paste a list.", onClick: () => setImporting(true) },
                 { id: "chat", icon: <HugeiconsIcon icon={MessageMultiple01Icon} />, label: "Chat", description: "Talk to your connected AI model about this catalog. It proposes edits you preview and apply.", active: workspace.isOpen("chat"), onClick: () => workspace.toggle("chat") },
               ],
             ]}
             bottom={
               <>
                 <RailButton tool={{ id: "shortcuts", icon: <HugeiconsIcon icon={KeyboardIcon} />, label: "Keyboard shortcuts", description: "See every shortcut for editing, arranging, aligning and navigating.", shortcut: "?", onClick: () => setShortcutsOpen(true) }} />
+                <RailButton tool={{ id: "extensions", icon: <HugeiconsIcon icon={PuzzleIcon} />, label: "Extensions", description: "Install and manage the approved extensions available to this catalog.", active: extensionStoreOpen, onClick: () => setExtensionStoreOpen(true) }} />
                 <WorkspaceMenu api={workspace} />
               </>
             }
@@ -436,6 +613,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
               onAnnotateElement={(slideId, elementId) => addElementsToChat(slideId, [elementId])}
               onAddElementsToChat={(slideId, elementIds) => addElementsToChat(slideId, elementIds, true)}
               onCancelAnnotation={cancelAnnotationMode}
+              extensionRenderers={extensionRenderers}
             />
             {/* Zoom */}
             <div className="absolute right-3 bottom-3 z-10 flex items-center gap-0.5 rounded-lg border bg-background/90 p-0.5 text-xs shadow-sm backdrop-blur">
@@ -494,11 +672,15 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
           return {
             header: (
               <>
-                <div className="flex min-w-0 items-center gap-0.5" role="tablist" aria-label="Pages panel">
-                  {(["slides", "layers", "products"] as const).map((t) => (
-                    <button key={t} type="button" role="tab" aria-selected={sidebar === t} onClick={() => setSidebar(t)}
-                      className="rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground capitalize aria-selected:bg-muted aria-selected:text-foreground">
-                      {t}
+                <div className="flex min-w-0 items-center gap-0.5 overflow-x-auto" role="tablist" aria-label="Pages and extensions">
+                  {[
+                    { id: "slides", label: "Slides" },
+                    { id: "layers", label: "Layers" },
+                    ...extensionPanels.map(({ id, label }) => ({ id, label })),
+                  ].map((tab) => (
+                    <button key={tab.id} type="button" role="tab" aria-selected={sidebar === tab.id} onClick={() => setSidebar(tab.id)}
+                      className="shrink-0 rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground aria-selected:bg-muted aria-selected:text-foreground">
+                      {tab.label}
                     </button>
                   ))}
                 </div>
@@ -506,13 +688,11 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
               </>
             ),
             body:
-              sidebar === "products" ? (
-                <ProductsPanel editor={editor} doc={doc} assetUrls={assetUrls} ui={productUi} onInsert={insertProduct} />
-              ) : sidebar === "layers" ? (
+              sidebar === "layers" ? (
                 <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pt-2">
                   <LayersPanel editor={editor} slide={slide} selection={state.selection} actions={actions} />
                 </div>
-              ) : (
+              ) : sidebar === "slides" ? (
                 <>
                   <span className="sr-only" aria-live="polite">{slideReorderAnnouncement}</span>
                   <ol ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
@@ -604,12 +784,21 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                         aria-label={`Slide ${i + 1}: ${s.name}`}
                         className="block w-full overflow-hidden rounded-md ring-1 ring-border aria-current:ring-2 aria-current:ring-sky-500"
                       >
-                        <SlideView doc={doc} slide={s} scale={thumbScale} mode="edit" highlightedElementId={hoveredChatAnnotation?.slideId === s.id ? hoveredChatAnnotation.elementId : undefined} resolveAsset={(id) => assetUrls[id]} />
+                        <SlideView doc={doc} slide={s} scale={thumbScale} mode="edit" highlightedElementId={hoveredChatAnnotation?.slideId === s.id ? hoveredChatAnnotation.elementId : undefined} resolveAsset={(id) => assetUrls[id]} extensionRenderers={extensionRenderers} />
                       </button>
                     </li>
                   ))}
                   </ol>
                 </>
+              ) : (
+                <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                  {(() => {
+                    const panel = extensionPanels.find((item) => item.id === sidebar);
+                    return panel
+                      ? <ExtensionUiBoundary key={panel.id} extensionId={panel.id}>{panel.content}</ExtensionUiBoundary>
+                      : <p className="p-4 text-xs text-muted-foreground">This extension panel is unavailable.</p>;
+                  })()}
+                </div>
               ),
           };
         }}
@@ -625,7 +814,8 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
         />
       )}
       {publishing && <PublishDialog doc={doc} onClose={() => setPublishing(false)} />}
-      {previewing && <PreviewPlayer doc={doc} startSlide={previewing === "export" ? 0 : slideIndex} openExport={previewing === "export"} assetUrls={assetUrls} onClose={() => setPreviewing(false)} />}
+      {previewing && <PreviewPlayer doc={doc} startSlide={previewing === "export" ? 0 : slideIndex} openExport={previewing === "export"} assetUrls={assetUrls} extensionRenderers={extensionRenderers} prepareDocument={(format, document) => prepareDocumentForExport(format, document)} onClose={() => setPreviewing(false)} />}
+      {extensionStoreOpen && <ExtensionStoreDialog extensions={extensionStoreEntries} onAction={actOnExtension} onClose={() => setExtensionStoreOpen(false)} />}
     </div>
   );
 }

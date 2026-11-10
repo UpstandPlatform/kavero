@@ -1,11 +1,14 @@
 import type { CatalogDocument, Product } from "./schema";
 
+/** Stable reverse-domain id used by the first-party Products editor extension. */
+export const PRODUCTS_EXTENSION_ID = "com.kavero.products";
+
 export interface ProductUsage {
   slideId: string;
   slideIndex: number;
   slideName: string;
   elementId: string;
-  elementType: "product" | "product-grid";
+  elementType: "product" | "product-grid" | "extension";
 }
 
 /** Every product card and grid that shows a product, in slide order. */
@@ -13,10 +16,13 @@ export function productUsage(doc: CatalogDocument, productId: string): ProductUs
   const out: ProductUsage[] = [];
   doc.slides.forEach((slide, slideIndex) => {
     for (const el of slide.elements) {
+      const extensionContent = el.type === "extension" && el.extensionId === PRODUCTS_EXTENSION_ID ? el.content : null;
+      const extensionProducts = extensionContent?.products;
       const uses = el.type === "product" ? el.content.productId === productId
         : el.type === "product-grid" ? el.content.products.some((p) => p.productId === productId)
-        : false;
-      if (uses) out.push({ slideId: slide.id, slideIndex, slideName: slide.name, elementId: el.id, elementType: el.type as ProductUsage["elementType"] });
+        : extensionContent?.productId === productId
+          || (Array.isArray(extensionProducts) && extensionProducts.some((product) => typeof product === "object" && product !== null && "productId" in product && product.productId === productId));
+      if (uses) out.push({ slideId: slide.id, slideIndex, slideName: slide.name, elementId: el.id, elementType: el.type === "extension" ? "extension" : el.type === "product-grid" ? "product-grid" : "product" });
     }
   });
   return out;

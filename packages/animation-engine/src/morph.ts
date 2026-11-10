@@ -22,6 +22,7 @@ function signature(el: CatalogElement): string | null {
     case "image": return `image:${el.content.assetId}`;
     case "product": return `product:${el.content.productId}`;
     case "product-grid": return el.content.products.length ? `grid:${el.content.products.map((p) => p.productId).join(",")}` : null;
+    case "extension": return `extension:${el.extensionId}:${el.kind}:${JSON.stringify(el.content)}`;
     case "button": return `button:${el.content.label}`;
     case "shape": return `shape:${el.content.shape}`;
     case "video": return `video:${el.content.assetId ?? el.content.url ?? ""}`;

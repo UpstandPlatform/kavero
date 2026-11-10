@@ -1,4 +1,5 @@
 import { CURRENT_SCHEMA_VERSION, catalogDocumentSchema, type CatalogDocument } from "./schema";
+import { PRODUCTS_EXTENSION_ID } from "./products";
 
 export type Migration = (doc: Record<string, unknown>) => Record<string, unknown>;
 
@@ -94,6 +95,17 @@ export function checkIntegrity(doc: CatalogDocument): ValidationIssue[] {
         case "video": missingAsset(el.content.assetId, `${ep}.content.assetId`); break;
         case "product": missingProduct(el.content.productId, `${ep}.content.productId`); break;
         case "product-grid": el.content.products.forEach((p, pi) => missingProduct(p.productId, `${ep}.content.products.${pi}`)); break;
+        case "extension": {
+          if (el.extensionId !== PRODUCTS_EXTENSION_ID) break;
+          if (typeof el.content.productId === "string") missingProduct(el.content.productId, `${ep}.content.productId`);
+          const products = el.content.products;
+          if (Array.isArray(products)) products.forEach((product, pi) => {
+            if (typeof product === "object" && product !== null && "productId" in product && typeof product.productId === "string") {
+              missingProduct(product.productId, `${ep}.content.products.${pi}`);
+            }
+          });
+          break;
+        }
       }
     });
   });

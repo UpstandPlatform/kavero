@@ -1,5 +1,8 @@
 import {
   catalogAssetSchema,
+  catalogExtensionSchema,
+  extensionDataKeySchema,
+  extensionIdSchema,
   catalogElementSchema,
   catalogSlideSchema,
   productSchema,
@@ -7,9 +10,11 @@ import {
   createId,
   elementAnimationSchema,
   slideTransitionSchema,
+  PRODUCTS_EXTENSION_ID,
   type CatalogAsset,
   type CatalogDocument,
   type CatalogElement,
+  type CatalogExtensionState,
   type CatalogSlide,
   type ElementAnimation,
   type ElementPosition,
@@ -47,6 +52,14 @@ export type EditorCommand =
   /** Fails while the product is on a slide, unless `removeFromSlides` also deletes its cards and drops it from grids. */
   | { type: "product.delete"; productId: string; removeFromSlides?: boolean }
   | { type: "product.duplicate"; productId: string }
+  | { type: "extension.install"; extensionId: string; version: string; grantedCapabilities?: string[] }
+  | { type: "extension.setEnabled"; extensionId: string; version: string; enabled: boolean; grantedCapabilities?: string[] }
+  | { type: "extension.setSetting"; extensionId: string; key: string; value: unknown }
+  | { type: "extension.setData"; extensionId: string; key: string; value: unknown }
+  | { type: "extension.deleteData"; extensionId: string; key: string }
+  | { type: "extension.deleteSetting"; extensionId: string; key: string }
+  | { type: "extension.update"; extensionId: string; version: string; settings: Record<string, unknown>; data: Record<string, unknown> }
+  | { type: "extension.uninstall"; extensionId: string }
   | { type: "batch"; commands: EditorCommand[]; label?: string };
 
 export interface CommandResult {
@@ -260,8 +273,14 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
       break;
     }
     case "product.delete": {
-      const shows = (e: CatalogElement) => e.type === "product" && e.content.productId === cmd.productId;
-      const lists = (e: CatalogElement) => e.type === "product-grid" && e.content.products.some((p) => p.productId === cmd.productId);
+      const extensionProductIds = (e: CatalogElement): string[] => {
+        if (e.type !== "extension" || e.extensionId !== PRODUCTS_EXTENSION_ID || !Array.isArray(e.content.products)) return [];
+        return e.content.products.flatMap((product): string[] => typeof product === "object" && product !== null && "productId" in product && typeof product.productId === "string" ? [product.productId] : []);
+      };
+      const shows = (e: CatalogElement) => (e.type === "product" && e.content.productId === cmd.productId)
+        || (e.type === "extension" && e.extensionId === PRODUCTS_EXTENSION_ID && e.kind === "card" && e.content.productId === cmd.productId);
+      const lists = (e: CatalogElement) => (e.type === "product-grid" && e.content.products.some((p) => p.productId === cmd.productId))
+        || (e.type === "extension" && e.extensionId === PRODUCTS_EXTENSION_ID && e.kind === "grid" && extensionProductIds(e).includes(cmd.productId));
       const used = doc.slides.some((s) => s.elements.some((e) => shows(e) || lists(e)));
       if (used && !cmd.removeFromSlides) throw new CommandError("Product is still placed on a slide");
       if (used) {
@@ -269,6 +288,10 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
           slide.elements = slide.elements.filter((e) => !shows(e));
           for (const e of slide.elements) {
             if (e.type === "product-grid") e.content.products = e.content.products.filter((p) => p.productId !== cmd.productId);
+            if (e.type === "extension" && e.extensionId === PRODUCTS_EXTENSION_ID && e.kind === "grid") {
+              const products = e.content.products;
+              if (Array.isArray(products)) e.content.products = products.filter((product) => !(typeof product === "object" && product !== null && "productId" in product && product.productId === cmd.productId)) as typeof products;
+            }
           }
           normalizeZ(slide);
         }
@@ -284,9 +307,92 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
       created.push(copy.id);
       break;
     }
+    case "extension.install": {
+      assertExtensionId(cmd.extensionId);
+      const existing = doc.extensions[cmd.extensionId];
+      const state: CatalogExtensionState = catalogExtensionSchema.parse({
+        ...existing,
+        version: cmd.version,
+        enabled: true,
+        grantedCapabilities: cmd.grantedCapabilities ?? existing?.grantedCapabilities ?? [],
+      });
+      doc.extensions[cmd.extensionId] = state;
+      break;
+    }
+    case "extension.setEnabled": {
+      assertExtensionId(cmd.extensionId);
+      const existing = doc.extensions[cmd.extensionId];
+      doc.extensions[cmd.extensionId] = catalogExtensionSchema.parse({
+        ...existing,
+        version: cmd.version,
+        enabled: cmd.enabled,
+        grantedCapabilities: cmd.grantedCapabilities ?? existing?.grantedCapabilities ?? [],
+      });
+      break;
+    }
+    case "extension.setSetting":
+    case "extension.setData": {
+      assertExtensionId(cmd.extensionId);
+      assertExtensionKey(cmd.key);
+      const state = doc.extensions[cmd.extensionId];
+      if (!state) throw new CommandError(`Extension "${cmd.extensionId}" is not installed`);
+      const area = cmd.type === "extension.setSetting" ? "settings" : "data";
+      state[area][cmd.key] = cmd.value as CatalogExtensionState["data"][string];
+      // Parse immediately so a bad payload never enters editor history.
+      doc.extensions[cmd.extensionId] = catalogExtensionSchema.parse(state);
+      break;
+    }
+    case "extension.deleteData": {
+      assertExtensionId(cmd.extensionId);
+      assertExtensionKey(cmd.key);
+      const state = doc.extensions[cmd.extensionId];
+      if (!state) throw new CommandError(`Extension "${cmd.extensionId}" is not installed`);
+      delete state.data[cmd.key];
+      doc.extensions[cmd.extensionId] = catalogExtensionSchema.parse(state);
+      break;
+    }
+    case "extension.deleteSetting": {
+      assertExtensionId(cmd.extensionId);
+      assertExtensionKey(cmd.key);
+      const state = doc.extensions[cmd.extensionId];
+      if (!state) throw new CommandError(`Extension "${cmd.extensionId}" is not installed`);
+      delete state.settings[cmd.key];
+      doc.extensions[cmd.extensionId] = catalogExtensionSchema.parse(state);
+      break;
+    }
+    case "extension.update": {
+      assertExtensionId(cmd.extensionId);
+      const state = doc.extensions[cmd.extensionId];
+      if (!state) throw new CommandError(`Extension "${cmd.extensionId}" is not installed`);
+      doc.extensions[cmd.extensionId] = catalogExtensionSchema.parse({
+        ...state,
+        version: cmd.version,
+        settings: cmd.settings,
+        data: cmd.data,
+      });
+      break;
+    }
+    case "extension.uninstall": {
+      assertExtensionId(cmd.extensionId);
+      if (doc.slides.some((slide) => slide.elements.some((element) => element.type === "extension" && element.extensionId === cmd.extensionId))) {
+        throw new CommandError(`Extension "${cmd.extensionId}" still owns slide elements`);
+      }
+      delete doc.extensions[cmd.extensionId];
+      break;
+    }
     case "batch":
       for (const c of cmd.commands) created.push(...applyCommand(doc, c).createdIds);
       break;
   }
   return { createdIds: created };
+}
+
+function assertExtensionId(value: string): asserts value is string {
+  const result = extensionIdSchema.safeParse(value);
+  if (!result.success) throw new CommandError(`Invalid extension id: ${value}`);
+}
+
+function assertExtensionKey(value: string): asserts value is string {
+  const result = extensionDataKeySchema.safeParse(value);
+  if (!result.success) throw new CommandError(`Invalid extension storage key: ${value}`);
 }

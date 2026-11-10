@@ -7,6 +7,8 @@ import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { CatalogFonts, Presentation } from "@Kavero/renderer";
 import { createRoot } from "react-dom/client";
 
+import { builtInExtensionRenderers } from "../modules/editor/extensions/built-in-renderers";
+
 interface ExportData {
   doc: CatalogDocument;
   assets: Record<string, string>;
@@ -20,7 +22,7 @@ if (source?.textContent && root) {
   createRoot(root).render(
     <>
       <CatalogFonts doc={doc} resolveAsset={resolveAsset} />
-      <Presentation doc={doc} resolveAsset={resolveAsset} />
+      <Presentation doc={doc} resolveAsset={resolveAsset} extensionRenderers={builtInExtensionRenderers} />
     </>,
   );
 }

@@ -19,6 +19,7 @@
     "@Kavero/catalog-engine": "workspace:*",
     "@Kavero/db": "workspace:*",
     "@Kavero/editor-core": "workspace:*",
+    "@Kavero/extensions": "workspace:*",
     "@Kavero/export-chromium": "workspace:*",
     "@Kavero/export-pptx": "workspace:*",
     "@Kavero/local-storage": "workspace:*",

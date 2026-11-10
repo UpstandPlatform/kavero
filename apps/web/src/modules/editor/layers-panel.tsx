@@ -1,7 +1,7 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CodeIcon, Delete02Icon, Film01Icon, Image01Icon, LayoutGridIcon, Link02Icon, LockIcon, SquareIcon, SquareUnlock01Icon, StarIcon, Tag01Icon, TextIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
+import { CodeIcon, Delete02Icon, Film01Icon, Image01Icon, LayoutGridIcon, Link02Icon, LockIcon, PuzzleIcon, SquareIcon, SquareUnlock01Icon, StarIcon, Tag01Icon, TextIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
 import type { CatalogElement, CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor } from "@Kavero/editor-core";
 import { Input } from "@Kavero/ui/components/input";
@@ -14,7 +14,7 @@ import { elementMenu, labelOf } from "./editor-menus";
 
 const ICONS: Record<CatalogElement["type"], ReactNode> = {
   text: <HugeiconsIcon icon={TextIcon} />, shape: <HugeiconsIcon icon={SquareIcon} />, image: <HugeiconsIcon icon={Image01Icon} />, product: <HugeiconsIcon icon={Tag01Icon} />, "product-grid": <HugeiconsIcon icon={LayoutGridIcon} />,
-  html: <HugeiconsIcon icon={CodeIcon} />, button: <HugeiconsIcon icon={Link02Icon} />, video: <HugeiconsIcon icon={Film01Icon} />, icon: <HugeiconsIcon icon={StarIcon} />,
+  html: <HugeiconsIcon icon={CodeIcon} />, button: <HugeiconsIcon icon={Link02Icon} />, video: <HugeiconsIcon icon={Film01Icon} />, icon: <HugeiconsIcon icon={StarIcon} />, extension: <HugeiconsIcon icon={PuzzleIcon} />,
 };
 
 /** A short readable name for a layer row. */

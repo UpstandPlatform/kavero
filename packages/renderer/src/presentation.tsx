@@ -2,7 +2,7 @@ import { ease, matchMorph, scheduleSlide, transitionStyles } from "@Kavero/anima
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
-import { MorphView, SlideView, type AssetResolver } from "./slide-view";
+import { MorphView, SlideView, type AssetResolver, type ExtensionRendererRegistry } from "./slide-view";
 
 export interface PresentationProps {
   doc: CatalogDocument;
@@ -12,6 +12,7 @@ export interface PresentationProps {
   /** Keep the URL hash in sync so slides can be linked. */
   syncHash?: boolean;
   onSlideChange?: (index: number) => void;
+  extensionRenderers?: ExtensionRendererRegistry;
 }
 
 interface Transitioning {
@@ -26,7 +27,7 @@ const SETTLED = 1e9; // a time after every animation has finished
  * Lightweight, editor-free player for published catalogs: responsive scaling,
  * element animations, slide transitions, keyboard/click/touch navigation.
  */
-export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true, onSlideChange }: PresentationProps) {
+export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true, onSlideChange, extensionRenderers }: PresentationProps) {
   const count = doc.slides.length;
   const readHash = () => {
     const n = Number(typeof window !== "undefined" ? window.location.hash.slice(1) : NaN);
@@ -163,16 +164,16 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
           <div style={{ position: "relative", width: W * scale, height: H * scale, overflow: "hidden", boxShadow: "0 10px 40px rgba(0,0,0,.4)" }}>
             {transition && tr?.type === "morph" && doc.slides[transition.from] ? (
               <div style={layer()} aria-roledescription="slide" aria-label={`${index + 1} of ${count}: ${slide.name}`}>
-                <MorphView doc={doc} from={doc.slides[transition.from]!} to={slide} progress={progress} scale={scale} timeMs={local} resolveAsset={resolveAsset} />
+              <MorphView doc={doc} from={doc.slides[transition.from]!} to={slide} progress={progress} scale={scale} timeMs={local} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} />
               </div>
             ) : (<>
             {transition && styles && doc.slides[transition.from] && (
               <div style={layer(styles.outgoing)} aria-hidden>
-                <SlideView doc={doc} slide={doc.slides[transition.from]!} scale={scale} timeMs={SETTLED} resolveAsset={resolveAsset} />
+                <SlideView doc={doc} slide={doc.slides[transition.from]!} scale={scale} timeMs={SETTLED} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} />
               </div>
             )}
             <div style={layer(styles?.incoming)} aria-roledescription="slide" aria-label={`${index + 1} of ${count}: ${slide.name}`}>
-              <SlideView doc={doc} slide={slide} scale={scale} timeMs={local} settledIds={settledIds} resolveAsset={resolveAsset} />
+              <SlideView doc={doc} slide={slide} scale={scale} timeMs={local} settledIds={settledIds} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} />
             </div>
             </>)}
           </div>

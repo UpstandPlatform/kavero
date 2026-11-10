@@ -46,6 +46,9 @@ export class Editor {
 
   constructor(document: CatalogDocument, options: EditorOptions = {}) {
     this.doc = structuredClone(document);
+    // Catalogs saved before extensions were added do not have this field yet.
+    // Keep the editor's document invariant stable for integrity checks and commands.
+    this.doc.extensions ??= {};
     this.activeSlideId = this.doc.slides[0]?.id ?? "";
     this.savedRevision = this.doc.revision;
     this.historyLimit = options.historyLimit ?? 200;

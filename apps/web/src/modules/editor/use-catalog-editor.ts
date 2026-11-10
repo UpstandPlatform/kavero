@@ -1,6 +1,6 @@
 "use client";
 
-import { createId, type CatalogDocument } from "@Kavero/catalog-engine";
+import { createId, parseCatalogDocument, type CatalogDocument } from "@Kavero/catalog-engine";
 import { Editor, type EditorCommand, type EditorState } from "@Kavero/editor-core";
 import { StaleWriteError, versionOf, type DocVersion } from "@Kavero/local-storage";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
@@ -72,6 +72,10 @@ export function useCatalogEditor(catalogId: string) {
       const entry = await repo.getWithSummary(catalogId);
       if (cancelled) return;
       if (!entry) return setLoadError("not-found");
+      const parsed = parseCatalogDocument(entry.document);
+      if (!parsed.ok) {
+        return setLoadError(`This catalog could not be loaded: ${parsed.issues.slice(0, 3).map((issue) => issue.message).join("; ")}`);
+      }
       const assets = await repo.listAssets(catalogId);
       if (cancelled) return;
       const urls: Record<string, string> = {};
@@ -80,7 +84,7 @@ export function useCatalogEditor(catalogId: string) {
       const old = urlsRef.current;
       urlsRef.current = Object.values(urls);
       setTimeout(() => old.forEach((u) => URL.revokeObjectURL(u)), 1000);
-      const next = new Editor(entry.document);
+      const next = new Editor(parsed.document);
       const prev = editorRef.current;
       if (prev) next.setActiveSlide(prev.getState().activeSlideId);
       versions.current.set(next, versionOf(entry.summary));
@@ -274,7 +278,7 @@ export function useEditorState(editor: Editor): EditorState {
 }
 
 /** Run a command and show a toast instead of throwing. */
-export function useRun(editor: Editor) {
+export function useRun(editor: Pick<Editor, "execute">) {
   return useMemo(
     () => (command: EditorCommand) => {
       try {

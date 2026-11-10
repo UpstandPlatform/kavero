@@ -8,12 +8,13 @@ import {
   type ProductCardStyle,
   type CatalogDocument,
   type CatalogElement,
+  type ExtensionElement,
   type CatalogSlide,
   type ElementPosition,
   type Product,
 } from "@Kavero/catalog-engine";
 import { elementStateAt, matchMorph, morphElement, scheduleSlide, stateToCss, type ScheduledAnimation } from "@Kavero/animation-engine";
-import { createContext, memo, useContext, useMemo, type CSSProperties, type ReactNode } from "react";
+import { Component, createContext, memo, useContext, useMemo, type CSSProperties, type ErrorInfo, type ReactNode } from "react";
 
 import { fontFaceCss, googleFontsUrls } from "./fonts";
 
@@ -25,6 +26,34 @@ interface RenderContext {
   resolveAsset: AssetResolver;
   /** "edit" shows placeholders for empty content; "present" hides them. */
   mode: "edit" | "present";
+  extensionRenderers?: ExtensionRendererRegistry;
+}
+
+export interface ExtensionRendererContext {
+  doc: CatalogDocument;
+  resolveAsset: AssetResolver;
+  mode: "edit" | "present";
+}
+
+export type ExtensionElementRenderer = (props: { element: ExtensionElement; context: ExtensionRendererContext }) => ReactNode;
+export type ExtensionRendererRegistry = Readonly<Record<string, ExtensionElementRenderer>>;
+
+class ExtensionRenderBoundary extends Component<{ extensionId: string; kind: string; mode: "edit" | "present"; children: ReactNode }, { failed: boolean }> {
+  state = { failed: false };
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error, _info: ErrorInfo) {
+    console.error(`[extension-renderer:${this.props.extensionId}/${this.props.kind}]`, error);
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    if (this.props.mode === "present") return null;
+    return <div className="grid size-full place-items-center border border-dashed bg-muted/40 p-2 text-center text-xs text-muted-foreground">{this.props.extensionId} · {this.props.kind} could not be rendered</div>;
+  }
 }
 
 const Ctx = createContext<RenderContext | null>(null);
@@ -51,6 +80,8 @@ export interface SlideViewProps {
   settledIds?: Set<string>;
   /** Temporarily emphasize an element while it is referenced elsewhere in the editor UI. */
   highlightedElementId?: string;
+  /** Namespaced renderers contributed by installed extensions. */
+  extensionRenderers?: ExtensionRendererRegistry;
   className?: string;
   children?: ReactNode;
 }
@@ -70,6 +101,7 @@ export const SlideView = memo(function SlideView({
   timeMs,
   settledIds,
   highlightedElementId,
+  extensionRenderers,
   className,
   children,
 }: SlideViewProps) {
@@ -85,7 +117,7 @@ export const SlideView = memo(function SlideView({
   const elements = [...slide.elements].sort((a, b) => a.zIndex - b.zIndex);
 
   return (
-    <Ctx.Provider value={{ doc, resolveAsset, mode }}>
+    <Ctx.Provider value={{ doc, resolveAsset, mode, extensionRenderers }}>
       <div className={className} style={{ width: W * scale, height: H * scale, overflow: "hidden", position: "relative" }}>
         <div
           data-slide-id={slide.id}
@@ -124,6 +156,7 @@ export interface MorphViewProps {
   resolveAsset?: AssetResolver;
   /** Local time of the incoming slide, so its other elements can start their animations. */
   timeMs?: number;
+  extensionRenderers?: ExtensionRendererRegistry;
 }
 
 /**
@@ -131,7 +164,7 @@ export interface MorphViewProps {
  * the shared elements are drawn once on top, moving from their old geometry and
  * style to the new one (PowerPoint's Morph, Keynote's Magic Move).
  */
-export function MorphView({ doc, from, to, progress, scale = 1, resolveAsset = () => undefined, timeMs }: MorphViewProps) {
+export function MorphView({ doc, from, to, progress, scale = 1, resolveAsset = () => undefined, timeMs, extensionRenderers }: MorphViewProps) {
   const pairs = useMemo(() => matchMorph(from, to), [from, to]);
   const hideFrom = useMemo(() => new Set(pairs.map(([a]) => a.id)), [pairs]);
   const hideTo = useMemo(() => new Set(pairs.map(([, b]) => b.id)), [pairs]);
@@ -140,9 +173,9 @@ export function MorphView({ doc, from, to, progress, scale = 1, resolveAsset = (
   const layer: CSSProperties = { position: "absolute", inset: 0 };
   return (
     <div style={{ position: "relative", width: W * scale, height: H * scale, overflow: "hidden" }}>
-      <div style={layer}><SlideView doc={doc} slide={from} scale={scale} timeMs={SETTLED_MS} hiddenIds={hideFrom} resolveAsset={resolveAsset} /></div>
-      <div style={{ ...layer, opacity: progress }}><SlideView doc={doc} slide={to} scale={scale} timeMs={timeMs} hiddenIds={hideTo} resolveAsset={resolveAsset} /></div>
-      <Ctx.Provider value={{ doc, resolveAsset, mode: "present" }}>
+      <div style={layer}><SlideView doc={doc} slide={from} scale={scale} timeMs={SETTLED_MS} hiddenIds={hideFrom} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} /></div>
+      <div style={{ ...layer, opacity: progress }}><SlideView doc={doc} slide={to} scale={scale} timeMs={timeMs} hiddenIds={hideTo} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} /></div>
+      <Ctx.Provider value={{ doc, resolveAsset, mode: "present", extensionRenderers }}>
         <div
           dir={documentDirection(doc)}
           lang={doc.metadata.language}
@@ -203,7 +236,7 @@ function ElementFrame({ element, position: p, schedule, timeMs, highlighted = fa
 }
 
 export function ElementBody({ element: el }: { element: CatalogElement }) {
-  const { doc, resolveAsset, mode } = useRender();
+  const { doc, resolveAsset, mode, extensionRenderers } = useRender();
   const color = (v: string) => resolveToken(doc, v);
   const fill: CSSProperties = { width: "100%", height: "100%" };
 
@@ -273,7 +306,7 @@ export function ElementBody({ element: el }: { element: CatalogElement }) {
     }
     case "product": {
       const product = doc.products.find((p) => p.id === el.content.productId);
-      return <ProductCard product={product} style={el.style} />;
+      return <ProductCard product={product} style={el.style} doc={doc} resolveAsset={resolveAsset} mode={mode} />;
     }
     case "product-grid": {
       const { columns, products } = el.content;
@@ -283,9 +316,18 @@ export function ElementBody({ element: el }: { element: CatalogElement }) {
       return (
         // Rows share the element's height so cards (and their images) fill it.
         <div style={{ ...fill, display: "grid", gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))`, gridTemplateRows: `repeat(${Math.max(1, Math.ceil(items.length / columns))}, minmax(0, 1fr))`, gap: el.style.gap }}>
-          {items.map((p, i) => <ProductCard key={i} product={p} style={el.style} />)}
+          {items.map((p, i) => <ProductCard key={i} product={p} style={el.style} doc={doc} resolveAsset={resolveAsset} mode={mode} />)}
         </div>
       );
+    }
+    case "extension": {
+      const Renderer = extensionRenderers?.[el.extensionId];
+      if (Renderer) return (
+        <ExtensionRenderBoundary extensionId={el.extensionId} kind={el.kind} mode={mode}>
+          <Renderer element={el} context={{ doc, resolveAsset, mode }} />
+        </ExtensionRenderBoundary>
+      );
+      return <Placeholder label={`${el.extensionId} · ${el.kind} extension unavailable`} show={mode === "edit"} />;
     }
     case "button":
       return (
@@ -330,8 +372,13 @@ function Stars({ rating }: { rating: number }) {
   );
 }
 
-function ProductCard({ product, style: s }: { product: Product | undefined; style: Partial<ProductCardStyle> & { layout: string; borderRadius: number } }) {
-  const { doc, resolveAsset, mode } = useRender();
+export function ProductCard({ product, style: s, doc, resolveAsset, mode }: {
+  product: Product | undefined;
+  style: Partial<ProductCardStyle> & { layout: string; borderRadius: number };
+  doc: CatalogDocument;
+  resolveAsset: AssetResolver;
+  mode: "edit" | "present";
+}) {
   if (!product) return <Placeholder label="Product" radius={s.borderRadius} show={mode === "edit"} minHeight={120} />;
   const d = cardDisplay(s);
   const lang = doc.metadata.language;

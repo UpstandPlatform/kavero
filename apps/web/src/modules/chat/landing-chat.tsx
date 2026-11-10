@@ -12,6 +12,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
+import { builtInExtensionRenderers } from "@/modules/editor/extensions/built-in-renderers";
 import { saveLocalCatalog } from "@/modules/catalog/local-catalogs";
 import { makeTRPCClient } from "@/utils/trpc";
 
@@ -134,7 +135,7 @@ function CreateCatalogPart({ part }: { part: ToolPart }) {
   const width = 280;
   return (
     <div className="flex flex-wrap items-center gap-4 rounded-xl border bg-background p-3">
-      {cover && <div className="overflow-hidden rounded-lg border"><SlideView doc={doc} slide={cover} scale={width / doc.settings.width} /></div>}
+      {cover && <div className="overflow-hidden rounded-lg border"><SlideView doc={doc} slide={cover} scale={width / doc.settings.width} extensionRenderers={builtInExtensionRenderers} /></div>}
       <div className="grid min-w-0 flex-1 gap-1">
         <p className="truncate font-medium" dir="auto">{output.title}</p>
         <p className="text-xs text-muted-foreground">{output.slides} slides · {state === "saved" ? "saved in this browser" : state === "error" ? "couldn't save in this browser" : "saving…"}</p>

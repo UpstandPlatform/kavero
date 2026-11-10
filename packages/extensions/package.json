@@ -1,0 +1,8 @@
+{
+  "name": "@Kavero/extensions",
+  "type": "module",
+  "exports": { ".": "./src/index.ts" },
+  "scripts": { "check-types": "tsc --noEmit" },
+  "dependencies": { "zod": "catalog:" },
+  "devDependencies": { "@Kavero/config": "workspace:*", "@types/bun": "^1.3.0", "typescript": "catalog:" }
+}
