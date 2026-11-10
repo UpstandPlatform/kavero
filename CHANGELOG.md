@@ -3,6 +3,13 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.8.0](https://github.com/UpstandPlatform/kavero/compare/v0.7.0...v0.8.0) - 2026-11-10
+
+### Features
+
+- **chat:** Enhance annotation handling and hover effects in chat thread ([8533c67](https://github.com/UpstandPlatform/kavero/commit/8533c67b5dacffb36b5a6e954d97e28f2f244789))
+- Implement personal workspace feature ([9219f24](https://github.com/UpstandPlatform/kavero/commit/9219f249be80b7497bafc653d58b88c1c323071a))
+
 ## [0.7.0](https://github.com/UpstandPlatform/kavero/compare/v0.6.0...v0.7.0) - 2026-11-10
 
 ### Features
