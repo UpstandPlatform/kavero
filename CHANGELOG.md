@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.3.0](https://github.com/UpstandPlatform/kavero/compare/v0.2.0...v0.3.0) - 2026-11-10
+
+### Features
+
+- Desktop local mode, in-app updates, product library and example decks ([7fe795c](https://github.com/UpstandPlatform/kavero/commit/7fe795c3b14e46d59b4b178e32378ad1ac861de7))
+
 ## [0.2.0](https://github.com/UpstandPlatform/kavero/compare/v0.1.0...v0.2.0) - 2026-11-10
 
 ### Features
