@@ -49,8 +49,8 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
   }
 
   return (
-    <div className="mx-auto w-full mt-10 max-w-md p-6">
-      <h1 className="mb-6 text-center text-3xl font-bold">Welcome Back</h1>
+    <div className="mx-auto mt-10 w-full max-w-md rounded-xl border bg-card p-6">
+      <h1 className="mb-6 text-center text-2xl font-semibold tracking-tight">Welcome Back</h1>
 
       <form
         onSubmit={(e) => {
@@ -74,7 +74,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
                   onChange={(e) => field.handleChange(e.target.value)}
                 />
                 {field.state.meta.errors.map((error) => (
-                  <p key={error?.message} className="text-red-500">
+                  <p key={error?.message} className="text-xs text-destructive">
                     {error?.message}
                   </p>
                 ))}
@@ -97,7 +97,7 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
                   onChange={(e) => field.handleChange(e.target.value)}
                 />
                 {field.state.meta.errors.map((error) => (
-                  <p key={error?.message} className="text-red-500">
+                  <p key={error?.message} className="text-xs text-destructive">
                     {error?.message}
                   </p>
                 ))}
@@ -121,7 +121,6 @@ export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () 
         <Button
           variant="link"
           onClick={onSwitchToSignUp}
-          className="text-indigo-600 hover:text-indigo-800"
         >
           Need an account? Sign Up
         </Button>

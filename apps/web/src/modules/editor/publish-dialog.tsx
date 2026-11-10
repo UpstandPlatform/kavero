@@ -2,11 +2,14 @@
 
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { Button } from "@Kavero/ui/components/button";
+import { Input } from "@Kavero/ui/components/input";
+import { Textarea } from "@Kavero/ui/components/textarea";
 import { Check, Copy, ExternalLink, Globe, Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { surface } from "@/components/surface";
 import { authClient } from "@/lib/auth-client";
 import { SyncConflictError, pushCatalog } from "@/modules/catalog/cloud-sync";
 import { localCatalogs } from "@/modules/catalog/local-catalogs";
@@ -130,7 +133,6 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
     }
   }
 
-  const input = "h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring";
 
   return (
     <dialog ref={ref} onClose={onClose} className="m-auto w-[min(520px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50">
@@ -152,7 +154,7 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
       ) : (
         <div className="grid gap-4 p-5">
           {pub && (
-            <div className="grid gap-2 border bg-muted/40 p-3 text-xs">
+            <div className={`grid gap-2 text-xs ${surface.muted}`}>
               <div className="flex items-center gap-2">
                 <span className="inline-block size-2 rounded-full bg-green-500" />
                 <span className="font-medium">Live · version {pub.version}</span>
@@ -160,7 +162,7 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
                 <span className="ml-auto text-muted-foreground capitalize">{pub.visibility}</span>
               </div>
               <div className="flex items-center gap-1">
-                <code className="min-w-0 flex-1 truncate">{url}</code>
+                <code className="min-w-0 flex-1 truncate font-mono">{url}</code>
                 <Button variant="ghost" size="icon-xs" title="Copy link" onClick={async () => { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
                   {copied ? <Check /> : <Copy />}
                 </Button>
@@ -171,7 +173,7 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
                   <div className="flex h-8 items-end gap-px" role="img" aria-label={`Views over the last 30 days: ${status.daily.reduce((n, d) => n + d.views, 0)}`}>
                     {status.daily.map((d) => {
                       const max = Math.max(1, ...status.daily.map((x) => x.views));
-                      return <div key={d.day} title={`${d.day}: ${d.views}`} className="flex-1 bg-foreground/60" style={{ height: `${Math.max(4, (d.views / max) * 100)}%`, opacity: d.views ? 1 : 0.2 }} />;
+                      return <div key={d.day} title={`${d.day}: ${d.views}`} className="flex-1 rounded-t-[2px] bg-foreground/60" style={{ height: `${Math.max(4, (d.views / max) * 100)}%`, opacity: d.views ? 1 : 0.2 }} />;
                     })}
                   </div>
                   <p className="text-muted-foreground">{status.daily.slice(-7).reduce((n, d) => n + d.views, 0)} views in the last 7 days · {status.daily.reduce((n, d) => n + d.views, 0)} in 30 days</p>
@@ -184,8 +186,8 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
           <label className="grid gap-1 text-xs">
             <span className="font-medium">Address</span>
             <div className="flex items-center">
-              <span className="h-8 shrink-0 border border-r-0 border-input bg-muted px-2 leading-8 text-muted-foreground">/c/</span>
-              <input className={input} value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} spellCheck={false} aria-invalid={!slugState.ok} />
+              <span className="h-8 shrink-0 rounded-s-lg border border-e-0 border-input bg-muted px-2.5 font-mono leading-8 text-muted-foreground">/c/</span>
+              <Input className="rounded-s-none" value={slug} onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, "-"))} spellCheck={false} aria-invalid={!slugState.ok} />
             </div>
             <span className={slugState.ok ? "text-muted-foreground" : "text-destructive"}>
               {slugState.checking ? "Checking…" : slugState.ok ? "Available" : slugState.reason}
@@ -196,7 +198,7 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
             <legend className="mb-1 font-medium">Who can see it</legend>
             {VISIBILITY.map((v) => (
               <label key={v.value} className="flex items-start gap-2">
-                <input type="radio" name="visibility" checked={visibility === v.value} onChange={() => setVisibility(v.value)} className="mt-0.5" />
+                <input type="radio" className="mt-0.5 accent-primary" name="visibility" checked={visibility === v.value} onChange={() => setVisibility(v.value)} />
                 <span><span className="font-medium">{v.label}</span> <span className="text-muted-foreground">— {v.hint}</span></span>
               </label>
             ))}
@@ -205,15 +207,15 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
           {visibility === "password" && (
             <label className="grid gap-1 text-xs">
               <span className="font-medium">Password {pub?.hasPassword && <span className="font-normal text-muted-foreground">(leave empty to keep the current one)</span>}</span>
-              <input type="password" className={input} value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={8} />
+              <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} autoComplete="new-password" minLength={8} />
             </label>
           )}
 
           <details className="text-xs">
             <summary className="cursor-pointer font-medium">Search & social preview</summary>
             <div className="mt-2 grid gap-2">
-              <input className={input} placeholder={doc.metadata.title} value={seoTitle} onChange={(e) => setSeoTitle(e.target.value)} maxLength={120} aria-label="Title" />
-              <textarea className={`${input} h-16 py-1`} placeholder={doc.metadata.description ?? "Short description for search results and link previews"} value={seoDescription} onChange={(e) => setSeoDescription(e.target.value)} maxLength={300} aria-label="Description" />
+              <Input placeholder={doc.metadata.title} value={seoTitle} onChange={(e) => setSeoTitle(e.target.value)} maxLength={120} aria-label="Title" />
+              <Textarea className="h-16 field-sizing-fixed" placeholder={doc.metadata.description ?? "Short description for search results and link previews"} value={seoDescription} onChange={(e) => setSeoDescription(e.target.value)} maxLength={300} aria-label="Description" />
               <p className="text-muted-foreground">The first slide becomes the preview image when the link is shared.</p>
             </div>
           </details>

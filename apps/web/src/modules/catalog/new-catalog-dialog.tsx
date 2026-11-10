@@ -4,9 +4,12 @@ import { PAGE_PRESETS, TEMPLATES, type PagePreset } from "@Kavero/catalog-engine
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
 import { Label } from "@Kavero/ui/components/label";
+import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { Textarea } from "@Kavero/ui/components/textarea";
 import { X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+
+import { surface } from "@/components/surface";
 
 const PRESET_LABELS: Record<PagePreset, string> = {
   "16:9": "Widescreen 16:9",
@@ -61,8 +64,6 @@ export function NewCatalogDialog({ open, onClose, onCreate }: { open: boolean; o
     }
   }
 
-  const select = "h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring";
-
   return (
     <dialog
       ref={ref}
@@ -88,25 +89,15 @@ export function NewCatalogDialog({ open, onClose, onCreate }: { open: boolean; o
           <div className="grid gap-3 sm:grid-cols-3">
             <div className="grid gap-1.5">
               <Label htmlFor="page">Page size</Label>
-              <select id="page" name="page" defaultValue="16:9" className={select}>
-                {(Object.keys(PAGE_PRESETS) as PagePreset[]).map((p) => (
-                  <option key={p} value={p}>{PRESET_LABELS[p]}</option>
-                ))}
-              </select>
+              <SimpleSelect id="page" name="page" defaultValue="16:9" options={(Object.keys(PAGE_PRESETS) as PagePreset[]).map((p) => ({ value: p, label: PRESET_LABELS[p] }))} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="language">Language</Label>
-              <select id="language" name="language" defaultValue="en" className={select}>
-                {[["en", "English"], ["de", "German"], ["fr", "French"], ["es", "Spanish"], ["it", "Italian"], ["fa", "Persian"], ["ar", "Arabic"]].map(([v, l]) => (
-                  <option key={v} value={v}>{l}</option>
-                ))}
-              </select>
+              <SimpleSelect id="language" name="language" defaultValue="en" options={[["en", "English"], ["de", "German"], ["fr", "French"], ["es", "Spanish"], ["it", "Italian"], ["fa", "Persian"], ["ar", "Arabic"]].map(([value, label]) => ({ value, label }))} />
             </div>
             <div className="grid gap-1.5">
               <Label htmlFor="currency">Currency</Label>
-              <select id="currency" name="currency" defaultValue="USD" className={select}>
-                {["USD", "EUR", "GBP", "CHF", "JPY", "AED", "IRR"].map((c) => <option key={c}>{c}</option>)}
-              </select>
+              <SimpleSelect id="currency" name="currency" defaultValue="USD" options={["USD", "EUR", "GBP", "CHF", "JPY", "AED", "IRR"].map((c) => ({ value: c, label: c }))} />
             </div>
           </div>
           <fieldset className="grid gap-1.5">
@@ -118,10 +109,10 @@ export function NewCatalogDialog({ open, onClose, onCreate }: { open: boolean; o
                   type="button"
                   onClick={() => setTemplateId(s.id)}
                   aria-pressed={templateId === s.id}
-                  className="border p-2 text-left text-xs transition-colors hover:bg-muted aria-pressed:border-primary aria-pressed:ring-1 aria-pressed:ring-primary"
+                  className={`p-2 text-xs ${surface.option}`}
                 >
-                  <div className="mb-2 flex h-12 items-end gap-1 p-1.5" style={{ background: s.swatch[0] }}>
-                    <div className="h-2 w-10" style={{ background: s.swatch[1] }} />
+                  <div className="mb-2 flex h-12 items-end gap-1 rounded-md p-1.5 ring-1 ring-foreground/10" style={{ background: s.swatch[0] }}>
+                    <div className="h-2 w-10 rounded-sm" style={{ background: s.swatch[1] }} />
                   </div>
                   <div className="font-medium">{s.name}</div>
                   <div className="text-muted-foreground">{s.description}</div>

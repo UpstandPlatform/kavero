@@ -1,6 +1,7 @@
 "use client";
 
 import { hasUnsyncedChanges, type CatalogSummary } from "@Kavero/local-storage";
+import { Badge } from "@Kavero/ui/components/badge";
 import { Button } from "@Kavero/ui/components/button";
 import {
   DropdownMenu,
@@ -10,6 +11,7 @@ import {
   DropdownMenuTrigger,
 } from "@Kavero/ui/components/dropdown-menu";
 import { Input } from "@Kavero/ui/components/input";
+import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { Skeleton } from "@Kavero/ui/components/skeleton";
 import { Sparkles, Cloud, CloudOff, CloudUpload, Copy, Download, HardDrive, RefreshCw, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload, Presentation } from "lucide-react";
 import Link from "next/link";
@@ -17,6 +19,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { surface } from "@/components/surface";
 import { authClient } from "@/lib/auth-client";
 
 import {
@@ -54,10 +57,14 @@ export function CatalogDashboard() {
   const [sort, setSort] = useState<Sort>("updated");
   const [creating, setCreating] = useState(false);
   const [generating, setGenerating] = useState(false);
-  // Deep link from the landing page: /dashboard?generate=1 opens "Generate with AI".
+  const [initialBrief, setInitialBrief] = useState("");
+  // Deep link from the landing page: /dashboard?generate=1&brief=… opens "Generate with AI" with the prompt filled in.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
-    if (params.get("generate") === "1") setGenerating(true);
+    if (params.get("generate") === "1") {
+      setInitialBrief(params.get("brief")?.slice(0, 2000) ?? "");
+      setGenerating(true);
+    }
     if (params.get("new") === "1") setCreating(true);
     // The app header's "New catalog" / "Generate" buttons while already on this page.
     const onAction = (e: Event) => ((e as CustomEvent).detail === "new" ? setCreating(true) : setGenerating(true));
@@ -158,29 +165,26 @@ export function CatalogDashboard() {
             <Search className="pointer-events-none absolute top-1/2 left-2 size-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search catalogs" className="pl-7" aria-label="Search catalogs" />
           </div>
-          <select
+          <SimpleSelect
+            className="w-36"
             value={sort}
-            onChange={(e) => setSort(e.target.value as Sort)}
+            onValueChange={setSort}
             aria-label="Sort catalogs"
-            className="h-8 rounded-lg border border-input bg-transparent px-2 text-xs"
-          >
-            <option value="updated">Last edited</option>
-            <option value="created">Newest</option>
-            <option value="title">Name</option>
-          </select>
+            options={[{ value: "updated", label: "Last edited" }, { value: "created", label: "Newest" }, { value: "title", label: "Name" }]}
+          />
         </div>
       )}
 
-      {error && <p className="border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">Could not open local storage: {error}</p>}
+      {error && <p className={`mb-4 text-sm text-destructive ${surface.danger}`}>Could not open local storage: {error}</p>}
 
       {!catalogs && !error && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[0, 1, 2].map((i) => <Skeleton key={i} className="aspect-[4/3]" />)}
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="aspect-[4/3] rounded-xl" />)}
         </div>
       )}
 
       {catalogs?.length === 0 && !cloudOnlyCount && (
-        <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center">
+        <div className={`flex flex-col items-center gap-3 px-6 py-16 text-center ${surface.empty}`}>
           <h2 className="text-lg font-medium">No catalogs yet</h2>
           <p className="max-w-sm text-sm text-muted-foreground">Start from a template or a blank page. Everything is saved in your browser — no account needed.</p>
           <div className="flex flex-wrap justify-center gap-2">
@@ -204,7 +208,7 @@ export function CatalogDashboard() {
         <CloudOnlyList key={catalogs.map((c) => c.id + c.location).join()} userId={session.user.id} localDocumentIds={new Set(catalogs.map((c) => c.id))} onCount={setCloudOnlyCount} />
       )}
 
-      {generating && <AiGenerateDialog onClose={() => setGenerating(false)} />}
+      {generating && <AiGenerateDialog initialBrief={initialBrief} onClose={() => { setGenerating(false); setInitialBrief(""); }} />}
 
       <NewCatalogDialog
         open={creating}
@@ -294,9 +298,9 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
             <Link href={`/editor/${c.id}`} className="block truncate text-sm font-medium hover:underline">{c.title}</Link>
           )}
           <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <span title={status.title} className="inline-flex items-center gap-1 border px-1 py-px text-[10px] uppercase tracking-wide">
-              {syncing ? <RefreshCw className="size-2.5 animate-spin" /> : status.icon} {status.label}
-            </span>
+            <Badge variant="outline" title={status.title} className="h-4 px-1.5 text-[10px] font-normal tracking-wide uppercase">
+              {syncing ? <RefreshCw className="animate-spin" /> : status.icon} {status.label}
+            </Badge>
             {cloud?.workspaceName && <span className="truncate" title={`Workspace · your role: ${cloud.role}`}>{cloud.workspaceName}{cloud.role === "viewer" ? " (view only)" : ""} ·</span>}
             {c.slideCount} slide{c.slideCount === 1 ? "" : "s"} · {timeAgo(c.updatedAt)}
           </p>

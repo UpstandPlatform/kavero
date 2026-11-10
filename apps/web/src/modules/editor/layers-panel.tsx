@@ -99,7 +99,7 @@ export function LayersPanel({ editor, slide, selection, actions }: { editor: Edi
                 defaultValue={el.name ?? ""}
                 placeholder={layerName(el)}
                 aria-label="Layer name"
-                className="h-6 min-w-0 flex-1 rounded border border-input bg-background px-1 outline-none"
+                className="h-6 min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30"
                 onClick={(e) => e.stopPropagation()}
                 onBlur={(e) => { actions.rename(el.id, e.target.value); setRenaming(null); }}
                 onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenaming(null); }}
@@ -108,13 +108,13 @@ export function LayersPanel({ editor, slide, selection, actions }: { editor: Edi
               <span className="min-w-0 flex-1 truncate" dir="auto">{layerName(el)}</span>
             )}
             <span className={`flex items-center gap-0.5 ${el.hidden || el.locked ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"}`}>
-              <button type="button" title={el.hidden ? "Show" : "Hide"} aria-label={el.hidden ? `Show ${layerName(el)}` : `Hide ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); actions.setFlag(el.id, "hidden", !el.hidden); }} className="rounded p-0.5 hover:bg-background">
+              <button type="button" title={el.hidden ? "Show" : "Hide"} aria-label={el.hidden ? `Show ${layerName(el)}` : `Hide ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); actions.setFlag(el.id, "hidden", !el.hidden); }} className="rounded-sm p-0.5 hover:bg-background">
                 {el.hidden ? <EyeOff /> : <Eye />}
               </button>
-              <button type="button" title={el.locked ? "Unlock" : "Lock"} aria-label={el.locked ? `Unlock ${layerName(el)}` : `Lock ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); actions.setFlag(el.id, "locked", !el.locked); }} className="rounded p-0.5 hover:bg-background">
+              <button type="button" title={el.locked ? "Unlock" : "Lock"} aria-label={el.locked ? `Unlock ${layerName(el)}` : `Lock ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); actions.setFlag(el.id, "locked", !el.locked); }} className="rounded-sm p-0.5 hover:bg-background">
                 {el.locked ? <Lock /> : <Unlock />}
               </button>
-              <button type="button" title="Delete" aria-label={`Delete ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); editor.execute({ type: "element.delete", elementId: el.id }); }} className="rounded p-0.5 hover:bg-background hover:text-destructive">
+              <button type="button" title="Delete" aria-label={`Delete ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); editor.execute({ type: "element.delete", elementId: el.id }); }} className="rounded-sm p-0.5 hover:bg-background hover:text-destructive">
                 <Trash2 />
               </button>
             </span>

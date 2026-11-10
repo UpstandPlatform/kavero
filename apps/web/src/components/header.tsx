@@ -51,6 +51,7 @@ export default function Header() {
     e.preventDefault();
     window.dispatchEvent(new CustomEvent("kavero:dashboard", { detail: action }));
   };
+  const onDashboard = pathname === "/dashboard";
   const active = (to: string) => pathname === to || pathname.startsWith(`${to}/`);
   const navLink = (to: Route, label: string, Icon: typeof LayoutGrid, mobile = false) => (
     <Link
@@ -81,14 +82,15 @@ export default function Header() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          <div className="hidden items-center gap-2 md:flex">
+          {/* Shortcuts to create; the dashboard has its own buttons, so they'd repeat there. */}
+          {!onDashboard && <div className="hidden items-center gap-2 md:flex">
             <Link href="/dashboard?generate=1" onClick={dashboardAction("generate")}>
               <Button variant="outline" size="sm"><Sparkles /> Generate</Button>
             </Link>
             <Link href="/dashboard?new=1" onClick={dashboardAction("new")}>
               <Button size="sm"><Plus /> New catalog</Button>
             </Link>
-          </div>
+          </div>}
           <ModeToggle />
           <UserMenu />
           <Button variant="ghost" size="icon" className="sm:hidden" aria-label={open ? "Close menu" : "Open menu"} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
@@ -102,10 +104,10 @@ export default function Header() {
           {navLink("/", "Home", Sparkles, true)}
           {LINKS.map((l) => navLink(l.to, l.label, l.icon, true))}
           {isAdmin && navLink("/admin" as Route, "Admin", Shield, true)}
-          <div className="mt-2 grid grid-cols-2 gap-2">
+          {!onDashboard && <div className="mt-2 grid grid-cols-2 gap-2">
             <Link href="/dashboard?generate=1" onClick={dashboardAction("generate")}><Button variant="outline" className="w-full"><Sparkles /> Generate</Button></Link>
             <Link href="/dashboard?new=1" onClick={dashboardAction("new")}><Button className="w-full"><Plus /> New catalog</Button></Link>
-          </div>
+          </div>}
           {!session && <p className="mt-2 text-xs text-muted-foreground">Catalogs are saved on this device. Sign in to sync them and publish.</p>}
         </nav>
       )}

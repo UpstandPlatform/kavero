@@ -3,6 +3,9 @@
 import { AVAILABILITY_LABELS, PRODUCT_AVAILABILITY, productSchema, productUsage, type CatalogDocument, type Product } from "@Kavero/catalog-engine";
 import type { Editor } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
+import { Input } from "@Kavero/ui/components/input";
+import { SimpleSelect } from "@Kavero/ui/components/simple-select";
+import { Textarea } from "@Kavero/ui/components/textarea";
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, ImagePlus, Images, Loader2, Plus, Star, Trash2, X } from "lucide-react";
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
@@ -24,7 +27,6 @@ function currencyCodes(): string[] {
 
 const BADGE_SUGGESTIONS = ["New", "Sale", "Bestseller", "Limited", "Eco", "Exclusive"];
 
-const field = "h-8 w-full min-w-0 rounded-lg border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring aria-invalid:border-destructive";
 
 type Spec = { key: string; value: string };
 
@@ -237,37 +239,35 @@ export function ProductFormDialog({ editor, doc, productId, assetUrls, uploadIma
           <div className="grid content-start gap-4">
             <Group title="Basics">
               <Labeled label="Name" required error={err("name")}>
-                <input className={field} value={d.name} autoFocus aria-required="true" onChange={(e) => set("name", e.target.value)} maxLength={200} {...a11y("name")} />
+                <Input value={d.name} autoFocus aria-required="true" onChange={(e) => set("name", e.target.value)} maxLength={200} {...a11y("name")} />
               </Labeled>
               <Labeled label="Subtitle" hint="Short tagline under the name" error={err("subtitle")}>
-                <input className={field} value={d.subtitle} onChange={(e) => set("subtitle", e.target.value)} maxLength={200} {...a11y("subtitle")} />
+                <Input value={d.subtitle} onChange={(e) => set("subtitle", e.target.value)} maxLength={200} {...a11y("subtitle")} />
               </Labeled>
               <div className="grid gap-3 sm:grid-cols-3">
-                <Labeled label="Brand" error={err("brand")}><input className={field} value={d.brand} onChange={(e) => set("brand", e.target.value)} maxLength={100} {...a11y("brand")} /></Labeled>
+                <Labeled label="Brand" error={err("brand")}><Input value={d.brand} onChange={(e) => set("brand", e.target.value)} maxLength={100} {...a11y("brand")} /></Labeled>
                 <Labeled label="Category">
-                  <input className={field} value={d.category} list={`${uid}-cats`} onChange={(e) => set("category", e.target.value)} />
+                  <Input value={d.category} list={`${uid}-cats`} onChange={(e) => set("category", e.target.value)} />
                   <datalist id={`${uid}-cats`}>{[...new Set(doc.products.map((p) => p.category).filter(Boolean))].map((c) => <option key={c} value={c} />)}</datalist>
                 </Labeled>
-                <Labeled label="SKU"><input className={field} value={d.sku} onChange={(e) => set("sku", e.target.value)} /></Labeled>
+                <Labeled label="SKU"><Input value={d.sku} onChange={(e) => set("sku", e.target.value)} /></Labeled>
               </div>
             </Group>
 
             <Group title="Price">
               <div className="grid gap-3 sm:grid-cols-2">
                 <Labeled label="Price" error={err("price")}>
-                  <input className={field} inputMode="decimal" value={d.price} onChange={(e) => set("price", e.target.value)} placeholder="0.00" {...a11y("price")} />
+                  <Input inputMode="decimal" value={d.price} onChange={(e) => set("price", e.target.value)} placeholder="0.00" {...a11y("price")} />
                 </Labeled>
                 <Labeled label="Compare-at price" hint="Original price, shown struck through" error={err("compareAtPrice")}>
-                  <input className={field} inputMode="decimal" value={d.compareAtPrice} onChange={(e) => set("compareAtPrice", e.target.value)} placeholder="Optional" {...a11y("compareAtPrice")} />
+                  <Input inputMode="decimal" value={d.compareAtPrice} onChange={(e) => set("compareAtPrice", e.target.value)} placeholder="Optional" {...a11y("compareAtPrice")} />
                 </Labeled>
                 <Labeled label="Currency">
-                  <select className={field} value={d.currency} onChange={(e) => set("currency", e.target.value)}>
-                    <option value="">Catalog currency ({doc.metadata.currency})</option>
-                    {[...new Set([...(d.currency ? [d.currency] : []), ...currencies])].map((c) => <option key={c} value={c}>{c}</option>)}
-                  </select>
+                  <SimpleSelect value={d.currency} onValueChange={(v) => set("currency", v)}
+                    options={[{ value: "", label: `Catalog currency (${doc.metadata.currency})` }, ...[...new Set([...(d.currency ? [d.currency] : []), ...currencies])].map((c) => ({ value: c, label: c }))]} />
                 </Labeled>
                 <Labeled label="Unit" hint='e.g. "per m²" or "/ kg"' error={err("unit")}>
-                  <input className={field} value={d.unit} onChange={(e) => set("unit", e.target.value)} maxLength={30} {...a11y("unit")} />
+                  <Input value={d.unit} onChange={(e) => set("unit", e.target.value)} maxLength={30} {...a11y("unit")} />
                 </Labeled>
               </div>
             </Group>
@@ -275,35 +275,33 @@ export function ProductFormDialog({ editor, doc, productId, assetUrls, uploadIma
             <Group title="Highlights">
               <div className="grid gap-3 sm:grid-cols-3">
                 <Labeled label="Badge" hint="New, Sale…" error={err("badge")}>
-                  <input className={field} value={d.badge} list={`${uid}-badges`} onChange={(e) => set("badge", e.target.value)} maxLength={30} {...a11y("badge")} />
+                  <Input value={d.badge} list={`${uid}-badges`} onChange={(e) => set("badge", e.target.value)} maxLength={30} {...a11y("badge")} />
                   <datalist id={`${uid}-badges`}>{BADGE_SUGGESTIONS.map((b) => <option key={b} value={b} />)}</datalist>
                 </Labeled>
                 <Labeled label="Availability">
-                  <select className={field} value={d.availability} onChange={(e) => set("availability", e.target.value)}>
-                    <option value="">Not shown</option>
-                    {PRODUCT_AVAILABILITY.map((a) => <option key={a} value={a}>{AVAILABILITY_LABELS[a]}</option>)}
-                  </select>
+                  <SimpleSelect value={d.availability} onValueChange={(v) => set("availability", v)}
+                    options={[{ value: "", label: "Not shown" }, ...PRODUCT_AVAILABILITY.map((a) => ({ value: a, label: AVAILABILITY_LABELS[a] }))]} />
                 </Labeled>
                 <Labeled label="Rating (0–5)" error={err("rating")}>
-                  <input className={field} type="number" min={0} max={5} step={0.1} value={d.rating} onChange={(e) => set("rating", e.target.value)} {...a11y("rating")} />
+                  <Input type="number" min={0} max={5} step={0.1} value={d.rating} onChange={(e) => set("rating", e.target.value)} {...a11y("rating")} />
                 </Labeled>
               </div>
               <Labeled label="Product link" error={err("url")}>
-                <input className={field} type="url" value={d.url} onChange={(e) => set("url", e.target.value)} placeholder="https://" {...a11y("url")} />
+                <Input type="url" value={d.url} onChange={(e) => set("url", e.target.value)} placeholder="https://" {...a11y("url")} />
               </Labeled>
             </Group>
 
             <Group title="Details">
               <Labeled label="Description">
-                <textarea className={`${field} h-20 resize-y py-1.5`} value={d.description} onChange={(e) => set("description", e.target.value)} />
+                <Textarea className="h-20 resize-y field-sizing-fixed" value={d.description} onChange={(e) => set("description", e.target.value)} />
               </Labeled>
               <fieldset className="grid gap-1.5">
                 <legend className="mb-1 text-muted-foreground">Specs <span className="text-[11px]">(shown on cards with “Specs” turned on)</span></legend>
                 {d.specs.map((s, i) => (
                   <div key={i} className="flex items-center gap-1">
-                    <input className={`${field} w-2/5`} placeholder="Name, e.g. Size" aria-label={`Spec ${i + 1} name`} value={s.key}
+                    <Input className="w-2/5" placeholder="Name, e.g. Size" aria-label={`Spec ${i + 1} name`} value={s.key}
                       onChange={(e) => setD((x) => ({ ...x, specs: x.specs.map((v, j) => (j === i ? { ...v, key: e.target.value } : v)) }))} />
-                    <input className={field} placeholder="Value, e.g. 120 × 60 cm" aria-label={`Spec ${i + 1} value`} value={s.value}
+                    <Input placeholder="Value, e.g. 120 × 60 cm" aria-label={`Spec ${i + 1} value`} value={s.value}
                       onChange={(e) => setD((x) => ({ ...x, specs: x.specs.map((v, j) => (j === i ? { ...v, value: e.target.value } : v)) }))} />
                     <Button type="button" variant="ghost" size="icon-xs" title="Move up" aria-label={`Move spec ${i + 1} up`} disabled={i === 0} onClick={() => moveSpec(i, -1)}><ArrowUp /></Button>
                     <Button type="button" variant="ghost" size="icon-xs" title="Move down" aria-label={`Move spec ${i + 1} down`} disabled={i === d.specs.length - 1} onClick={() => moveSpec(i, 1)}><ArrowDown /></Button>
@@ -314,7 +312,7 @@ export function ProductFormDialog({ editor, doc, productId, assetUrls, uploadIma
                 <div><Button type="button" variant="outline" size="xs" onClick={() => setD((x) => ({ ...x, specs: [...x.specs, { key: "", value: "" }] }))}><Plus /> Add spec</Button></div>
               </fieldset>
               <Labeled label="Tags" hint="Comma-separated, for search only">
-                <input className={field} value={d.tags} onChange={(e) => set("tags", e.target.value)} placeholder="outdoor, oak" />
+                <Input value={d.tags} onChange={(e) => set("tags", e.target.value)} placeholder="outdoor, oak" />
               </Labeled>
             </Group>
           </div>

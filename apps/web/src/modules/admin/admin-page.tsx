@@ -1,5 +1,6 @@
 "use client";
 
+import { Badge } from "@Kavero/ui/components/badge";
 import { Button } from "@Kavero/ui/components/button";
 import {
   DropdownMenu,
@@ -9,6 +10,7 @@ import {
   DropdownMenuTrigger,
 } from "@Kavero/ui/components/dropdown-menu";
 import { Input } from "@Kavero/ui/components/input";
+import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import {
   Ban, ExternalLink, Globe, LayoutDashboard, Loader2, LogOut, MoreHorizontal, ScrollText, Search, Settings2, Shield, ShieldOff, Trash2, UserCheck, Users,
 } from "lucide-react";
@@ -16,6 +18,8 @@ import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { PageTabs } from "@/components/page-tabs";
+import { surface } from "@/components/surface";
 import { authClient } from "@/lib/auth-client";
 import { makeTRPCClient } from "@/utils/trpc";
 
@@ -86,20 +90,7 @@ export function AdminPage() {
     <div className="mx-auto w-full max-w-6xl px-4 py-8">
       <h1 className="mb-1 flex items-center gap-2 text-2xl font-semibold tracking-tight"><Shield className="size-6" /> Admin</h1>
       <p className="mb-6 text-sm text-muted-foreground">Manage accounts, sign-ups and published sites on this Kavero server.</p>
-      <div className="mb-6 flex flex-wrap gap-1 border-b" role="tablist">
-        {TABS.map((t) => (
-          <button
-            key={t.id}
-            type="button"
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => { setTab(t.id); history.replaceState(null, "", `#${t.id}`); }}
-            className="-mb-px inline-flex items-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground aria-selected:border-foreground aria-selected:text-foreground [&_svg]:size-4"
-          >
-            {t.icon} {t.label}
-          </button>
-        ))}
-      </div>
+      <PageTabs label="Admin" tabs={TABS} value={tab} onChange={(id) => { setTab(id); history.replaceState(null, "", `#${id}`); }} />
       {tab === "overview" && <OverviewTab onOpen={(t) => { setTab(t); history.replaceState(null, "", `#${t}`); }} />}
       {tab === "users" && <UsersTab />}
       {tab === "sites" && <SitesTab />}
@@ -120,8 +111,8 @@ function Stat({ label, value, hint, onClick }: { label: string; value: React.Rea
     </>
   );
   return onClick
-    ? <button type="button" onClick={onClick} className="rounded-xl border p-4 text-start transition-colors hover:bg-muted/50">{body}</button>
-    : <div className="rounded-xl border p-4">{body}</div>;
+    ? <button type="button" onClick={onClick} className={`${surface.panel} text-start transition-colors outline-none hover:bg-muted/50 focus-visible:ring-3 focus-visible:ring-ring/50`}>{body}</button>
+    : <div className={surface.panel}>{body}</div>;
 }
 
 const POLICY_LABEL = { open: "Open — anyone can sign up", "invite-only": "Invite-only", closed: "Closed" } as const;
@@ -192,9 +183,9 @@ function UsersTab() {
       {suspending && <SuspendForm user={suspending} onClose={() => setSuspending(null)} onDone={() => { setSuspending(null); void load(); }} />}
 
       {!rows ? <p className="text-muted-foreground">Loading…</p> : !rows.length ? <p className="text-muted-foreground">No accounts match.</p> : (
-        <div className="overflow-x-auto rounded-xl border">
+        <div className={surface.table}>
           <table className="w-full min-w-[640px] text-start">
-            <thead className="border-b bg-muted/40 text-xs text-muted-foreground">
+            <thead className={surface.thead}>
               <tr>
                 <th className="px-3 py-2 text-start font-medium">Account</th>
                 <th className="px-3 py-2 text-start font-medium">Role</th>
@@ -213,9 +204,9 @@ function UsersTab() {
                     {u.banned && <p className="text-xs text-destructive">Suspended{u.banExpires ? ` until ${fmtDate(u.banExpires)}` : ""}{u.banReason ? ` — ${u.banReason}` : ""}</p>}
                   </td>
                   <td className="px-3 py-2">
-                    <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-xs ${u.role === "admin" ? "bg-primary text-primary-foreground" : "bg-muted"}`}>
-                      {u.role === "admin" && <Shield className="size-3" />} {u.role === "admin" ? "Admin" : "User"}
-                    </span>
+                    <Badge variant={u.role === "admin" ? "default" : "secondary"}>
+                      {u.role === "admin" && <Shield />} {u.role === "admin" ? "Admin" : "User"}
+                    </Badge>
                   </td>
                   <td className="px-3 py-2 text-end tabular-nums">{u.catalogs}</td>
                   <td className="px-3 py-2 text-muted-foreground">{fmtDate(u.createdAt)}</td>
@@ -269,7 +260,7 @@ function SuspendForm({ user, onClose, onDone }: { user: UserRow; onClose: () => 
   const [busy, setBusy] = useState(false);
   return (
     <form
-      className="grid gap-3 rounded-xl border border-destructive/40 p-4"
+      className={`grid gap-3 ${surface.danger}`}
       onSubmit={async (e) => {
         e.preventDefault();
         setBusy(true);
@@ -287,14 +278,9 @@ function SuspendForm({ user, onClose, onDone }: { user: UserRow; onClose: () => 
       <p className="font-medium">Suspend {user.email}</p>
       <p className="text-xs text-muted-foreground">They are signed out, can&apos;t sign in, their API tokens stop working and their published sites go offline until the suspension is lifted.</p>
       <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
-        <label className="grid gap-1 text-xs">Reason (shown to admins)<Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} placeholder="Optional" /></label>
-        <label className="grid gap-1 text-xs">For
-          <select className="h-8 rounded-lg border border-input bg-transparent px-2 text-xs" value={days} onChange={(e) => setDays(e.target.value)}>
-            <option value="">Until lifted</option>
-            <option value="1">1 day</option>
-            <option value="7">7 days</option>
-            <option value="30">30 days</option>
-          </select>
+        <label className="grid gap-1.5 text-xs">Reason (shown to admins)<Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} placeholder="Optional" /></label>
+        <label className="grid gap-1.5 text-xs">For
+          <SimpleSelect value={days} onValueChange={setDays} options={[{ value: "", label: "Until lifted" }, { value: "1", label: "1 day" }, { value: "7", label: "7 days" }, { value: "30", label: "30 days" }]} />
         </label>
       </div>
       <div className="flex gap-2">
@@ -328,7 +314,7 @@ function SitesTab() {
         <Input className="ps-8" placeholder="Search by title, address or owner" value={query} onChange={(e) => setQuery(e.target.value)} aria-label="Search sites" />
       </div>
       {!rows ? <p className="text-muted-foreground">Loading…</p> : !rows.length ? <p className="text-muted-foreground">No published sites.</p> : (
-        <ul className="divide-y rounded-xl border">
+        <ul className={surface.list}>
           {rows.map((s) => (
             <li key={s.id} className="flex flex-wrap items-center gap-3 p-3">
               <div className="min-w-0 flex-1">
@@ -382,7 +368,7 @@ function ActivityTab() {
         ))}
       </div>
       {!rows ? <p className="text-muted-foreground">Loading…</p> : !rows.length ? <p className="text-muted-foreground">Nothing recorded yet.</p> : (
-        <ul className="divide-y rounded-xl border font-mono text-xs">
+        <ul className={`${surface.list} font-mono text-xs`}>
           {rows.map((r) => (
             <li key={r.id} className="flex flex-wrap gap-x-3 gap-y-0.5 px-3 py-2">
               <span className="text-muted-foreground">{new Date(r.createdAt).toLocaleString()}</span>
@@ -415,11 +401,11 @@ function SignupsTab() {
     <fieldset className="grid max-w-2xl gap-2 text-sm" disabled={saving}>
       <legend className="mb-2 text-muted-foreground">Who can create an account on this server</legend>
       {POLICIES.map((p) => (
-        <label key={p.id} className={`flex cursor-pointer gap-3 rounded-xl border p-3 ${policy === p.id ? "border-foreground" : ""}`}>
+        <label key={p.id} className={`flex cursor-pointer gap-3 rounded-xl border bg-card p-4 transition-colors hover:bg-muted/50 ${policy === p.id ? "border-primary ring-1 ring-primary" : ""}`}>
           <input
             type="radio"
             name="signup-policy"
-            className="mt-1"
+            className="mt-0.5 size-4 accent-primary"
             checked={policy === p.id}
             onChange={async () => {
               setSaving(true);

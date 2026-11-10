@@ -4,6 +4,8 @@ import { buildCatalog, heuristicPlan } from "@Kavero/ai/browser";
 import { PAGE_PRESETS, TEMPLATES, createId, type CatalogDocument, type PagePreset, type Product } from "@Kavero/catalog-engine";
 import { SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
+import { SimpleSelect } from "@Kavero/ui/components/simple-select";
+import { Textarea } from "@Kavero/ui/components/textarea";
 import { Loader2, Sparkles, X } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -32,12 +34,12 @@ export function parsePastedProducts(text: string): SourceProduct[] {
 
 const PAGE_LABELS: Record<PagePreset, string> = { "16:9": "Widescreen 16:9", "4:3": "Standard 4:3", "a4-portrait": "A4 portrait", "a4-landscape": "A4 landscape", "letter-portrait": "US Letter", square: "Square" };
 
-export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
+export function AiGenerateDialog({ onClose, initialBrief = "" }: { onClose: () => void; initialBrief?: string }) {
   const ref = useRef<HTMLDialogElement>(null);
   const router = useRouter();
   const { data: session } = authClient.useSession();
   const [aiStatus, setAiStatus] = useState<{ configured: boolean; model: string | null } | null>(null);
-  const [brief, setBrief] = useState("");
+  const [brief, setBrief] = useState(initialBrief);
   const [templateId, setTemplateId] = useState("auto");
   const [page, setPage] = useState<PagePreset>("16:9");
   const [language, setLanguage] = useState("en");
@@ -143,7 +145,6 @@ export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
     }
   }
 
-  const field = "h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs";
   const thumb = result ? 150 / result.document.settings.width : 0;
 
   return (
@@ -155,53 +156,44 @@ export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
       <div className="grid max-h-[78vh] gap-4 overflow-y-auto p-5 text-xs">
         {!result ? (
           <>
-            <label className="grid gap-1">Describe the catalog
-              <textarea ref={briefRef} className="h-24 w-full rounded-lg border border-input bg-transparent p-2 text-sm" value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000}
+            <label className="grid gap-1.5">Describe the catalog
+              <Textarea ref={briefRef} className="h-24 field-sizing-fixed" value={brief} onChange={(e) => setBrief(e.target.value)} maxLength={4000}
                 placeholder="e.g. Autumn 2027 lookbook for our handmade leather goods: warm, premium, for wholesale buyers." />
             </label>
             <div className="grid gap-3 sm:grid-cols-4">
-              <label className="grid gap-1">Style
-                <select className={field} value={templateId} onChange={(e) => setTemplateId(e.target.value)}>
-                  <option value="auto">Pick for me</option>
-                  {TEMPLATES.map((t) => <option key={t.id} value={t.id}>{t.name} ({t.category})</option>)}
-                </select>
+              <label className="grid gap-1.5">Style
+                <SimpleSelect value={templateId} onValueChange={setTemplateId} options={[{ value: "auto", label: "Pick for me" }, ...TEMPLATES.map((t) => ({ value: t.id, label: `${t.name} (${t.category})` }))]} />
               </label>
-              <label className="grid gap-1">Page
-                <select className={field} value={page} onChange={(e) => setPage(e.target.value as PagePreset)}>
-                  {(Object.keys(PAGE_PRESETS) as PagePreset[]).map((p) => <option key={p} value={p}>{PAGE_LABELS[p]}</option>)}
-                </select>
+              <label className="grid gap-1.5">Page
+                <SimpleSelect value={page} onValueChange={setPage} options={(Object.keys(PAGE_PRESETS) as PagePreset[]).map((p) => ({ value: p, label: PAGE_LABELS[p] }))} />
               </label>
-              <label className="grid gap-1">Language
-                <select className={field} value={language} onChange={(e) => setLanguage(e.target.value)}>
-                  {[["en", "English"], ["de", "German"], ["fr", "French"], ["es", "Spanish"], ["it", "Italian"], ["fa", "Persian"], ["ar", "Arabic"]].map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-                </select>
+              <label className="grid gap-1.5">Language
+                <SimpleSelect value={language} onValueChange={setLanguage} options={[["en", "English"], ["de", "German"], ["fr", "French"], ["es", "Spanish"], ["it", "Italian"], ["fa", "Persian"], ["ar", "Arabic"]].map(([value, label]) => ({ value, label }))} />
               </label>
-              <label className="grid gap-1">Currency
-                <select className={field} value={currency} onChange={(e) => setCurrency(e.target.value)}>
-                  {["USD", "EUR", "GBP", "CHF", "JPY", "AED", "IRR"].map((c) => <option key={c}>{c}</option>)}
-                </select>
+              <label className="grid gap-1.5">Currency
+                <SimpleSelect value={currency} onValueChange={setCurrency} options={["USD", "EUR", "GBP", "CHF", "JPY", "AED", "IRR"].map((c) => ({ value: c, label: c }))} />
               </label>
             </div>
 
             <fieldset className="grid gap-2">
               <legend className="mb-1 font-medium">Products</legend>
               <div className="flex flex-wrap gap-4">
-                <label className="flex items-center gap-1.5"><input type="radio" checked={source === "none"} onChange={() => setSource("none")} /> None (add later)</label>
-                <label className="flex items-center gap-1.5"><input type="radio" checked={source === "paste"} onChange={() => setSource("paste")} /> Paste a list</label>
-                <label className="flex items-center gap-1.5"><input type="radio" checked={source === "mcp"} disabled={!session || !conns.length} onChange={() => setSource("mcp")} /> From a connected source {!session ? "(sign in)" : !conns.length ? "(none connected)" : ""}</label>
+                <label className="flex items-center gap-2"><input type="radio" className="accent-primary" checked={source === "none"} onChange={() => setSource("none")} /> None (add later)</label>
+                <label className="flex items-center gap-2"><input type="radio" className="accent-primary" checked={source === "paste"} onChange={() => setSource("paste")} /> Paste a list</label>
+                <label className="flex items-center gap-2"><input type="radio" className="accent-primary" checked={source === "mcp"} disabled={!session || !conns.length} onChange={() => setSource("mcp")} /> From a connected source {!session ? "(sign in)" : !conns.length ? "(none connected)" : ""}</label>
               </div>
               {source === "paste" && (
                 <>
-                  <textarea className="h-28 w-full rounded-lg border border-input bg-transparent p-2 font-mono text-[11px]" value={pasted} onChange={(e) => setPasted(e.target.value)}
+                  <Textarea className="h-28 field-sizing-fixed font-mono text-xs md:text-xs" value={pasted} onChange={(e) => setPasted(e.target.value)}
                     placeholder={"One product per line: name, price, category, image URL (optional)\nWeekender Bag, 640, Bags\nCard Holder, 85, Small leather goods"} />
                   <span className="text-muted-foreground">{products.length} product{products.length === 1 ? "" : "s"} recognised</span>
                 </>
               )}
               {source === "mcp" && (
                 <div className="flex flex-wrap items-end gap-2">
-                  <label className="grid gap-1">Source<select className={field} value={connId} onChange={(e) => setConnId(e.target.value)}>{conns.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
-                  <label className="grid gap-1">Tool<select className={field} value={tool} onChange={(e) => setTool(e.target.value)}>{conn?.tools.map((t) => <option key={t.name} value={t.name}>{t.name}</option>)}</select></label>
-                  <Button variant="outline" size="sm" onClick={fetchMcp} disabled={!tool || !!busy}>{busy === "mcp" && <Loader2 className="animate-spin" />} Fetch</Button>
+                  <label className="grid gap-1.5">Source<SimpleSelect className="w-48" value={connId} onValueChange={setConnId} options={conns.map((c) => ({ value: c.id, label: c.name }))} /></label>
+                  <label className="grid gap-1.5">Tool<SimpleSelect className="w-48" value={tool} onValueChange={setTool} options={(conn?.tools ?? []).map((t) => ({ value: t.name, label: t.name }))} /></label>
+                  <Button variant="outline" onClick={fetchMcp} disabled={!tool || !!busy}>{busy === "mcp" && <Loader2 className="animate-spin" />} Fetch</Button>
                   <span className="text-muted-foreground">{mcpProducts.length} products loaded</span>
                 </div>
               )}
@@ -212,9 +204,6 @@ export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
                 : session ? "No AI model is configured on this server, so Kavero’s built-in planner arranges your products (no data leaves the server)."
                 : "Signed out: Kavero’s built-in planner runs in your browser. Sign in to use an AI model when one is configured."}
             </p>
-            <div className="flex justify-end">
-              <Button onClick={generate} disabled={!!busy || (!brief.trim() && !products.length)}>{busy === "generate" ? <Loader2 className="animate-spin" /> : <Sparkles />} Generate</Button>
-            </div>
           </>
         ) : (
           <>
@@ -224,18 +213,22 @@ export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
             <div className="grid grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3">
               {result.document.slides.map((s, i) => (
                 <figure key={s.id} className="grid gap-1">
-                  <div className="ring-1 ring-border"><SlideView doc={result.document} slide={s} scale={thumb} mode="edit" /></div>
+                  <div className="overflow-hidden rounded-md ring-1 ring-foreground/10"><SlideView doc={result.document} slide={s} scale={thumb} mode="edit" /></div>
                   <figcaption className="truncate text-muted-foreground">{i + 1}. {s.name}</figcaption>
                 </figure>
               ))}
             </div>
-            <div className="flex justify-between gap-2">
-              <Button variant="ghost" onClick={() => setResult(null)} disabled={!!busy}>Back</Button>
-              <div className="flex gap-2">
-                <Button variant="outline" onClick={generate} disabled={!!busy}>{busy === "generate" && <Loader2 className="animate-spin" />} Try again</Button>
-                <Button onClick={create} disabled={!!busy}>{busy === "create" && <Loader2 className="animate-spin" />} Create catalog</Button>
-              </div>
-            </div>
+          </>
+        )}
+      </div>
+      <div className="flex items-center justify-end gap-2 border-t px-5 py-3">
+        {!result ? (
+          <Button onClick={generate} disabled={!!busy || (!brief.trim() && !products.length)}>{busy === "generate" ? <Loader2 className="animate-spin" /> : <Sparkles />} Generate</Button>
+        ) : (
+          <>
+            <Button variant="ghost" className="me-auto" onClick={() => setResult(null)} disabled={!!busy}>Back</Button>
+            <Button variant="outline" onClick={generate} disabled={!!busy}>{busy === "generate" && <Loader2 className="animate-spin" />} Try again</Button>
+            <Button onClick={create} disabled={!!busy}>{busy === "create" && <Loader2 className="animate-spin" />} Create catalog</Button>
           </>
         )}
       </div>

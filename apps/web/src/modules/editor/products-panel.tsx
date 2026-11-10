@@ -43,7 +43,7 @@ export function ProductsPanel({ editor, doc, assetUrls, ui, onInsert }: {
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="grid gap-1 px-2 pb-2">
         <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products" aria-label="Search products"
-          className="h-7 w-full min-w-0 rounded-lg border border-input bg-transparent px-2 text-xs outline-none focus-visible:border-ring" />
+          className="h-7 w-full min-w-0 rounded-[min(var(--radius-md),10px)] border border-input bg-transparent px-2 text-xs transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30" />
         <div className="flex gap-1">
           <Button size="xs" className="flex-1" onClick={() => ui.edit()}><Plus /> New</Button>
           <Button size="xs" variant="outline" className="flex-1" title="Import products from MCP" onClick={ui.import}><PackagePlus /> Import</Button>

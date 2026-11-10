@@ -25,7 +25,7 @@ export function ShortcutsDialog({ onClose }: { onClose: () => void }) {
               {SHORTCUTS.filter((s) => s.group === g).map((s) => (
                 <div key={s.keys + s.label} className="flex items-center justify-between gap-4">
                   <dt>{s.label}</dt>
-                  <dd><kbd className="rounded border bg-muted px-1.5 py-0.5 font-sans text-[11px] whitespace-nowrap">{kbd(s.keys)}</kbd></dd>
+                  <dd><kbd className="rounded-md border bg-muted px-1.5 py-0.5 font-sans text-[11px] whitespace-nowrap">{kbd(s.keys)}</kbd></dd>
                 </div>
               ))}
             </dl>

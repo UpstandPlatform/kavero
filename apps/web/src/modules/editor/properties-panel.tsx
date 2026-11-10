@@ -3,6 +3,9 @@
 import { cardDisplay, documentDirection, resolveToken, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
+import { Checkbox } from "@Kavero/ui/components/checkbox";
+import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@Kavero/ui/components/select";
+import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import {
   AlignCenter, AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter, AlignLeft, AlignRight,
   AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Eye, EyeOff, Lock, Pencil, Plus,
@@ -19,7 +22,50 @@ import { useRun } from "./use-catalog-editor";
 
 const FONTS = ["Inter", "Playfair Display", "Space Grotesk", "DM Serif Display", "Montserrat", "Lora", "Poppins", "Roboto", "Georgia", "Arial"];
 
-const inputCls = "h-7 w-full min-w-0 rounded-lg border border-input bg-transparent px-1.5 text-xs tabular-nums outline-none focus-visible:border-ring";
+// Compact (h-7) control used throughout the inspector; same radius/focus ring as Button size="sm" and SimpleSelect size="sm".
+const inputCls = "h-7 w-full min-w-0 rounded-[min(var(--radius-md),10px)] border border-input bg-transparent px-2 text-xs tabular-nums transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30";
+
+/** Font family picker: theme tokens, catalog fonts, web fonts, then "From this computer…". */
+function FontSelect({ doc, catalogFonts, value, onChange }: { doc: CatalogDocument; catalogFonts: string[]; value: string; onChange: (v: string) => void }) {
+  const web = FONTS.filter((f) => !catalogFonts.includes(f));
+  const custom = !catalogFonts.includes(value) && !FONTS.includes(value) && !value.startsWith("token:") ? value : null;
+  const items = [
+    { value: "token:heading", label: `Theme heading (${doc.theme.fonts.heading})` },
+    { value: "token:body", label: `Theme body (${doc.theme.fonts.body})` },
+    ...catalogFonts.map((f) => ({ value: f, label: f })),
+    ...web.map((f) => ({ value: f, label: f })),
+    ...(custom ? [{ value: custom, label: custom }] : []),
+    { value: "__computer", label: "From this computer…" },
+  ];
+  return (
+    <Select items={items} value={value} onValueChange={(v) => v !== null && onChange(v)}>
+      <SelectTrigger size="sm" aria-label="Font" className="w-full min-w-0 gap-1 pr-1.5 pl-2 text-xs">
+        <SelectValue className="min-w-0 truncate" />
+      </SelectTrigger>
+      <SelectContent className="**:data-[slot=select-item]:text-xs">
+        <SelectGroup>
+          <SelectItem value="token:heading">{items[0]!.label}</SelectItem>
+          <SelectItem value="token:body">{items[1]!.label}</SelectItem>
+        </SelectGroup>
+        {catalogFonts.length > 0 && (
+          <SelectGroup>
+            <SelectLabel>In this catalog</SelectLabel>
+            {catalogFonts.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+          </SelectGroup>
+        )}
+        <SelectGroup>
+          <SelectLabel>Web fonts</SelectLabel>
+          {web.map((f) => <SelectItem key={f} value={f}>{f}</SelectItem>)}
+        </SelectGroup>
+        <SelectSeparator />
+        <SelectGroup>
+          {custom && <SelectItem value={custom}>{custom}</SelectItem>}
+          <SelectItem value="__computer">From this computer…</SelectItem>
+        </SelectGroup>
+      </SelectContent>
+    </Select>
+  );
+}
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
@@ -68,7 +114,7 @@ function ColorInput({ doc, value, onChange }: { doc: CatalogDocument; value: str
   const resolved = resolveToken(doc, value);
   return (
     <div className="flex items-center gap-1">
-      <input type="color" value={/^#[0-9a-f]{6}$/i.test(resolved) ? resolved : "#000000"} onChange={(e) => onChange(e.target.value)} className="h-7 w-8 shrink-0 cursor-pointer rounded-lg border border-input bg-transparent p-0.5" aria-label="Custom color" />
+      <input type="color" value={/^#[0-9a-f]{6}$/i.test(resolved) ? resolved : "#000000"} onChange={(e) => onChange(e.target.value)} className="h-7 w-8 shrink-0 cursor-pointer rounded-[min(var(--radius-md),10px)] border border-input bg-transparent p-0.5 dark:bg-input/30" aria-label="Custom color" />
       <div className="flex flex-wrap gap-0.5">
         {Object.entries(doc.theme.colors).map(([name, hex]) => (
           <button
@@ -146,33 +192,14 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
       {el.type === "text" && (
         <Section title="Text">
           <Field label="Font">
-            <select
-              className={inputCls}
-              value={el.style.fontFamily}
-              onChange={(e) => (e.target.value === "__computer" ? setFontPickerFor(el.id) : update({ style: { fontFamily: e.target.value } }))}
-            >
-              <option value="token:heading">Theme heading ({doc.theme.fonts.heading})</option>
-              <option value="token:body">Theme body ({doc.theme.fonts.body})</option>
-              {catalogFonts.length > 0 && (
-                <optgroup label="In this catalog">
-                  {catalogFonts.map((f) => <option key={f} value={f}>{f}</option>)}
-                </optgroup>
-              )}
-              <optgroup label="Web fonts">
-                {FONTS.filter((f) => !catalogFonts.includes(f)).map((f) => <option key={f} value={f}>{f}</option>)}
-              </optgroup>
-              {!catalogFonts.includes(el.style.fontFamily) && !FONTS.includes(el.style.fontFamily) && !el.style.fontFamily.startsWith("token:") && (
-                <option value={el.style.fontFamily}>{el.style.fontFamily}</option>
-              )}
-              <option value="__computer">From this computer…</option>
-            </select>
+            <FontSelect doc={doc} catalogFonts={catalogFonts} value={el.style.fontFamily}
+              onChange={(v) => (v === "__computer" ? setFontPickerFor(el.id) : update({ style: { fontFamily: v } }))} />
           </Field>
           <div className="grid grid-cols-2 gap-2">
             <Field compact label="Size"><NumberInput value={el.style.fontSize} min={4} max={800} onCommit={(fontSize) => update({ style: { fontSize } })} /></Field>
             <Field compact label="Weight">
-              <select className={inputCls} value={el.style.fontWeight} onChange={(e) => update({ style: { fontWeight: Number(e.target.value) } })}>
-                {[300, 400, 500, 600, 700, 800, 900].map((w) => <option key={w}>{w}</option>)}
-              </select>
+              <SimpleSelect size="sm" aria-label="Weight" value={String(el.style.fontWeight)} onValueChange={(v) => update({ style: { fontWeight: Number(v) } })}
+                options={[300, 400, 500, 600, 700, 800, 900].map((w) => ({ value: String(w), label: w }))} />
             </Field>
             <Field compact label="Line"><NumberInput value={el.style.lineHeight} min={0.5} max={4} step={0.05} onCommit={(lineHeight) => update({ style: { lineHeight } })} /></Field>
             <Field compact label="Spacing"><NumberInput value={el.style.letterSpacing} step={0.5} onCommit={(letterSpacing) => update({ style: { letterSpacing } })} /></Field>
@@ -187,11 +214,8 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
             <Button variant={el.style.decoration === "underline" ? "secondary" : "ghost"} size="icon-sm" title="Underline" className="underline" onClick={() => update({ style: { decoration: el.style.decoration === "underline" ? "none" : "underline" } })}>U</Button>
           </div>
           <Field label="Direction">
-            <select className={inputCls} value={el.style.direction} onChange={(e) => update({ style: { direction: e.target.value } })}>
-              <option value="auto">Automatic (from the text)</option>
-              <option value="rtl">Right to left</option>
-              <option value="ltr">Left to right (e.g. phone numbers)</option>
-            </select>
+            <SimpleSelect size="sm" aria-label="Direction" value={el.style.direction} onValueChange={(direction) => update({ style: { direction } })}
+              options={[{ value: "auto", label: "Automatic (from the text)" }, { value: "rtl", label: "Right to left" }, { value: "ltr", label: "Left to right (e.g. phone numbers)" }]} />
           </Field>
           <p className="text-[11px] text-muted-foreground">Double-click the text on the slide to edit it.</p>
           {fontPickerFor === el.id && (
@@ -207,9 +231,8 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
       {el.type === "shape" && (
         <Section title="Shape">
           <Field label="Shape">
-            <select className={inputCls} value={el.content.shape} onChange={(e) => update({ content: { shape: e.target.value } })}>
-              {["rect", "ellipse", "triangle", "line", "arrow"].map((s) => <option key={s}>{s}</option>)}
-            </select>
+            <SimpleSelect size="sm" aria-label="Shape" value={el.content.shape} onValueChange={(shape) => update({ content: { shape } })}
+              options={["rect", "ellipse", "triangle", "line", "arrow"].map((s) => ({ value: s, label: s }))} />
           </Field>
           <Field label="Fill"><ColorInput doc={doc} value={el.style.fill} onChange={(fill) => update({ style: { fill } })} /></Field>
           <Field label="Border"><ColorInput doc={doc} value={el.style.stroke ?? "#000000"} onChange={(stroke) => update({ style: { stroke, strokeWidth: el.style.strokeWidth || 2 } })} /></Field>
@@ -223,11 +246,8 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
       {el.type === "image" && (
         <Section title="Image">
           <Field label="Fit">
-            <select className={inputCls} value={el.style.fit} onChange={(e) => update({ style: { fit: e.target.value } })}>
-              <option value="cover">Fill (crop)</option>
-              <option value="contain">Fit</option>
-              <option value="fill">Stretch</option>
-            </select>
+            <SimpleSelect size="sm" aria-label="Fit" value={el.style.fit} onValueChange={(fit) => update({ style: { fit } })}
+              options={[{ value: "cover", label: "Fill (crop)" }, { value: "contain", label: "Fit" }, { value: "fill", label: "Stretch" }]} />
           </Field>
           <Field label="Radius"><NumberInput value={el.style.borderRadius} min={0} onCommit={(borderRadius) => update({ style: { borderRadius } })} /></Field>
           <Field label="Alt text">
@@ -264,7 +284,7 @@ const ALIGN_BUTTONS = [
   ["b", AlignEndHorizontal, "Align bottom", "Alt+S"],
 ] as const;
 
-const segment = "inline-flex overflow-hidden rounded-lg border border-input divide-x divide-input";
+const segment = "inline-flex overflow-hidden rounded-[min(var(--radius-md),10px)] border border-input divide-x divide-input";
 const segmentBtn = "grid size-7 place-items-center text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:relative focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-ring [&_svg]:size-4";
 
 function AlignTools({ elements, run, doc }: { elements: CatalogElement[]; run: (c: EditorCommand) => unknown; doc: CatalogDocument }) {
@@ -420,8 +440,8 @@ function ProductProperties({ doc, el, run, update, assetUrls, ui }: {
       <Section title="Card shows">
         <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
           {CARD_OPTIONS.map(([key, label]) => (
-            <label key={key} className="flex min-w-0 items-center gap-1.5 text-xs">
-              <input type="checkbox" checked={display[key]} onChange={(e) => update({ style: { [key]: e.target.checked } })} />
+            <label key={key} className="flex min-w-0 cursor-pointer items-center gap-2 text-xs">
+              <Checkbox checked={display[key]} onCheckedChange={(checked) => update({ style: { [key]: checked } })} />
               <span className="truncate">{label}</span>
             </label>
           ))}
@@ -430,16 +450,12 @@ function ProductProperties({ doc, el, run, update, assetUrls, ui }: {
           <Field label="Max specs"><NumberInput value={display.maxAttributes} min={1} max={20} onCommit={(maxAttributes) => update({ style: { maxAttributes } })} /></Field>
         )}
         <Field label="Layout">
-          <select className={inputCls} value={el.style.layout === "horizontal" ? "horizontal" : "vertical"} onChange={(e) => update({ style: { layout: e.target.value } })}>
-            <option value="vertical">Photo on top</option>
-            <option value="horizontal">Photo beside text</option>
-          </select>
+          <SimpleSelect size="sm" aria-label="Layout" value={el.style.layout === "horizontal" ? "horizontal" : "vertical"} onValueChange={(layout) => update({ style: { layout } })}
+            options={[{ value: "vertical", label: "Photo on top" }, { value: "horizontal", label: "Photo beside text" }]} />
         </Field>
         <Field label="Photo fit">
-          <select className={inputCls} value={el.style.imageFit} onChange={(e) => update({ style: { imageFit: e.target.value } })}>
-            <option value="contain">Show whole photo</option>
-            <option value="cover">Fill and crop</option>
-          </select>
+          <SimpleSelect size="sm" aria-label="Photo fit" value={el.style.imageFit} onValueChange={(imageFit) => update({ style: { imageFit } })}
+            options={[{ value: "contain", label: "Show whole photo" }, { value: "cover", label: "Fill and crop" }]} />
         </Field>
         <Field label="Radius"><NumberInput value={el.style.borderRadius} min={0} onCommit={(borderRadius) => update({ style: { borderRadius } })} /></Field>
         {el.type === "product-grid" && <Field label="Gap"><NumberInput value={el.style.gap} min={0} max={400} onCommit={(gap) => update({ style: { gap } })} /></Field>}
@@ -466,13 +482,13 @@ function SlideProperties({ doc, slide, run }: { doc: CatalogDocument; slide: Cat
           <ColorInput doc={doc} value={bg.kind === "color" ? bg.color : "#ffffff"} onChange={(color) => run({ type: "slide.update", slideId: slide.id, changes: { background: { kind: "color", color } } })} />
         </Field>
         <Field label="Transition">
-          <select
-            className={inputCls}
+          <SimpleSelect
+            size="sm"
+            aria-label="Transition"
             value={slide.transition?.type ?? "none"}
-            onChange={(e) => run({ type: "slide.setTransition", slideId: slide.id, transition: e.target.value === "none" ? null : { type: e.target.value as never, ...(e.target.value === "morph" ? { durationMs: 900 } : {}) } })}
-          >
-            {TRANSITIONS.map(([t, label]) => <option key={t} value={t}>{label}</option>)}
-          </select>
+            onValueChange={(v) => run({ type: "slide.setTransition", slideId: slide.id, transition: v === "none" ? null : { type: v as never, ...(v === "morph" ? { durationMs: 900 } : {}) } })}
+            options={TRANSITIONS.map(([value, label]) => ({ value, label }))}
+          />
         </Field>
         {slide.transition?.type === "morph" && (
           <p className="-mt-1 text-xs text-muted-foreground">
@@ -485,9 +501,8 @@ function SlideProperties({ doc, slide, run }: { doc: CatalogDocument; slide: Cat
           <div className="grid grid-cols-2 gap-2">
             <Field compact label="Time"><NumberInput value={slide.transition.durationMs / 1000} min={0.1} max={10} step={0.1} suffix="s" onCommit={(v) => run({ type: "slide.setTransition", slideId: slide.id, transition: { durationMs: Math.round(v * 1000) } })} /></Field>
             {slide.transition.type !== "morph" && slide.transition.type !== "fade" && <Field compact label="From">
-              <select className={inputCls} value={slide.transition.direction ?? "left"} onChange={(e) => run({ type: "slide.setTransition", slideId: slide.id, transition: { direction: e.target.value as never } })}>
-                {["left", "right", "up", "down"].map((d) => <option key={d}>{d}</option>)}
-              </select>
+              <SimpleSelect size="sm" aria-label="From" value={slide.transition.direction ?? "left"} onValueChange={(v) => run({ type: "slide.setTransition", slideId: slide.id, transition: { direction: v as never } })}
+                options={["left", "right", "up", "down"].map((d) => ({ value: d, label: d }))} />
             </Field>}
           </div>
         )}
@@ -502,7 +517,7 @@ function SlideProperties({ doc, slide, run }: { doc: CatalogDocument; slide: Cat
       <Section title="Theme colors">
         {Object.entries(doc.theme.colors).map(([name, hex]) => (
           <Field key={name} label={name}>
-            <input type="color" value={hex} className="h-7 w-full cursor-pointer rounded-lg border border-input bg-transparent p-0.5" onChange={(e) => run({ type: "catalog.updateTheme", theme: { colors: { [name]: e.target.value } } })} />
+            <input type="color" value={hex} className="h-7 w-full cursor-pointer rounded-[min(var(--radius-md),10px)] border border-input bg-transparent p-0.5 dark:bg-input/30" onChange={(e) => run({ type: "catalog.updateTheme", theme: { colors: { [name]: e.target.value } } })} />
           </Field>
         ))}
       </Section>
@@ -523,7 +538,7 @@ function CodeField({ label, value, rows, onCommit }: { label: string; value: str
         rows={rows}
         spellCheck={false}
         onBlur={(e) => e.target.value !== value && onCommit(e.target.value)}
-        className="w-full resize-y rounded-lg border border-input bg-transparent p-1.5 font-mono text-[11px] leading-snug outline-none focus-visible:border-ring"
+        className="w-full resize-y rounded-lg border border-input bg-transparent p-2 font-mono text-[11px] leading-snug transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
       />
     </label>
   );
@@ -538,7 +553,6 @@ function AnimationProperties({ el, run }: { el: CatalogElement; run: (c: EditorC
   const [direction, setDirection] = useState<"left" | "right" | "up" | "down">("up");
   const [duration, setDuration] = useState(0.6);
   const [delay, setDelay] = useState(0);
-  const sel = "h-7 w-full min-w-0 rounded-lg border border-input bg-transparent px-1 text-xs";
   return (
     <Section title="Animation">
       {el.animations.length === 0 && <p className="text-[11px] text-muted-foreground">No animations yet. They play in Preview, on published sites and in video exports.</p>}
@@ -551,18 +565,13 @@ function AnimationProperties({ el, run }: { el: CatalogElement; run: (c: EditorC
         </div>
       ))}
       <div className="grid grid-cols-2 gap-1">
-        <select className={sel} value={category} onChange={(e) => setCategory(e.target.value as never)} aria-label="Animation type">
-          <option value="entrance">Entrance</option><option value="exit">Exit</option><option value="emphasis">Emphasis</option>
-        </select>
-        <select className={sel} value={preset} onChange={(e) => setPreset(e.target.value as never)} aria-label="Effect">
-          {PRESETS.map((p) => <option key={p}>{p}</option>)}
-        </select>
-        <select className={sel} value={trigger} onChange={(e) => setTrigger(e.target.value as never)} aria-label="Start">
-          <option value="on-enter">With slide</option><option value="after-previous">After previous</option><option value="with-previous">With previous</option>
-        </select>
-        <select className={sel} value={direction} onChange={(e) => setDirection(e.target.value as never)} aria-label="Direction" disabled={preset !== "slide"}>
-          {["up", "down", "left", "right"].map((d) => <option key={d}>{d}</option>)}
-        </select>
+        <SimpleSelect size="sm" aria-label="Animation type" value={category} onValueChange={(v) => setCategory(v as never)}
+          options={[{ value: "entrance", label: "Entrance" }, { value: "exit", label: "Exit" }, { value: "emphasis", label: "Emphasis" }]} />
+        <SimpleSelect size="sm" aria-label="Effect" value={preset} onValueChange={setPreset} options={PRESETS.map((p) => ({ value: p, label: p }))} />
+        <SimpleSelect size="sm" aria-label="Start" value={trigger} onValueChange={setTrigger}
+          options={[{ value: "on-enter", label: "With slide" }, { value: "after-previous", label: "After previous" }, { value: "with-previous", label: "With previous" }]} />
+        <SimpleSelect size="sm" aria-label="Direction" value={direction} onValueChange={setDirection} disabled={preset !== "slide"}
+          options={(["up", "down", "left", "right"] as const).map((d) => ({ value: d, label: d }))} />
         <Field compact label="Time"><NumberInput value={duration} min={0.1} max={30} step={0.1} suffix="s" onCommit={setDuration} /></Field>
         <Field compact label="Delay"><NumberInput value={delay} min={0} max={30} step={0.1} suffix="s" onCommit={setDelay} /></Field>
       </div>

@@ -2,11 +2,16 @@
 
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
-import { Check, Copy, KeyRound, Loader2, Plug, RefreshCw, ScrollText, Sparkles, Trash2, Users } from "lucide-react";
+import { Checkbox } from "@Kavero/ui/components/checkbox";
+import { CodeBlock, CopyField } from "@Kavero/ui/components/code-block";
+import { SimpleSelect } from "@Kavero/ui/components/simple-select";
+import { KeyRound, Loader2, Plug, Plus, RefreshCw, ScrollText, Sparkles, Trash2, Users } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { PageTabs, SectionHeader } from "@/components/page-tabs";
+import { surface } from "@/components/surface";
 import { authClient } from "@/lib/auth-client";
 import { makeTRPCClient } from "@/utils/trpc";
 
@@ -48,19 +53,7 @@ export function SettingsPage() {
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8">
       <h1 className="mb-6 text-2xl font-semibold tracking-tight">Settings</h1>
-      <div className="mb-6 flex flex-wrap gap-1 border-b" role="tablist">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            role="tab"
-            aria-selected={tab === t.id}
-            onClick={() => { setTab(t.id); history.replaceState(null, "", `#${t.id}`); }}
-            className="-mb-px inline-flex items-center gap-1.5 border-b-2 border-transparent px-3 py-2 text-sm text-muted-foreground aria-selected:border-foreground aria-selected:text-foreground [&_svg]:size-4"
-          >
-            {t.icon} {t.label}
-          </button>
-        ))}
-      </div>
+      <PageTabs label="Settings" tabs={tabs} value={tab} onChange={(id) => { setTab(id); history.replaceState(null, "", `#${id}`); }} />
       {tab === "workspaces" && <WorkspacesTab />}
       {tab === "tokens" && <TokensTab />}
       {tab === "connections" && <ConnectionsTab />}
@@ -80,15 +73,6 @@ const SCOPE_LABELS: Record<string, string> = {
 };
 
 type TokenRow = Awaited<ReturnType<ReturnType<typeof api>["integrations"]["tokens"]["list"]["query"]>>[number];
-
-function CopyButton({ text, label = "Copy" }: { text: string; label?: string }) {
-  const [done, setDone] = useState(false);
-  return (
-    <Button variant="outline" size="sm" onClick={async () => { await navigator.clipboard.writeText(text); setDone(true); setTimeout(() => setDone(false), 1500); }}>
-      {done ? <Check /> : <Copy />} {label}
-    </Button>
-  );
-}
 
 function TokensTab() {
   const [tokens, setTokens] = useState<TokenRow[] | null>(null);
@@ -123,49 +107,49 @@ function TokensTab() {
         <p className="text-sm text-muted-foreground">
           Let AI agents (Claude, Cursor, your own scripts) build catalogs through Kavero’s MCP server. Give each agent its own token with only the permissions it needs.
         </p>
-        <div className="grid gap-3 border p-4">
-          <div className="grid gap-3 sm:grid-cols-[1fr_auto]">
-            <label className="grid gap-1 text-xs">Name<Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} /></label>
-            <label className="grid gap-1 text-xs">Expires
-              <select value={expires} onChange={(e) => setExpires(e.target.value)} className="h-8 rounded-lg border border-input bg-transparent px-2 text-xs">
-                <option value="30">in 30 days</option><option value="90">in 90 days</option><option value="365">in a year</option><option value="">never</option>
-              </select>
+        <div className={`grid gap-4 text-xs ${surface.panel}`}>
+          <SectionHeader title="New token" />
+          <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
+            <label className="grid gap-1.5">Name<Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} /></label>
+            <label className="grid gap-1.5">Expires
+              <SimpleSelect value={expires} onValueChange={setExpires} options={[{ value: "30", label: "in 30 days" }, { value: "90", label: "in 90 days" }, { value: "365", label: "in a year" }, { value: "", label: "never" }]} />
             </label>
           </div>
-          <fieldset className="flex flex-wrap gap-x-4 gap-y-1 text-xs">
-            <legend className="mb-1">Permissions</legend>
-            {Object.entries(SCOPE_LABELS).map(([s, label]) => (
-              <label key={s} className="flex items-center gap-1.5">
-                <input type="checkbox" checked={scopes.includes(s)} onChange={(e) => setScopes(e.target.checked ? [...scopes, s] : scopes.filter((x) => x !== s))} /> {label}
-              </label>
-            ))}
+          <fieldset className="grid gap-2">
+            <legend className="mb-1.5">Permissions</legend>
+            <div className="flex flex-wrap gap-x-5 gap-y-2">
+              {Object.entries(SCOPE_LABELS).map(([s, label]) => (
+                <label key={s} className="flex cursor-pointer items-center gap-2">
+                  <Checkbox checked={scopes.includes(s)} onCheckedChange={(checked) => setScopes(checked ? [...scopes, s] : scopes.filter((x) => x !== s))} /> {label}
+                </label>
+              ))}
+            </div>
           </fieldset>
-          <div><Button onClick={create} disabled={busy || !scopes.length || !name.trim()}>{busy && <Loader2 className="animate-spin" />} Create token</Button></div>
+          <div><Button onClick={create} disabled={busy || !scopes.length || !name.trim()}>{busy ? <Loader2 className="animate-spin" /> : <Plus />} Create token</Button></div>
         </div>
 
         {created && (
-          <div className="grid gap-2 border border-amber-500/50 bg-amber-500/5 p-4 text-xs">
+          <div className={`grid gap-2 text-xs ${surface.warning}`}>
             <p className="font-medium">Copy this token now. It won’t be shown again.</p>
-            <div className="flex items-center gap-2"><code className="min-w-0 flex-1 truncate border bg-background px-2 py-1">{created}</code><CopyButton text={created} /></div>
+            <CopyField value={created} />
           </div>
         )}
 
         <div className="grid gap-2 text-xs">
-          <p className="font-medium">Connect an MCP client</p>
-          <p className="text-muted-foreground">Server URL: <code>{endpoint}</code> (Streamable HTTP). Send the token as <code>Authorization: Bearer …</code>. For example, in an MCP client config:</p>
-          <pre className="overflow-x-auto border bg-muted/40 p-3 text-[11px]">{config}</pre>
-          <div><CopyButton text={config} label="Copy config" /></div>
+          <SectionHeader title="Connect an MCP client" />
+          <p className="text-muted-foreground">Server URL: <code className={surface.code}>{endpoint}</code> (Streamable HTTP). Send the token as <code className={surface.code}>Authorization: Bearer …</code>. For example, in an MCP client config:</p>
+          <CodeBlock code={config} copyLabel="Copy config" />
         </div>
       </section>
 
-      <section>
-        <h2 className="mb-2 text-sm font-semibold">Active tokens</h2>
+      <section className="grid gap-3">
+        <SectionHeader title="Active tokens" />
         {!tokens ? <p className="text-xs text-muted-foreground">Loading…</p> : tokens.length === 0 ? <p className="text-xs text-muted-foreground">No tokens yet.</p> : (
-          <ul className="divide-y border">
+          <ul className={surface.list}>
             {tokens.map((t) => (
               <li key={t.id} className="flex flex-wrap items-center gap-3 p-3 text-xs">
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium">{t.name} <code className="ml-1 text-muted-foreground">{t.prefix}…</code></p>
+                  <p className="font-medium">{t.name} <code className={`ml-1 text-muted-foreground ${surface.code}`}>{t.prefix}…</code></p>
                   <p className="text-muted-foreground">
                     {t.scopes.map((s) => SCOPE_LABELS[s] ?? s).join(", ")} · {t.lastUsedAt ? `used ${new Date(t.lastUsedAt).toLocaleString()}` : "never used"}
                     {t.expiresAt ? ` · expires ${new Date(t.expiresAt).toLocaleDateString()}` : ""}
@@ -209,47 +193,43 @@ function ConnectionsTab() {
     }
   }
 
-  const field = "h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs";
   return (
     <div className="grid gap-8">
       <section className="grid gap-3">
         <p className="text-sm text-muted-foreground">
           Connect MCP servers that hold your product data (store, inventory, PIM). You can then import products into any catalog from the editor. Credentials are encrypted and only used by the server.
         </p>
-        <div className="grid gap-3 border p-4 text-xs">
+        <div className={`grid gap-4 text-xs ${surface.panel}`}>
+          <SectionHeader title="Add a server" />
           <div className="grid gap-3 sm:grid-cols-2">
-            <label className="grid gap-1">Name<input className={field} value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="My store" /></label>
-            <label className="grid gap-1">Transport
-              <select className={field} value={form.transport} onChange={(e) => setForm({ ...form, transport: e.target.value as never })}>
-                <option value="streamable-http">Streamable HTTP</option><option value="sse">SSE (older servers)</option>
-              </select>
+            <label className="grid gap-1.5">Name<Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} placeholder="My store" /></label>
+            <label className="grid gap-1.5">Transport
+              <SimpleSelect value={form.transport} onValueChange={(v) => setForm({ ...form, transport: v })} options={[{ value: "streamable-http", label: "Streamable HTTP" }, { value: "sse", label: "SSE (older servers)" }]} />
             </label>
           </div>
-          <label className="grid gap-1">Server URL<input className={field} value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://example.com/mcp" /></label>
+          <label className="grid gap-1.5">Server URL<Input value={form.url} onChange={(e) => setForm({ ...form, url: e.target.value })} placeholder="https://example.com/mcp" /></label>
           <div className="grid gap-3 sm:grid-cols-3">
-            <label className="grid gap-1">Authentication
-              <select className={field} value={form.authType} onChange={(e) => setForm({ ...form, authType: e.target.value as never })}>
-                <option value="none">None</option><option value="bearer">Bearer token</option><option value="header">Custom header</option>
-              </select>
+            <label className="grid gap-1.5">Authentication
+              <SimpleSelect value={form.authType} onValueChange={(v) => setForm({ ...form, authType: v })} options={[{ value: "none", label: "None" }, { value: "bearer", label: "Bearer token" }, { value: "header", label: "Custom header" }]} />
             </label>
-            {form.authType === "header" && <label className="grid gap-1">Header name<input className={field} value={form.authHeader} onChange={(e) => setForm({ ...form, authHeader: e.target.value })} /></label>}
-            {form.authType !== "none" && <label className="grid gap-1">{form.authType === "bearer" ? "Token" : "Value"}<input className={field} type="password" autoComplete="off" value={form.secret} onChange={(e) => setForm({ ...form, secret: e.target.value })} /></label>}
+            {form.authType === "header" && <label className="grid gap-1.5">Header name<Input value={form.authHeader} onChange={(e) => setForm({ ...form, authHeader: e.target.value })} /></label>}
+            {form.authType !== "none" && <label className="grid gap-1.5">{form.authType === "bearer" ? "Token" : "Value"}<Input type="password" autoComplete="off" value={form.secret} onChange={(e) => setForm({ ...form, secret: e.target.value })} /></label>}
           </div>
           <p className="text-muted-foreground">Local (stdio) MCP servers need the Kavero desktop companion, which isn’t available yet.</p>
           <div><Button onClick={add} disabled={!!busy || !form.name.trim() || !form.url.trim()}>{busy === "add" && <Loader2 className="animate-spin" />} Connect</Button></div>
         </div>
       </section>
 
-      <section>
-        <h2 className="mb-2 text-sm font-semibold">Connected servers</h2>
+      <section className="grid gap-3">
+        <SectionHeader title="Connected servers" />
         {!rows ? <p className="text-xs text-muted-foreground">Loading…</p> : rows.length === 0 ? <p className="text-xs text-muted-foreground">None yet.</p> : (
-          <ul className="divide-y border">
+          <ul className={surface.list}>
             {rows.map((c) => (
               <li key={c.id} className="grid gap-2 p-3 text-xs">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={`inline-block size-2 rounded-full ${c.status === "ok" ? "bg-green-500" : c.status === "error" ? "bg-red-500" : "bg-muted-foreground"}`} />
                   <span className="font-medium">{c.name}</span>
-                  <code className="min-w-0 truncate text-muted-foreground">{c.url}</code>
+                  <code className="min-w-0 truncate font-mono text-muted-foreground">{c.url}</code>
                   <span className="ml-auto flex gap-1">
                     <Button variant="ghost" size="sm" disabled={busy === c.id} onClick={async () => {
                       setBusy(c.id);
@@ -288,16 +268,16 @@ function ActivityTab() {
   if (!rows) return <p className="text-xs text-muted-foreground">Loading…</p>;
   if (!rows.length) return <p className="text-xs text-muted-foreground">No API or agent activity yet.</p>;
   return (
-    <div className="overflow-x-auto border">
+    <div className={surface.table}>
       <table className="w-full text-xs">
-        <thead className="bg-muted/40 text-left"><tr><th className="p-2">When</th><th className="p-2">Action</th><th className="p-2">Target</th><th className="p-2">Result</th></tr></thead>
+        <thead className={surface.thead}><tr><th className="px-3 py-2 text-start font-medium">When</th><th className="px-3 py-2 text-start font-medium">Action</th><th className="px-3 py-2 text-start font-medium">Target</th><th className="px-3 py-2 text-start font-medium">Result</th></tr></thead>
         <tbody className="divide-y">
           {rows.map((r) => (
             <tr key={r.id}>
-              <td className="p-2 whitespace-nowrap text-muted-foreground">{new Date(r.createdAt).toLocaleString()}</td>
-              <td className="p-2 font-mono">{r.action}</td>
-              <td className="max-w-48 truncate p-2 font-mono text-muted-foreground">{r.target ?? ""}</td>
-              <td className={`p-2 ${r.outcome === "ok" ? "" : "text-destructive"}`}>{r.outcome}</td>
+              <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{new Date(r.createdAt).toLocaleString()}</td>
+              <td className="px-3 py-2 font-mono">{r.action}</td>
+              <td className="max-w-48 truncate px-3 py-2 font-mono text-muted-foreground">{r.target ?? ""}</td>
+              <td className={`px-3 py-2 ${r.outcome === "ok" ? "" : "text-destructive"}`}>{r.outcome}</td>
             </tr>
           ))}
         </tbody>

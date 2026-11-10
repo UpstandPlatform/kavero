@@ -5,7 +5,7 @@ import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { CatalogFonts, SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
 import {
-  ArrowLeft, Circle, Code2, Copy, Globe, Keyboard, PackagePlus, Play, Sparkles, ImagePlus, LayoutGrid, Minus, Plus, Redo2, Square, Tag, Trash2, Type, Undo2, ChevronUp, ChevronDown,
+  ArrowLeft, Circle, Code2, Copy, Globe, Keyboard, PackagePlus, Play, ImagePlus, LayoutGrid, Minus, Plus, Redo2, Square, Tag, Trash2, Type, Undo2, ChevronUp, ChevronDown, Heading1, MessagesSquare, ZoomIn, ZoomOut,
 } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -13,7 +13,6 @@ import { toast } from "sonner";
 
 import { Canvas } from "./canvas";
 import type { AddFont } from "./font-picker";
-import { AiEditDialog } from "./ai-edit-dialog";
 import { ContextMenuProvider, useContextMenu } from "./context-menu";
 import { createActions, kbd } from "./editor-actions";
 import { slideMenu } from "./editor-menus";
@@ -28,6 +27,9 @@ import { ProductsPanel } from "./products-panel";
 import { PublishDialog } from "./publish-dialog";
 import { PreviewPlayer } from "./preview-player";
 import { PropertiesPanel } from "./properties-panel";
+import { RailButton, ToolRail } from "./tool-rail";
+import { Workspace, WorkspaceMenu, useWorkspace } from "./workspace";
+import { EditorChat } from "@/modules/chat/editor-chat";
 import { authClient } from "@/lib/auth-client";
 import { pullCatalog, refreshFromCloud } from "@/modules/catalog/cloud-sync";
 import { localCatalogs } from "@/modules/catalog/local-catalogs";
@@ -115,7 +117,6 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
   const [previewing, setPreviewing] = useState<false | "play" | "export">(false);
   const [publishing, setPublishing] = useState(false);
   const [importing, setImporting] = useState(false);
-  const [aiEditing, setAiEditing] = useState(false);
   const [picking, setPicking] = useState<PickOptions | null>(null);
   const [productForm, setProductForm] = useState<{ productId?: string; onSaved?: (id: string) => void; key: number } | null>(null);
 
@@ -152,6 +153,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
   const actions = useMemo(() => createActions({ editor, run, uploadImage }), [editor, run, uploadImage]);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [sidebar, setSidebar] = useState<"slides" | "layers" | "products">("slides");
+  const workspace = useWorkspace();
 
   const productUi = useMemo<ProductUi>(() => ({
     pick: setPicking,
@@ -184,7 +186,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
   const conflict = saveStatus === "conflict";
 
   return (
-    <div className={`grid h-svh w-full min-w-0 overflow-hidden ${conflict ? "grid-rows-[auto_auto_auto_minmax(0,1fr)]" : "grid-rows-[auto_auto_minmax(0,1fr)]"}`}>
+    <div className="flex h-svh w-full min-w-0 flex-col overflow-hidden">
       {/* Top bar */}
       <header className="flex min-w-0 items-center gap-2 border-b px-3 py-1.5">
         <Link href="/dashboard" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><ArrowLeft className="size-3.5" /> Catalogs</Link>
@@ -200,7 +202,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
         {cloudLabel && <span className="hidden shrink-0 text-xs text-muted-foreground lg:inline" aria-live="polite">· {cloudLabel}</span>}
         <Button variant="ghost" size="icon-sm" title="Undo (Ctrl+Z)" disabled={!state.canUndo} onClick={() => editor.undo()}><Undo2 /></Button>
         <Button variant="ghost" size="icon-sm" title="Redo (Ctrl+Shift+Z)" disabled={!state.canRedo} onClick={() => editor.redo()}><Redo2 /></Button>
-        <Button variant="ghost" size="sm" onClick={() => setAiEditing(true)} title="Edit with AI"><Sparkles /> <span className="hidden lg:inline">AI</span></Button>
+        <Button variant={workspace.isOpen("chat") ? "secondary" : "ghost"} size="sm" aria-pressed={workspace.isOpen("chat")} onClick={() => workspace.toggle("chat")} title="Chat with your AI model about this catalog"><MessagesSquare /> <span className="hidden lg:inline">Chat</span></Button>
         <ExportMenu doc={doc} onVideo={() => setPreviewing("export")} />
         <Button variant="outline" size="sm" onClick={() => setPublishing(true)} title="Publish as a website"><Globe /> Publish</Button>
         <Button size="sm" className="ml-1" onClick={() => setPreviewing("play")} title="Play from this slide"><Play /> Preview</Button>
@@ -216,94 +218,116 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
         </div>
       )}
 
-      {/* Insert toolbar */}
-      <div className="flex min-w-0 items-center gap-1 overflow-x-auto border-b px-3 py-1">
-        <Button variant="ghost" size="sm" title="Heading" aria-label="Heading" onClick={() => addElement({ type: "text", content: { paragraphs: [[{ text: "Heading" }]] }, style: { fontSize: Math.round(H * 0.06), fontWeight: 700, fontFamily: "token:heading" }, size: [W * 0.5, H * 0.1] } as never)}><Type /> <span className="hidden xl:inline">Heading</span></Button>
-        <Button variant="ghost" size="sm" title="Text" aria-label="Text" onClick={() => addElement({ type: "text", content: { paragraphs: [[{ text: "Body text" }]] }, style: { fontSize: Math.round(H * 0.025) }, size: [W * 0.4, H * 0.08] } as never)}><Type className="size-3" /> <span className="hidden xl:inline">Text</span></Button>
-        <Button variant="ghost" size="sm" title="Rectangle" aria-label="Rectangle" onClick={() => addElement({ type: "shape", content: { shape: "rect" }, size: [W * 0.2, H * 0.2] } as never)}><Square /> <span className="hidden xl:inline">Rectangle</span></Button>
-        <Button variant="ghost" size="sm" title="Ellipse" aria-label="Ellipse" onClick={() => addElement({ type: "shape", content: { shape: "ellipse" }, size: [H * 0.2, H * 0.2] } as never)}><Circle /> <span className="hidden xl:inline">Ellipse</span></Button>
-        <Button variant="ghost" size="sm" title="Line" aria-label="Line" onClick={() => addElement({ type: "shape", content: { shape: "line" }, style: { fill: "token:text", strokeWidth: 3 }, size: [W * 0.25, 20] } as never)}><Minus /> <span className="hidden xl:inline">Line</span></Button>
-        <input ref={fileInput} type="file" accept="image/*" className="hidden" onChange={(e) => addImage(e.target.files?.[0])} />
-        <Button variant="ghost" size="sm" title="Image" aria-label="Image" onClick={() => fileInput.current?.click()}><ImagePlus /> <span className="hidden xl:inline">Image</span></Button>
-        <Button variant="ghost" size="sm" title="Product card" aria-label="Product card" aria-haspopup="dialog" onClick={() => productUi.pick({ multiple: false, title: "Add a product card", confirmLabel: "Add to slide", onConfirm: ([id]) => id && insertProduct(id) })}><Tag /> <span className="hidden xl:inline">Product</span></Button>
-        <Button variant="ghost" size="sm" title="Product grid" aria-label="Product grid" aria-haspopup="dialog" onClick={() => productUi.pick({ multiple: true, title: "Add a product grid", confirmLabel: "Add grid to slide", onConfirm: insertGrid })}><LayoutGrid /> <span className="hidden xl:inline">Product grid</span></Button>
-        <Button variant="ghost" size="sm" title="HTML block" aria-label="HTML block" onClick={() => addElement({ type: "html", content: { html: SAMPLE_HTML, css: SAMPLE_CSS }, size: [W * 0.4, H * 0.3] } as never)}><Code2 /> <span className="hidden xl:inline">HTML</span></Button>
-        <Button variant="ghost" size="sm" title="Import products from MCP" aria-label="Import products from MCP" onClick={() => setImporting(true)}><PackagePlus /> <span className="hidden xl:inline">Import products</span></Button>
-        <div className="ml-auto flex shrink-0 items-center gap-1 text-xs">
-          <Button variant="ghost" size="icon-sm" title="Zoom out" onClick={() => zoomBy(0.8)}><Minus /></Button>
-          <button type="button" className="w-12 text-center tabular-nums hover:underline" title="Fit to window" onClick={() => setZoom("fit")}>{Math.round(scale * 100)}%</button>
-          <Button variant="ghost" size="icon-sm" title={`Zoom in (${kbd("Ctrl+=")})`} onClick={() => zoomBy(1.25)}><Plus /></Button>
-          <Button variant="ghost" size="icon-sm" title="Keyboard shortcuts (?)" aria-label="Keyboard shortcuts" onClick={() => setShortcutsOpen(true)}><Keyboard /></Button>
-        </div>
-      </div>
-
-      <div className="grid min-h-0 grid-cols-[clamp(140px,17vw,220px)_minmax(0,1fr)_clamp(220px,24vw,272px)]">
-        {/* Slides / Layers */}
-        <aside className="flex min-h-0 flex-col border-r">
-          <div className="flex flex-wrap items-center gap-0.5 px-2 py-2" role="tablist" aria-label="Sidebar">
-            {(["slides", "layers", "products"] as const).map((t) => (
-              <button key={t} type="button" role="tab" aria-selected={sidebar === t} onClick={() => setSidebar(t)}
-                title={t === "layers" ? `Layers on this slide (${slide.elements.length})` : t === "products" ? `Products in this catalog (${doc.products.length})` : "Slides"}
-                className="rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground capitalize aria-selected:bg-muted aria-selected:text-foreground">
-                {t}
-              </button>
-            ))}
-            {sidebar === "slides" && <Button variant="ghost" size="icon-sm" className="ml-auto" title={`Add slide (${kbd("Ctrl+M")})`} onClick={() => actions.addSlide()}><Plus /></Button>}
-          </div>
-          {sidebar === "products" ? (
-            <ProductsPanel editor={editor} doc={doc} assetUrls={assetUrls} ui={productUi} onInsert={insertProduct} />
-          ) : sidebar === "layers" ? (
-            <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
-              <LayersPanel editor={editor} slide={slide} selection={state.selection} actions={actions} />
+      <Workspace
+        api={workspace}
+        rail={
+          <ToolRail
+            groups={[
+              [
+                { id: "heading", icon: <Heading1 />, label: "Heading", description: "Add a large title in the theme's heading font.", onClick: () => addElement({ type: "text", content: { paragraphs: [[{ text: "Heading" }]] }, style: { fontSize: Math.round(H * 0.06), fontWeight: 700, fontFamily: "token:heading" }, size: [W * 0.5, H * 0.1] } as never) },
+                { id: "text", icon: <Type />, label: "Text", description: "Add a paragraph of body text. Double-click it on the slide to type.", onClick: () => addElement({ type: "text", content: { paragraphs: [[{ text: "Body text" }]] }, style: { fontSize: Math.round(H * 0.025) }, size: [W * 0.4, H * 0.08] } as never) },
+              ],
+              [
+                { id: "rect", icon: <Square />, label: "Rectangle", description: "Add a rectangle for backgrounds, cards and color blocks.", onClick: () => addElement({ type: "shape", content: { shape: "rect" }, size: [W * 0.2, H * 0.2] } as never) },
+                { id: "ellipse", icon: <Circle />, label: "Ellipse", description: "Add a circle or ellipse.", onClick: () => addElement({ type: "shape", content: { shape: "ellipse" }, size: [H * 0.2, H * 0.2] } as never) },
+                { id: "line", icon: <Minus />, label: "Line", description: "Add a divider line.", onClick: () => addElement({ type: "shape", content: { shape: "line" }, style: { fill: "token:text", strokeWidth: 3 }, size: [W * 0.25, 20] } as never) },
+              ],
+              [
+                { id: "image", icon: <ImagePlus />, label: "Image", description: "Upload a photo, logo or illustration from your computer. You can also paste images onto the slide.", onClick: () => fileInput.current?.click() },
+                { id: "product", icon: <Tag />, label: "Product card", description: "Pick a product from this catalog and add its card: photo, name, price and details.", onClick: () => productUi.pick({ multiple: false, title: "Add a product card", confirmLabel: "Add to slide", onConfirm: ([id]) => id && insertProduct(id) }) },
+                { id: "grid", icon: <LayoutGrid />, label: "Product grid", description: "Pick several products and lay them out as a grid of cards.", onClick: () => productUi.pick({ multiple: true, title: "Add a product grid", confirmLabel: "Add grid to slide", onConfirm: insertGrid }) },
+                { id: "html", icon: <Code2 />, label: "HTML block", description: "Add your own HTML and CSS, rendered safely in a sandbox (no scripts).", onClick: () => addElement({ type: "html", content: { html: SAMPLE_HTML, css: SAMPLE_CSS }, size: [W * 0.4, H * 0.3] } as never) },
+              ],
+              [
+                { id: "import", icon: <PackagePlus />, label: "Import products", description: "Bring products in from a connected store or MCP source, or paste a list.", onClick: () => setImporting(true) },
+                { id: "chat", icon: <MessagesSquare />, label: "Chat", description: "Talk to your connected AI model about this catalog. It proposes edits you preview and apply.", active: workspace.isOpen("chat"), onClick: () => workspace.toggle("chat") },
+              ],
+            ]}
+            bottom={
+              <>
+                <RailButton tool={{ id: "shortcuts", icon: <Keyboard />, label: "Keyboard shortcuts", description: "See every shortcut for editing, arranging, aligning and navigating.", shortcut: "?", onClick: () => setShortcutsOpen(true) }} />
+                <WorkspaceMenu api={workspace} />
+              </>
+            }
+          />
+        }
+        center={
+          <>
+            <input ref={fileInput} type="file" accept="image/*" className="hidden" onChange={(e) => addImage(e.target.files?.[0])} />
+            <Canvas editor={editor} state={state} slide={slide} assetUrls={assetUrls} zoom={zoom} onFitScale={onFitScale} actions={actions} />
+            {/* Zoom */}
+            <div className="absolute right-3 bottom-3 z-10 flex items-center gap-0.5 rounded-lg border bg-background/90 p-0.5 text-xs shadow-sm backdrop-blur">
+              <Button variant="ghost" size="icon-sm" title={`Zoom out (${kbd("Ctrl+-")})`} aria-label="Zoom out" onClick={() => zoomBy(0.8)}><ZoomOut /></Button>
+              <button type="button" className="w-12 rounded-md py-1 text-center tabular-nums hover:bg-muted" title={`Fit to window (${kbd("Ctrl+0")})`} onClick={() => setZoom("fit")}>{Math.round(scale * 100)}%</button>
+              <Button variant="ghost" size="icon-sm" title={`Zoom in (${kbd("Ctrl+=")})`} aria-label="Zoom in" onClick={() => zoomBy(1.25)}><ZoomIn /></Button>
             </div>
-          ) : (
-          <ol ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 pb-3">
-            {doc.slides.map((s, i) => (
-              <li key={s.id} className="group" onContextMenu={(e) => { editor.setActiveSlide(s.id); openMenu(e, slideMenu(actions, s.id, i, doc.slides.length, () => setRenamingSlide(s.id))); }}>
-                <div className="mb-1 flex items-center gap-1 text-[11px] text-muted-foreground">
-                  <span className="tabular-nums">{i + 1}</span>
-                  {renamingSlide === s.id ? (
-                    <input autoFocus defaultValue={s.name} aria-label="Slide name" className="h-5 min-w-0 flex-1 rounded border border-input bg-background px-1 text-[11px] text-foreground outline-none"
-                      onBlur={(e) => { actions.renameSlide(s.id, e.target.value); setRenamingSlide(null); }}
-                      onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenamingSlide(null); }} />
-                  ) : (
-                    <span className="truncate" onDoubleClick={() => setRenamingSlide(s.id)}>{s.name}</span>
-                  )}
-                  <span className="ml-auto hidden gap-0.5 group-hover:flex group-focus-within:flex">
-                    <button type="button" title="Move up" disabled={i === 0} onClick={() => actions.moveSlide(s.id, i - 1)} className="disabled:opacity-30"><ChevronUp className="size-3.5" /></button>
-                    <button type="button" title="Move down" disabled={i === doc.slides.length - 1} onClick={() => actions.moveSlide(s.id, i + 1)} className="disabled:opacity-30"><ChevronDown className="size-3.5" /></button>
-                    <button type="button" title="Duplicate slide" onClick={() => actions.duplicateSlide(s.id)}><Copy className="size-3.5" /></button>
-                    <button type="button" title="Delete slide" disabled={doc.slides.length === 1} onClick={() => actions.deleteSlide(s.id)} className="disabled:opacity-30"><Trash2 className="size-3.5" /></button>
-                  </span>
+          </>
+        }
+        renderPanel={(id) => {
+          if (id === "properties") {
+            return { body: <div className="min-h-0 flex-1 overflow-y-auto"><PropertiesPanel editor={editor} doc={doc} slide={slide} selection={state.selection} addFont={uploadFont} assetUrls={assetUrls} productUi={productUi} /></div> };
+          }
+          if (id === "chat") return { body: <EditorChat editor={editor} doc={doc} assetUrls={assetUrls} /> };
+          return {
+            header: (
+              <>
+                <div className="flex min-w-0 items-center gap-0.5" role="tablist" aria-label="Pages panel">
+                  {(["slides", "layers", "products"] as const).map((t) => (
+                    <button key={t} type="button" role="tab" aria-selected={sidebar === t} onClick={() => setSidebar(t)}
+                      title={t === "layers" ? `Layers on this slide (${slide.elements.length})` : t === "products" ? `Products in this catalog (${doc.products.length})` : "Slides"}
+                      className="rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground capitalize aria-selected:bg-muted aria-selected:text-foreground">
+                      {t}
+                    </button>
+                  ))}
                 </div>
-                <button
-                  type="button"
-                  onClick={() => editor.setActiveSlide(s.id)}
-                  aria-current={s.id === slide.id}
-                  aria-label={`Slide ${i + 1}: ${s.name}`}
-                  className="block w-full overflow-hidden rounded-md ring-1 ring-border aria-current:ring-2 aria-current:ring-sky-500"
-                >
-                  <SlideView doc={doc} slide={s} scale={thumbScale} mode="edit" resolveAsset={(id) => assetUrls[id]} />
-                </button>
-              </li>
-            ))}
-          </ol>
-          )}
-        </aside>
-
-        {/* Canvas */}
-        <main className="min-h-0 min-w-0">
-          <Canvas editor={editor} state={state} slide={slide} assetUrls={assetUrls} zoom={zoom} onFitScale={onFitScale} actions={actions} />
-        </main>
-
-        {/* Properties */}
-        <aside className="min-h-0 overflow-y-auto border-l">
-          <PropertiesPanel editor={editor} doc={doc} slide={slide} selection={state.selection} addFont={uploadFont} assetUrls={assetUrls} productUi={productUi} />
-        </aside>
-      </div>
+                {sidebar === "slides" && <Button variant="ghost" size="icon-xs" className="ml-auto" title={`Add slide (${kbd("Ctrl+M")})`} aria-label="Add slide" onClick={() => actions.addSlide()}><Plus /></Button>}
+              </>
+            ),
+            body:
+              sidebar === "products" ? (
+                <ProductsPanel editor={editor} doc={doc} assetUrls={assetUrls} ui={productUi} onInsert={insertProduct} />
+              ) : sidebar === "layers" ? (
+                <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pt-2">
+                  <LayersPanel editor={editor} slide={slide} selection={state.selection} actions={actions} />
+                </div>
+              ) : (
+                <ol ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+                  {doc.slides.map((s, i) => (
+                    <li key={s.id} className="group" onContextMenu={(e) => { editor.setActiveSlide(s.id); openMenu(e, slideMenu(actions, s.id, i, doc.slides.length, () => setRenamingSlide(s.id))); }}>
+                      <div className="mb-1 flex items-center gap-1 text-[11px] text-muted-foreground">
+                        <span className="tabular-nums">{i + 1}</span>
+                        {renamingSlide === s.id ? (
+                          <input autoFocus defaultValue={s.name} aria-label="Slide name" className="h-5 min-w-0 flex-1 rounded border border-input bg-background px-1 text-[11px] text-foreground outline-none"
+                            onBlur={(e) => { actions.renameSlide(s.id, e.target.value); setRenamingSlide(null); }}
+                            onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenamingSlide(null); }} />
+                        ) : (
+                          <span className="truncate" onDoubleClick={() => setRenamingSlide(s.id)}>{s.name}</span>
+                        )}
+                        <span className="ml-auto hidden gap-0.5 group-hover:flex group-focus-within:flex">
+                          <button type="button" title="Move up" disabled={i === 0} onClick={() => actions.moveSlide(s.id, i - 1)} className="disabled:opacity-30"><ChevronUp className="size-3.5" /></button>
+                          <button type="button" title="Move down" disabled={i === doc.slides.length - 1} onClick={() => actions.moveSlide(s.id, i + 1)} className="disabled:opacity-30"><ChevronDown className="size-3.5" /></button>
+                          <button type="button" title="Duplicate slide" onClick={() => actions.duplicateSlide(s.id)}><Copy className="size-3.5" /></button>
+                          <button type="button" title="Delete slide" disabled={doc.slides.length === 1} onClick={() => actions.deleteSlide(s.id)} className="disabled:opacity-30"><Trash2 className="size-3.5" /></button>
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => editor.setActiveSlide(s.id)}
+                        aria-current={s.id === slide.id}
+                        aria-label={`Slide ${i + 1}: ${s.name}`}
+                        className="block w-full overflow-hidden rounded-md ring-1 ring-border aria-current:ring-2 aria-current:ring-sky-500"
+                      >
+                        <SlideView doc={doc} slide={s} scale={thumbScale} mode="edit" resolveAsset={(id) => assetUrls[id]} />
+                      </button>
+                    </li>
+                  ))}
+                </ol>
+              ),
+          };
+        }}
+      />
       <CatalogFonts doc={doc} resolveAsset={(id) => assetUrls[id]} />
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
-      {aiEditing && <AiEditDialog editor={editor} doc={doc} slideId={slide.id} assetUrls={assetUrls} onClose={() => setAiEditing(false)} />}
       {importing && <ProductImportDialog editor={editor} doc={doc} uploadImage={uploadImage} activeSlideIndex={slideIndex} onClose={() => setImporting(false)} />}
       {picking && <ProductPickerDialog doc={doc} assetUrls={assetUrls} options={picking} ui={productUi} onClose={() => setPicking(null)} />}
       {productForm && (

@@ -3,11 +3,16 @@
 import { createId, type CatalogDocument } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
+import { Checkbox } from "@Kavero/ui/components/checkbox";
+import { CodeBlock } from "@Kavero/ui/components/code-block";
+import { SimpleSelect } from "@Kavero/ui/components/simple-select";
+import { Textarea } from "@Kavero/ui/components/textarea";
 import { Loader2, X } from "lucide-react";
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { surface } from "@/components/surface";
 import { authClient } from "@/lib/auth-client";
 import { makeTRPCClient } from "@/utils/trpc";
 
@@ -161,7 +166,6 @@ export function ProductImportDialog({ editor, doc, uploadImage, activeSlideIndex
     }
   }
 
-  const field = "h-8 w-full rounded-lg border border-input bg-transparent px-2 text-xs";
   return (
     <dialog ref={ref} onClose={onClose} className="m-auto w-[min(720px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50">
       <div className="flex items-center justify-between border-b px-5 py-3">
@@ -178,59 +182,54 @@ export function ProductImportDialog({ editor, doc, uploadImage, activeSlideIndex
         ) : (
           <>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="grid gap-1">Source
-                <select className={field} value={connId} onChange={(e) => setConnId(e.target.value)}>
-                  {conns.map((c) => <option key={c.id} value={c.id}>{c.name}{c.status === "error" ? " (error)" : ""}</option>)}
-                </select>
+              <label className="grid gap-1.5">Source
+                <SimpleSelect value={connId} onValueChange={setConnId} options={conns.map((c) => ({ value: c.id, label: `${c.name}${c.status === "error" ? " (error)" : ""}` }))} />
               </label>
-              <label className="grid gap-1">Tool
-                <select className={field} value={tool} onChange={(e) => setTool(e.target.value)} disabled={!tools.length}>
-                  {tools.length === 0 && <option>No tools — test the connection in Settings</option>}
-                  {tools.map((t) => <option key={t.name} value={t.name}>{t.title ?? t.name}</option>)}
-                </select>
+              <label className="grid gap-1.5">Tool
+                <SimpleSelect value={tools.length ? tool : null} onValueChange={setTool} disabled={!tools.length} placeholder="No tools — test the connection in Settings"
+                  options={tools.map((t) => ({ value: t.name, label: t.title ?? t.name }))} />
               </label>
             </div>
             {tools.find((t) => t.name === tool)?.description && <p className="text-muted-foreground">{tools.find((t) => t.name === tool)!.description}</p>}
-            <label className="grid gap-1">Arguments (JSON)
-              <textarea className="h-24 w-full rounded-lg border border-input bg-transparent p-2 font-mono text-[11px]" value={args} onChange={(e) => setArgs(e.target.value)} spellCheck={false} />
+            <label className="grid gap-1.5">Arguments (JSON)
+              <Textarea className="h-24 field-sizing-fixed font-mono text-xs md:text-xs" value={args} onChange={(e) => setArgs(e.target.value)} spellCheck={false} />
             </label>
             <div><Button onClick={fetchProducts} disabled={!tool || !!busy}>{busy === "fetch" && <Loader2 className="animate-spin" />} Fetch products</Button></div>
 
             {found && found.length === 0 && (
-              <div className="grid gap-1 border border-dashed p-3">
+              <div className={`grid gap-2 p-3 ${surface.empty}`}>
                 <p>No products recognised in the result.</p>
-                {raw && <pre className="max-h-40 overflow-auto text-[10px] text-muted-foreground">{raw}</pre>}
+                {raw && <CodeBlock code={raw} copyable={false} className="max-h-40 overflow-auto text-muted-foreground" />}
               </div>
             )}
             {found && found.length > 0 && (
               <>
-                <div className="overflow-x-auto border">
+                <div className={surface.table}>
                   <table className="w-full">
-                    <thead className="bg-muted/40 text-left">
+                    <thead className={surface.thead}>
                       <tr>
-                        <th className="p-2"><input type="checkbox" aria-label="Select all" checked={selected.size === found.length} onChange={(e) => setSelected(e.target.checked ? new Set(found.map((_, i) => i)) : new Set())} /></th>
-                        <th className="p-2">Product</th><th className="p-2">Price</th><th className="p-2">Category</th><th className="p-2">Image</th>
+                        <th className="w-8 px-3 py-2"><Checkbox aria-label="Select all" checked={selected.size === found.length} onCheckedChange={(checked) => setSelected(checked ? new Set(found.map((_, i) => i)) : new Set())} /></th>
+                        <th className="px-3 py-2 text-start font-medium">Product</th><th className="px-3 py-2 text-start font-medium">Price</th><th className="px-3 py-2 text-start font-medium">Category</th><th className="px-3 py-2 text-start font-medium">Image</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y">
                       {found.map((p, i) => (
                         <tr key={i}>
-                          <td className="p-2"><input type="checkbox" aria-label={`Select ${p.name}`} checked={selected.has(i)} onChange={(e) => { const s = new Set(selected); if (e.target.checked) s.add(i); else s.delete(i); setSelected(s); }} /></td>
-                          <td className="max-w-64 p-2"><p className="truncate font-medium">{p.name}</p>{p.sku && <p className="text-muted-foreground">{p.sku}</p>}</td>
-                          <td className="p-2 tabular-nums">{p.price !== undefined ? `${p.price}${p.currency ? ` ${p.currency}` : ""}` : "—"}</td>
-                          <td className="p-2">{p.category ?? "—"}</td>
-                          <td className="p-2">{p.imageUrl ? "yes" : "—"}</td>
+                          <td className="px-3 py-2"><Checkbox aria-label={`Select ${p.name}`} checked={selected.has(i)} onCheckedChange={(checked) => { const s = new Set(selected); if (checked) s.add(i); else s.delete(i); setSelected(s); }} /></td>
+                          <td className="max-w-64 px-3 py-2"><p className="truncate font-medium">{p.name}</p>{p.sku && <p className="text-muted-foreground">{p.sku}</p>}</td>
+                          <td className="px-3 py-2 tabular-nums">{p.price !== undefined ? `${p.price}${p.currency ? ` ${p.currency}` : ""}` : "—"}</td>
+                          <td className="px-3 py-2">{p.category ?? "—"}</td>
+                          <td className="px-3 py-2">{p.imageUrl ? "yes" : "—"}</td>
                         </tr>
                       ))}
                     </tbody>
                   </table>
                 </div>
                 <div className="flex flex-wrap items-center gap-4">
-                  <label className="flex items-center gap-1.5"><input type="checkbox" checked={withImages} onChange={(e) => setWithImages(e.target.checked)} /> Download images</label>
-                  <label className="flex items-center gap-1.5">Add slides
-                    <select className="h-7 rounded-lg border border-input bg-transparent px-1" value={layout} onChange={(e) => setLayout(e.target.value as never)}>
-                      <option value="single">one product section</option><option value="per-category">one per category</option><option value="none">no, just add products</option>
-                    </select>
+                  <label className="flex cursor-pointer items-center gap-2"><Checkbox checked={withImages} onCheckedChange={setWithImages} /> Download images</label>
+                  <label className="flex items-center gap-2">Add slides
+                    <SimpleSelect className="w-48" value={layout} onValueChange={setLayout}
+                      options={[{ value: "single", label: "one product section" }, { value: "per-category", label: "one per category" }, { value: "none", label: "no, just add products" }]} />
                   </label>
                   <Button className="ml-auto" onClick={addToCatalog} disabled={!selected.size || !!busy}>
                     {busy === "add" && <Loader2 className="animate-spin" />} Add {selected.size} to catalog

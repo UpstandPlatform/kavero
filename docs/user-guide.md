@@ -34,6 +34,8 @@ Sign in when you want to:
 
 ## Creating a catalog
 
+**From the home page**: type what you want in the prompt ("a price list of 12 coffee machines, print-ready A4") or pick a suggestion. Signed in with an AI model connected, it opens a chat: the assistant may ask a question or two, then builds the catalog and shows a preview with **Open in editor** (the catalog is saved in your browser). Otherwise the prompt opens **Generate with AI** on the dashboard with your text filled in.
+
 On the dashboard:
 
 - **New catalog** — choose a title, page size (16:9, 4:3, A4 portrait/landscape, US Letter, square), language, currency and a starting point: blank or one of 12 templates (general, fashion, jewelry, electronics, furniture, cosmetics, food, real estate, industrial, automotive).
@@ -53,11 +55,14 @@ Each catalog card has a menu: rename, duplicate, export a `.kavero` file, save t
 
 | Area | What it does |
 | --- | --- |
-| Top bar | Title, save status, cloud status, undo/redo, **AI**, **Export**, **Publish**, **Preview** |
-| Toolbar | Add heading, text, rectangle, ellipse, line, image, HTML block; **Product** and **Product grid** open the product picker; **Import products** |
-| Slides / Layers / Products (left) | **Slides**: thumbnails; add, duplicate, rename, delete and reorder. **Layers**: every element on the current slide, top layer first. **Products**: the catalog's product library |
-| Canvas | Select, drag, resize (corners/edges), rotate (top handle); drag on empty space to select several |
-| Properties (right) | Everything about the selection, or the slide and theme when nothing is selected |
+| Top bar | Title, save status, cloud status, undo/redo, **Chat**, **Export**, **Publish**, **Preview** |
+| Tool rail (left edge) | Icon buttons, one under another: heading, text, rectangle, ellipse, line, image, product card, product grid, HTML block, import products, chat. Hover any of them for what it does and its shortcut. At the bottom: keyboard shortcuts and the **Workspace** menu |
+| Pages panel | **Slides**: thumbnails; add, duplicate, rename, delete and reorder. **Layers**: every element on the current slide, top layer first. **Products**: the catalog's product library |
+| Canvas | Select, drag, resize (corners/edges), rotate (top handle); drag on empty space to select several. Zoom controls sit at the bottom right |
+| Properties panel | Everything about the selection, or the slide and theme when nothing is selected |
+| Chat panel | Talk to your AI model about this catalog (see [Chat](#chat)) |
+
+**Arrange the workspace your way.** Drag a panel by the grip in its header to the other side of the canvas or to reorder it; drag its inner edge to resize it (or focus the edge and use the arrow keys); the arrow button moves it across and **×** hides it. The **Workspace** menu at the bottom of the rail shows or hides panels and resets the layout. Your layout is remembered in this browser.
 
 - Snapping guides appear when edges or centers line up with the slide or other elements; hold **Alt** to move freely, **Shift** to lock to one axis.
 - **Align** buttons (Position section) line one element up with the slide (left, center, right, top, middle, bottom) or several elements with each other; with three or more selected you can also distribute them evenly. Hover a button for its shortcut (**Alt+A/H/D** and **Alt+W/V/S**). Several selected elements can also be grouped; clicking a grouped element selects the whole group.
@@ -76,9 +81,13 @@ Open the **Layers** tab in the left sidebar to see every element on the slide, t
 - Changes save automatically in your browser. **Undo/redo** covers every change, including AI edits.
 - **Theme colors** (shown when nothing is selected) recolor every element that uses them. Prefer theme colors over fixed ones so a catalog can be restyled in one place.
 
-### Edit with AI
+### Chat
 
-Click **AI** in the top bar, describe the change ("make this slide more minimal", "add a tagline", "change the theme to dark luxury") and click **Suggest changes**. You get a summary and a before/after preview; nothing changes until you click **Apply**, and it's one undo step. AI editing needs an account and an AI model — your own key (Settings → AI) or the server's.
+Click **Chat** in the top bar (or the chat icon in the rail) to talk to your connected AI model about the open catalog. It sees the whole catalog, the slide you're on and what you've selected, so you can ask questions ("which slides have no prices?") or describe changes ("make this slide more minimal", "add a tagline", "change the theme to dark luxury").
+
+- For a change, the assistant proposes an edit with a before/after preview. Nothing changes until you click **Apply**, and each applied edit is one undo step.
+- Each catalog has its own conversation, remembered in this browser, so you can come back later and continue where you left off. If you edit by hand in between, the assistant works from the catalog as it is now. **New chat** starts over.
+- Chat needs an account and an AI model: your own key (Settings → AI) or the server's.
 
 ## Text, fonts and right-to-left languages
 

@@ -5,6 +5,8 @@ import {
 import type { Metadata } from "next";
 import Link from "next/link";
 
+import { LandingPrompt } from "@/modules/chat/landing-chat";
+
 import { HomePreview } from "./home-preview";
 
 export const metadata: Metadata = {
@@ -40,16 +42,17 @@ export default function Home() {
       {/* Hero */}
       <section className="mx-auto grid w-full max-w-6xl items-center gap-10 px-4 pt-16 pb-12 lg:grid-cols-[1fr_1.1fr]">
         <div className="grid gap-6">
-          <p className="inline-flex w-fit items-center gap-2 border px-2 py-1 text-xs text-muted-foreground"><LayoutTemplate className="size-3.5" /> Catalogs · Presentations · Websites</p>
+          <p className="inline-flex w-fit items-center gap-2 rounded-full border px-3 py-1 text-xs text-muted-foreground"><LayoutTemplate className="size-3.5" /> Catalogs · Presentations · Websites</p>
           <h1 className="text-4xl font-semibold tracking-tight text-balance sm:text-5xl">From product data to beautiful experiences.</h1>
           <p className="max-w-xl text-lg text-pretty text-muted-foreground">
             Kavero turns your products into designed, animated catalogs. Build them visually or with AI, pull products from any MCP source, and publish as PDF, PowerPoint, video or a website.
           </p>
-          <div className="flex flex-wrap gap-2">
-            <Link href="/dashboard"><Button size="lg"><Presentation /> Open the editor</Button></Link>
-            <Link href="/dashboard?generate=1"><Button size="lg" variant="outline"><Sparkles /> Generate with AI</Button></Link>
+          {/* Start with a prompt: chat with the connected model, or the built-in planner. */}
+          <LandingPrompt />
+          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+            <Link href="/dashboard" className="inline-flex items-center gap-1.5 font-medium hover:underline"><Presentation className="size-4" /> Or open the editor</Link>
+            <span className="text-xs text-muted-foreground">No account needed: everything is saved in your browser until you choose to sync.</span>
           </div>
-          <p className="text-xs text-muted-foreground">No account needed: everything is saved in your browser until you choose to sync.</p>
         </div>
         <HomePreview />
       </section>
@@ -59,7 +62,7 @@ export default function Home() {
         <div className="mx-auto w-full max-w-6xl px-4 py-16">
           <h2 className="mb-2 text-2xl font-semibold tracking-tight">One catalog, every format</h2>
           <p className="mb-10 max-w-2xl text-muted-foreground">Every output is generated from the same document, so your PDF, slides, video and website always match.</p>
-          <div className="grid gap-px overflow-hidden border bg-border sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-px overflow-hidden rounded-xl border bg-border sm:grid-cols-2 lg:grid-cols-3">
             {FEATURES.map(({ icon: Icon, title, text }) => (
               <article key={title} className="grid content-start gap-2 bg-background p-6">
                 <Icon className="size-5 text-primary" aria-hidden />
@@ -102,7 +105,7 @@ export default function Home() {
               <li className="flex gap-2"><Cloud className="size-4 shrink-0 text-primary" /> Catalogs agents build appear on your dashboard, ready to edit</li>
             </ul>
           </div>
-          <pre className="overflow-x-auto border bg-background p-4 text-xs leading-relaxed"><code>{MCP_CONFIG}</code></pre>
+          <pre className="overflow-x-auto rounded-xl border bg-background p-4 text-xs leading-relaxed"><code>{MCP_CONFIG}</code></pre>
         </div>
       </section>
 

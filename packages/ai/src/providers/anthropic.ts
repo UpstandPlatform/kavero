@@ -1,4 +1,6 @@
+import { createAnthropic } from "@ai-sdk/anthropic";
 import Anthropic from "@anthropic-ai/sdk";
+import type { LanguageModel } from "ai";
 import { betaZodOutputFormat } from "@anthropic-ai/sdk/helpers/beta/zod";
 
 import { AiError, type GenerateObjectOptions, type GenerateObjectResult, type LlmProvider } from "./types";
@@ -14,9 +16,14 @@ export class AnthropicProvider implements LlmProvider {
   readonly id = "anthropic" as const;
   private readonly client: Anthropic;
 
-  constructor(opts: { apiKey?: string; model?: string } = {}, readonly model = opts.model || DEFAULT_ANTHROPIC_MODEL) {
+  constructor(private readonly opts: { apiKey?: string; model?: string } = {}, readonly model = opts.model || DEFAULT_ANTHROPIC_MODEL) {
     // With no apiKey the SDK resolves ANTHROPIC_API_KEY / ANTHROPIC_AUTH_TOKEN / an `ant auth login` profile.
     this.client = new Anthropic(opts.apiKey ? { apiKey: opts.apiKey } : {});
+  }
+
+  /** For chat: the AI SDK's Anthropic provider (no key → ANTHROPIC_API_KEY). */
+  languageModel(): LanguageModel {
+    return createAnthropic(this.opts.apiKey ? { apiKey: this.opts.apiKey } : {})(this.model);
   }
 
   async generateObject<T>(opts: GenerateObjectOptions<T>): Promise<GenerateObjectResult<T>> {

@@ -1,3 +1,5 @@
+import type { LanguageModel } from "ai";
+
 import type { z } from "zod";
 
 export interface GenerateObjectOptions<T> {
@@ -23,6 +25,8 @@ export interface LlmProvider {
   readonly id: "anthropic" | "openai-compatible" | "mock";
   readonly model: string;
   generateObject<T>(opts: GenerateObjectOptions<T>): Promise<GenerateObjectResult<T>>;
+  /** The same model for the AI SDK (streaming chat with tools), when the provider supports it. */
+  languageModel?(): LanguageModel;
 }
 
 /** User-facing errors: safe to show, no secrets. */

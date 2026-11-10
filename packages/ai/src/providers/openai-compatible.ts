@@ -1,3 +1,5 @@
+import { createOpenAICompatible } from "@ai-sdk/openai-compatible";
+import type { LanguageModel } from "ai";
 import { z } from "zod";
 
 import { AiError, type GenerateObjectOptions, type GenerateObjectResult, type LlmProvider } from "./types";
@@ -23,6 +25,18 @@ export class OpenAICompatibleProvider implements LlmProvider {
 
   get model() {
     return this.opts.model;
+  }
+
+  /** For chat: the AI SDK's OpenAI-compatible provider, with the same URL, headers and (guarded) fetch. */
+  languageModel(): LanguageModel {
+    const guarded = this.opts.fetch;
+    return createOpenAICompatible({
+      name: (this.label === "The AI service" ? "openai-compatible" : this.label).toLowerCase(),
+      baseURL: this.opts.baseUrl.replace(/\/$/, ""),
+      apiKey: this.opts.apiKey,
+      headers: this.opts.headers,
+      ...(guarded ? { fetch: ((input: string | URL | Request, init?: RequestInit) => guarded(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url, init ?? {})) as typeof fetch } : {}),
+    }).chatModel(this.opts.model);
   }
 
   async generateObject<T>(opts: GenerateObjectOptions<T>, strict = this.opts.strictSchema !== false): Promise<GenerateObjectResult<T>> {
