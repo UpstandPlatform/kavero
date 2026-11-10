@@ -8,6 +8,8 @@ import { Button } from "@Kavero/ui/components/button";
 import { Checkbox } from "@Kavero/ui/components/checkbox";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@Kavero/ui/components/select";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
+import { ColorPicker } from "@Kavero/ui/components/color-picker";
+import { TooltipHint } from "@Kavero/ui/components/tooltip";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { matchMorph, slideDurationMs } from "@Kavero/animation-engine";
@@ -107,22 +109,15 @@ function NumberInput({ value, onCommit, min, max, step = 1, suffix }: { value: n
 }
 
 /** Color picker with theme swatches; stores "token:x" when a swatch is chosen. */
-function ColorInput({ doc, value, onChange }: { doc: CatalogDocument; value: string; onChange: (v: string) => void }) {
+function ColorInput({ doc, value, onChange, label }: { doc: CatalogDocument; value: string; onChange: (v: string) => void; label: string }) {
   const resolved = resolveToken(doc, value);
   return (
-    <div className="flex items-center gap-1">
-      <input type="color" value={/^#[0-9a-f]{6}$/i.test(resolved) ? resolved : "#000000"} onChange={(e) => onChange(e.target.value)} className="h-7 w-8 shrink-0 cursor-pointer rounded-[min(var(--radius-md),10px)] border border-input bg-transparent p-0.5 dark:bg-input/30" aria-label="Custom color" />
-      <div className="flex flex-wrap gap-0.5">
-        {Object.entries(doc.theme.colors).map(([name, hex]) => (
-          <button
-            key={name} type="button" title={`Theme: ${name}`} onClick={() => onChange(`token:${name}`)}
-            className="size-4 border border-black/20 aria-pressed:ring-2 aria-pressed:ring-sky-500"
-            aria-pressed={value === `token:${name}`}
-            style={{ background: hex }}
-          />
-        ))}
-      </div>
-    </div>
+    <ColorPicker
+      value={value.startsWith("token:") ? value : /^#[0-9a-f]{6}$/i.test(resolved) ? resolved : "#000000"}
+      onValueChange={onChange}
+      label={label}
+      swatches={Object.entries(doc.theme.colors).map(([name, color]) => ({ label: `Theme ${name}`, value: `token:${name}`, color }))}
+    />
   );
 }
 
@@ -201,7 +196,7 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
             <Field compact label="Line"><NumberInput value={el.style.lineHeight} min={0.5} max={4} step={0.05} onCommit={(lineHeight) => update({ style: { lineHeight } })} /></Field>
             <Field compact label="Spacing"><NumberInput value={el.style.letterSpacing} step={0.5} onCommit={(letterSpacing) => update({ style: { letterSpacing } })} /></Field>
           </div>
-          <Field label="Color"><ColorInput doc={doc} value={el.style.color} onChange={(color) => update({ style: { color } })} /></Field>
+          <Field label="Color"><ColorInput doc={doc} value={el.style.color} label="Text color" onChange={(color) => update({ style: { color } })} /></Field>
           <div className="flex gap-1">
             {/* start/end follow the text direction, so RTL catalogs mirror correctly */}
             {([["start", rtl ? TextAlignRightIcon : TextAlignLeftIcon, "Align to start"], ["center", TextAlignCenterIcon, "Center"], ["end", rtl ? TextAlignLeftIcon : TextAlignRightIcon, "Align to end"]] as const).map(([a, Icon, label]) => (
@@ -231,8 +226,8 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
             <SimpleSelect size="sm" aria-label="Shape" value={el.content.shape} onValueChange={(shape) => update({ content: { shape } })}
               options={["rect", "ellipse", "triangle", "line", "arrow"].map((s) => ({ value: s, label: s }))} />
           </Field>
-          <Field label="Fill"><ColorInput doc={doc} value={el.style.fill} onChange={(fill) => update({ style: { fill } })} /></Field>
-          <Field label="Border"><ColorInput doc={doc} value={el.style.stroke ?? "#000000"} onChange={(stroke) => update({ style: { stroke, strokeWidth: el.style.strokeWidth || 2 } })} /></Field>
+          <Field label="Fill"><ColorInput doc={doc} value={el.style.fill} label="Shape fill" onChange={(fill) => update({ style: { fill } })} /></Field>
+          <Field label="Border"><ColorInput doc={doc} value={el.style.stroke ?? "#000000"} label="Shape border" onChange={(stroke) => update({ style: { stroke, strokeWidth: el.style.strokeWidth || 2 } })} /></Field>
           <div className="grid grid-cols-2 gap-2">
             <Field compact label="Width"><NumberInput value={el.style.strokeWidth} min={0} max={100} onCommit={(strokeWidth) => update({ style: { strokeWidth } })} /></Field>
             <Field compact label="Radius"><NumberInput value={el.style.borderRadius} min={0} onCommit={(borderRadius) => update({ style: { borderRadius } })} /></Field>
@@ -260,7 +255,7 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
         <Section title="HTML & CSS">
           <CodeField key={`${el.id}-html`} label="HTML" value={el.content.html} rows={8} onCommit={(html) => update({ content: { html } })} />
           <CodeField key={`${el.id}-css`} label="CSS" value={el.content.css} rows={6} onCommit={(css) => update({ content: { css } })} />
-          <Field label="Background"><ColorInput doc={doc} value={el.style.background ?? "#ffffff"} onChange={(background) => update({ style: { background } })} /></Field>
+          <Field label="Background"><ColorInput doc={doc} value={el.style.background ?? "#ffffff"} label="Element background" onChange={(background) => update({ style: { background } })} /></Field>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             Theme colors are CSS variables, e.g. <code>var(--kv-primary)</code> and fonts <code>var(--kv-heading)</code>. Scripts, forms and embedded frames are removed; images must use https or data URLs.
           </p>
@@ -328,16 +323,16 @@ function AlignTools({ elements, run, doc }: { elements: CatalogElement[]; run: (
         {[ALIGN_BUTTONS.slice(0, 3), ALIGN_BUTTONS.slice(3)].map((group, gi) => (
           <div key={gi} className={segment} role="group" aria-label={gi === 0 ? "Horizontal" : "Vertical"}>
             {group.map(([k, Icon, label, keys]) => (
-              <button key={k} type="button" className={segmentBtn} onClick={() => align(k)} title={`${label} (${kbd(keys)})`} aria-label={`${label} ${target} (${kbd(keys)})`} aria-keyshortcuts={keys}>
+            <TooltipHint key={k} content={`${label} (${kbd(keys)})`}><button type="button" className={segmentBtn} onClick={() => align(k)} aria-label={`${label} ${target} (${kbd(keys)})`} aria-keyshortcuts={keys}>
                 <HugeiconsIcon icon={Icon} aria-hidden />
-              </button>
+            </button></TooltipHint>
             ))}
           </div>
         ))}
         {elements.length > 2 && (
           <div className={segment} role="group" aria-label="Distribute">
-            <button type="button" className={segmentBtn} onClick={() => distribute("x")} title="Distribute horizontally" aria-label="Distribute horizontally"><HugeiconsIcon icon={AlignHorizontalDistributeCenterIcon} aria-hidden /></button>
-            <button type="button" className={segmentBtn} onClick={() => distribute("y")} title="Distribute vertically" aria-label="Distribute vertically"><HugeiconsIcon icon={AlignVerticalDistributeCenterIcon} aria-hidden /></button>
+            <TooltipHint content="Distribute horizontally"><button type="button" className={segmentBtn} onClick={() => distribute("x")} aria-label="Distribute horizontally"><HugeiconsIcon icon={AlignHorizontalDistributeCenterIcon} aria-hidden /></button></TooltipHint>
+            <TooltipHint content="Distribute vertically"><button type="button" className={segmentBtn} onClick={() => distribute("y")} aria-label="Distribute vertically"><HugeiconsIcon icon={AlignVerticalDistributeCenterIcon} aria-hidden /></button></TooltipHint>
           </div>
         )}
       </div>
@@ -415,7 +410,7 @@ function ProductProperties({ doc, el, run, update, assetUrls, ui }: {
                 return (
                   <li key={`${id}-${i}`} className="group flex items-center gap-1.5 rounded-md py-0.5 text-xs hover:bg-muted/60">
                     {p ? <ProductThumb product={p} assetUrls={assetUrls} className="size-6" /> : <span className="size-6 shrink-0 rounded-md border border-dashed" />}
-                    <span className={`min-w-0 flex-1 truncate ${p ? "" : "text-muted-foreground italic"}`} title={name}>{name}</span>
+                    <TooltipHint content={name}><span tabIndex={0} className={`min-w-0 flex-1 truncate ${p ? "" : "text-muted-foreground italic"}`}>{name}</span></TooltipHint>
                     <span className="flex opacity-60 group-hover:opacity-100 group-focus-within:opacity-100">
                       <Button variant="ghost" size="icon-xs" title="Move earlier" aria-label={`Move ${name} earlier`} disabled={i === 0} onClick={() => moveInGrid(i, -1)}><HugeiconsIcon icon={ArrowUp01Icon} /></Button>
                       <Button variant="ghost" size="icon-xs" title="Move later" aria-label={`Move ${name} later`} disabled={i === gridIds.length - 1} onClick={() => moveInGrid(i, 1)}><HugeiconsIcon icon={ArrowDown01Icon} /></Button>
@@ -476,7 +471,7 @@ function SlideProperties({ doc, slide, run }: { doc: CatalogDocument; slide: Cat
           <input key={slide.id} className={inputCls} defaultValue={slide.name} onBlur={(e) => e.target.value.trim() && e.target.value !== slide.name && run({ type: "slide.update", slideId: slide.id, changes: { name: e.target.value.trim() } })} />
         </Field>
         <Field label="Background">
-          <ColorInput doc={doc} value={bg.kind === "color" ? bg.color : "#ffffff"} onChange={(color) => run({ type: "slide.update", slideId: slide.id, changes: { background: { kind: "color", color } } })} />
+          <ColorInput doc={doc} value={bg.kind === "color" ? bg.color : "#ffffff"} label="Slide background" onChange={(color) => run({ type: "slide.update", slideId: slide.id, changes: { background: { kind: "color", color } } })} />
         </Field>
         <Field label="Transition">
           <SimpleSelect
@@ -514,7 +509,7 @@ function SlideProperties({ doc, slide, run }: { doc: CatalogDocument; slide: Cat
       <Section title="Theme colors">
         {Object.entries(doc.theme.colors).map(([name, hex]) => (
           <Field key={name} label={name}>
-            <input type="color" value={hex} className="h-7 w-full cursor-pointer rounded-[min(var(--radius-md),10px)] border border-input bg-transparent p-0.5 dark:bg-input/30" onChange={(e) => run({ type: "catalog.updateTheme", theme: { colors: { [name]: e.target.value } } })} />
+            <ColorPicker value={hex} onValueChange={(color) => run({ type: "catalog.updateTheme", theme: { colors: { [name]: color } } })} label={`${name} theme color`} className="w-full" />
           </Field>
         ))}
       </Section>

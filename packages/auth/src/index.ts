@@ -1,5 +1,6 @@
 import { drizzleAdapter } from "@better-auth/drizzle-adapter/relations-v2";
 import type { Database } from "@Kavero/db";
+import { ensurePersonalWorkspace } from "@Kavero/db/personal-workspace";
 import * as schema from "@Kavero/db/schema/auth";
 import { appSetting } from "@Kavero/db/schema/integration";
 import { workspaceInvite } from "@Kavero/db/schema/workspace";
@@ -54,6 +55,9 @@ export function createAuth(env: AuthConfig, database: Database) {
               if (!invite) throw new APIError("FORBIDDEN", { message: "This server is invite-only. Ask a workspace admin to invite this email address." });
             }
             return { data: { ...user, role: "user" } };
+          },
+          after: async (user) => {
+            await ensurePersonalWorkspace(database, user.id);
           },
         },
       },

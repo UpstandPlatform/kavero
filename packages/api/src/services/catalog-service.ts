@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { checkIntegrity, parseCatalogDocument, type CatalogDocument } from "@Kavero/catalog-engine";
 import { applyCommand, type EditorCommand } from "@Kavero/editor-core";
 import type { Database } from "@Kavero/db";
+import { ensurePersonalWorkspace } from "@Kavero/db/personal-workspace";
 import { catalog, catalogAsset, catalogRevision } from "@Kavero/db/schema/catalog";
 import { workspace, workspaceMember, type WorkspaceRole } from "@Kavero/db/schema/workspace";
 import { TRPCError } from "@trpc/server";
@@ -82,6 +83,8 @@ export class CatalogService {
    * Omit it only to create a new cloud copy.
    */
   async save(userId: string, input: { document: unknown; baseRevision?: number; thumbnail?: string; workspaceId?: string | null }) {
+    const personal = await ensurePersonalWorkspace(this.db, userId);
+    const targetWorkspaceId = input.workspaceId ?? personal.id;
     const parsed = parseCatalogDocument(input.document);
     if (!parsed.ok) {
       throw new TRPCError({ code: "BAD_REQUEST", message: `Invalid catalog: ${parsed.issues.slice(0, 3).map((i) => `${i.path} ${i.message}`).join("; ")}` });
@@ -92,8 +95,8 @@ export class CatalogService {
     }
     const thumbnail = input.thumbnail && input.thumbnail.length < 200_000 && input.thumbnail.startsWith("data:image/") ? input.thumbnail : null;
 
-    if (input.workspaceId) {
-      const role = await workspaceRole(this.db, userId, input.workspaceId);
+    if (targetWorkspaceId) {
+      const role = await workspaceRole(this.db, userId, targetWorkspaceId);
       if (!role || !ROLE_PERMISSIONS[role].includes("write")) throw new TRPCError({ code: "FORBIDDEN", message: "You can't add catalogs to that workspace" });
     }
 
@@ -111,7 +114,7 @@ export class CatalogService {
         }
         const id = randomUUID();
         await tx.insert(catalog).values({
-          id, ownerId: userId, workspaceId: input.workspaceId ?? null, documentId: doc.id, title: doc.metadata.title, slideCount: doc.slides.length,
+          id, ownerId: userId, workspaceId: targetWorkspaceId, documentId: doc.id, title: doc.metadata.title, slideCount: doc.slides.length,
           thumbnail, revision: 1, schemaVersion: doc.schemaVersion, document: doc,
         });
         return { id, revision: 1, created: true };
@@ -162,11 +165,14 @@ export class CatalogService {
   /** Move a catalog into a workspace (or back to personal). Needs delete rights where it is now and edit rights where it goes. */
   async moveToWorkspace(userId: string, id: string, workspaceId: string | null) {
     const { row } = await requireCatalog(this.db, userId, id, "delete");
-    if (workspaceId) {
-      const role = await workspaceRole(this.db, userId, workspaceId);
+    const personal = await ensurePersonalWorkspace(this.db, userId);
+    const targetWorkspaceId = workspaceId ?? personal.id;
+    if (targetWorkspaceId) {
+      const role = await workspaceRole(this.db, userId, targetWorkspaceId);
       if (!role || !ROLE_PERMISSIONS[role].includes("write")) throw new TRPCError({ code: "FORBIDDEN", message: "You can't add catalogs to that workspace" });
     }
-    await this.db.update(catalog).set({ workspaceId, ownerId: workspaceId ? row.ownerId : userId }).where(eq(catalog.id, row.id)).catch((e) => {
+    const ownerId = targetWorkspaceId === personal.id ? userId : row.ownerId;
+    await this.db.update(catalog).set({ workspaceId: targetWorkspaceId, ownerId }).where(eq(catalog.id, row.id)).catch((e) => {
       if (isUniqueViolation(e)) throw new TRPCError({ code: "CONFLICT", message: "You already have a personal copy of this catalog" });
       throw e;
     });

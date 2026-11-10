@@ -7,6 +7,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPoi
 
 import { useContextMenu } from "./context-menu";
 import type { EditorActions } from "./editor-actions";
+import { TooltipHint } from "@Kavero/ui/components/tooltip";
 import { canvasMenu, elementMenu } from "./editor-menus";
 import { useRun } from "./use-catalog-editor";
 
@@ -33,9 +34,12 @@ export interface CanvasProps {
   zoom: number | "fit";
   onFitScale: (scale: number) => void;
   actions: EditorActions;
+  annotationMode?: boolean;
+  onAnnotateElement?: (slideId: string, elementId: string) => void;
+  onCancelAnnotation?: () => void;
 }
 
-export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, actions }: CanvasProps) {
+export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, actions, annotationMode = false, onAnnotateElement, onCancelAnnotation }: CanvasProps) {
   const openMenu = useContextMenu();
   const run = useRun(editor);
   const doc = state.document;
@@ -72,6 +76,21 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
   useEffect(() => {
     if (editingId && !slide.elements.some((e) => e.id === editingId)) setEditingId(null);
   }, [slide, editingId]);
+
+  useEffect(() => {
+    if (!annotationMode) return;
+    if (document.activeElement instanceof HTMLTextAreaElement) document.activeElement.blur();
+    setEditingId(null);
+    setGesture(null);
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      onCancelAnnotation?.();
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, [annotationMode, onCancelAnnotation]);
 
   /** Pointer position in document pixels. */
   function toDoc(e: { clientX: number; clientY: number }) {
@@ -111,6 +130,13 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
   }
 
   function onElementDown(e: RPointerEvent, el: CatalogElement) {
+    if (annotationMode) {
+      if (e.button !== 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      onAnnotateElement?.(slide.id, el.id);
+      return;
+    }
     if (e.button !== 0 || editingId === el.id) return;
     e.stopPropagation();
     const now = performance.now();
@@ -145,6 +171,10 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
 
   function onBackgroundDown(e: RPointerEvent) {
     if (e.button !== 0) return;
+    if (annotationMode) {
+      e.preventDefault();
+      return;
+    }
     // Commit an open inline text edit first: unmounting the textarea wouldn't fire its blur.
     if (editingId && document.activeElement instanceof HTMLTextAreaElement) document.activeElement.blur();
     setEditingId(null);
@@ -243,7 +273,12 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
   const marquee = gesture?.kind === "marquee" ? gesture : null;
 
   return (
-    <div ref={wrapRef} className="relative h-full w-full overflow-auto bg-muted/40" onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+    <div ref={wrapRef} className={`relative h-full w-full overflow-auto bg-muted/40 ${annotationMode ? "cursor-crosshair" : ""}`} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+      {annotationMode && (
+        <div className="pointer-events-none absolute top-3 left-1/2 z-20 -translate-x-1/2 rounded-full border bg-background/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-md backdrop-blur">
+          Select slide elements to attach to chat · Esc to finish
+        </div>
+      )}
       <div className="flex min-h-full min-w-full items-center justify-center p-8" style={{ width: W * scale + 64, height: H * scale + 64 }} onPointerDown={onBackgroundDown}
         onContextMenu={(e) => {
           if (e.target !== e.currentTarget && !(e.target as HTMLElement).closest("[data-slide-id]")) return;
@@ -278,17 +313,17 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
                     const p = toDoc(e);
                     openMenu(e, elementMenu(actions, { at: { x: Math.round(p.x), y: Math.round(p.y) } }));
                   }}
-                  className={isSel ? "outline-2 outline-sky-500" : "hover:outline-1 hover:outline-sky-400"}
+                  className={annotationMode ? "outline-2 outline-primary/40 hover:outline-primary" : isSel ? "outline-2 outline-sky-500" : "hover:outline-1 hover:outline-sky-400"}
                   style={{
                     position: "absolute", left: p.x * scale, top: p.y * scale, width: p.width * scale, height: p.height * scale,
                     transform: p.rotation ? `rotate(${p.rotation}deg)` : undefined,
-                    cursor: el.locked ? "default" : "move", outlineStyle: isSel ? "solid" : undefined,
+                    cursor: annotationMode ? "crosshair" : el.locked ? "default" : "move", outlineStyle: annotationMode || isSel ? "solid" : undefined,
                   }}
                 />
               );
             })}
 
-            {single && !single.locked && !gesture?.kind.startsWith("m") && editingId !== single.id && (
+            {!annotationMode && single && !single.locked && !gesture?.kind.startsWith("m") && editingId !== single.id && (
               <SelectionHandles position={pos(single)} scale={scale} onDown={(e, h) => onHandleDown(e, single, h)} />
             )}
 
@@ -356,12 +391,13 @@ function SelectionHandles({ position: p, scale, onDown }: { position: ElementPos
         );
       })}
       <div className="absolute left-1/2 h-5 w-px -translate-x-1/2 bg-sky-500" style={{ top: -20 }} />
-      <div
+      <TooltipHint content="Rotate (Shift snaps to 15°)"><div
         onPointerDown={(e) => onDown(e, "rotate")}
-        title="Rotate (Shift snaps to 15°)"
+        tabIndex={0}
+        aria-label="Rotate element; hold Shift to snap to 15 degrees"
         className="pointer-events-auto absolute left-1/2 size-3 -translate-x-1/2 rounded-full border border-sky-500 bg-white"
         style={{ top: -26, cursor: "grab" }}
-      />
+      /></TooltipHint>
     </div>
   );
 }

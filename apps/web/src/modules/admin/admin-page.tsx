@@ -4,6 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { BanIcon, DashboardCircleIcon, Delete02Icon, GlobeIcon, LinkSquare01Icon, Loading02Icon, Logout01Icon, MoreHorizontalIcon, ScrollIcon, Search01Icon, Settings02Icon, Shield01Icon, Shield02Icon, UserCheck01Icon, UserGroupIcon } from "@hugeicons/core-free-icons";
 import { Badge } from "@Kavero/ui/components/badge";
 import { Button } from "@Kavero/ui/components/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@Kavero/ui/components/dialog";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +22,7 @@ import { PageTabs } from "@/components/page-tabs";
 import { surface } from "@/components/surface";
 import { authClient } from "@/lib/auth-client";
 import { makeTRPCClient } from "@/utils/trpc";
+import { confirmAction } from "@/components/confirm-dialog";
 
 let client: ReturnType<typeof makeTRPCClient> | null = null;
 const api = () => (client ??= makeTRPCClient());
@@ -143,6 +145,8 @@ function UsersTab() {
   const [total, setTotal] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [suspending, setSuspending] = useState<UserRow | null>(null);
+  const [deleting, setDeleting] = useState<UserRow | null>(null);
+  const [deleteConfirmation, setDeleteConfirmation] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
   const load = useCallback(async (offset = 0) => {
@@ -231,10 +235,7 @@ function UsersTab() {
                           <DropdownMenuItem
                             variant="destructive"
                             disabled={u.isYou}
-                            onClick={() => {
-                              if (prompt(`Delete ${u.email} and all of their cloud catalogs and published sites? This can't be undone.\n\nType the email address to confirm:`)?.trim().toLowerCase() !== u.email.toLowerCase()) return;
-                              void act(u, "Account deleted", () => api().admin.users.remove.mutate({ userId: u.id }));
-                            }}
+                            onClick={() => { setDeleting(u); setDeleteConfirmation(""); }}
                           >
                             <HugeiconsIcon icon={Delete02Icon} /> Delete account…
                           </DropdownMenuItem>
@@ -249,6 +250,26 @@ function UsersTab() {
         </div>
       )}
       {hasMore && <Button variant="outline" className="justify-self-center" onClick={() => void load(rows?.length ?? 0)}>Load more</Button>}
+      <Dialog open={!!deleting} onOpenChange={(open) => { if (!open) { setDeleting(null); setDeleteConfirmation(""); } }}>
+        {deleting && (
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Delete {deleting.email}?</DialogTitle>
+              <DialogDescription>This permanently removes the account, all of its cloud catalogs and published sites. Type the email address to confirm.</DialogDescription>
+            </DialogHeader>
+            <Input autoFocus type="email" value={deleteConfirmation} onChange={(event) => setDeleteConfirmation(event.target.value)} aria-label="Type the account email to confirm deletion" placeholder={deleting.email} />
+            <DialogFooter>
+              <Button variant="outline" onClick={() => { setDeleting(null); setDeleteConfirmation(""); }}>Cancel</Button>
+              <Button variant="destructive" disabled={deleteConfirmation.trim().toLowerCase() !== deleting.email.toLowerCase()} onClick={() => {
+                const target = deleting;
+                setDeleting(null);
+                setDeleteConfirmation("");
+                void act(target, "Account deleted", () => api().admin.users.remove.mutate({ userId: target.id }));
+              }}>Delete account</Button>
+            </DialogFooter>
+          </DialogContent>
+        )}
+      </Dialog>
     </div>
   );
 }
@@ -327,7 +348,7 @@ function SitesTab() {
                 variant="outline"
                 size="sm"
                 onClick={async () => {
-                  if (!confirm(`Take "${s.title || s.slug}" offline? The owner keeps the catalog and can publish again.`)) return;
+                  if (!await confirmAction({ title: `Take “${s.title || s.slug}” offline?`, description: "The owner keeps the catalog and can publish again.", confirmLabel: "Unpublish site", destructive: true })) return;
                   try {
                     await api().admin.sites.unpublish.mutate({ publicationId: s.id });
                     toast.success("Site taken offline");

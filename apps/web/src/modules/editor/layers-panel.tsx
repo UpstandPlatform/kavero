@@ -8,6 +8,7 @@ import { useRef, useState, type ReactNode } from "react";
 
 import { useContextMenu } from "./context-menu";
 import type { EditorActions } from "./editor-actions";
+import { TooltipHint } from "@Kavero/ui/components/tooltip";
 import { elementMenu, labelOf } from "./editor-menus";
 
 const ICONS: Record<CatalogElement["type"], ReactNode> = {
@@ -92,7 +93,7 @@ export function LayersPanel({ editor, slide, selection, actions }: { editor: Edi
           >
             {drag?.over === i && <span className="pointer-events-none absolute inset-x-1 -top-px h-0.5 rounded bg-sky-500" />}
             {drag?.over === i + 1 && i === layers.length - 1 && <span className="pointer-events-none absolute inset-x-1 -bottom-px h-0.5 rounded bg-sky-500" />}
-            {el.groupId && <span className="h-4 w-0.5 rounded bg-sky-500/60" title="In a group" />}
+            {el.groupId && <TooltipHint content="In a group"><span className="h-4 w-0.5 rounded bg-sky-500/60" /></TooltipHint>}
             <span className="text-muted-foreground">{ICONS[el.type]}</span>
             {renaming === el.id ? (
               <input
@@ -109,15 +110,15 @@ export function LayersPanel({ editor, slide, selection, actions }: { editor: Edi
               <span className="min-w-0 flex-1 truncate" dir="auto">{layerName(el)}</span>
             )}
             <span className={`flex items-center gap-0.5 ${el.hidden || el.locked ? "" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"}`}>
-              <button type="button" title={el.hidden ? "Show" : "Hide"} aria-label={el.hidden ? `Show ${layerName(el)}` : `Hide ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); actions.setFlag(el.id, "hidden", !el.hidden); }} className="rounded-sm p-0.5 hover:bg-background">
+              <TooltipHint content={el.hidden ? "Show" : "Hide"}><button type="button" aria-label={el.hidden ? `Show ${layerName(el)}` : `Hide ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); actions.setFlag(el.id, "hidden", !el.hidden); }} className="rounded-sm p-0.5 hover:bg-background">
                 {el.hidden ? <HugeiconsIcon icon={ViewOffIcon} /> : <HugeiconsIcon icon={ViewIcon} />}
-              </button>
-              <button type="button" title={el.locked ? "Unlock" : "Lock"} aria-label={el.locked ? `Unlock ${layerName(el)}` : `Lock ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); actions.setFlag(el.id, "locked", !el.locked); }} className="rounded-sm p-0.5 hover:bg-background">
+              </button></TooltipHint>
+              <TooltipHint content={el.locked ? "Unlock" : "Lock"}><button type="button" aria-label={el.locked ? `Unlock ${layerName(el)}` : `Lock ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); actions.setFlag(el.id, "locked", !el.locked); }} className="rounded-sm p-0.5 hover:bg-background">
                 {el.locked ? <HugeiconsIcon icon={LockIcon} /> : <HugeiconsIcon icon={SquareUnlock01Icon} />}
-              </button>
-              <button type="button" title="Delete" aria-label={`Delete ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); editor.execute({ type: "element.delete", elementId: el.id }); }} className="rounded-sm p-0.5 hover:bg-background hover:text-destructive">
+              </button></TooltipHint>
+              <TooltipHint content="Delete"><button type="button" aria-label={`Delete ${layerName(el)}`} onClick={(e) => { e.stopPropagation(); editor.execute({ type: "element.delete", elementId: el.id }); }} className="rounded-sm p-0.5 hover:bg-background hover:text-destructive">
                 <HugeiconsIcon icon={Delete02Icon} />
-              </button>
+              </button></TooltipHint>
             </span>
           </li>
         );

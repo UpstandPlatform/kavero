@@ -1,9 +1,10 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowDown01Icon, FileAttachmentIcon, FileDownloadIcon, FileScriptIcon, Film01Icon, Image01Icon, Loading02Icon, PackageIcon, Presentation01Icon } from "@hugeicons/core-free-icons";
+import { FileAttachmentIcon, FileDownloadIcon, FileScriptIcon, Film01Icon, Image01Icon, Loading02Icon, PackageIcon, Presentation01Icon } from "@hugeicons/core-free-icons";
 import { checkExportCompatibility, documentDirection, safeFileName, type CatalogDocument } from "@Kavero/catalog-engine";
 import { Button } from "@Kavero/ui/components/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@Kavero/ui/components/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -157,10 +158,11 @@ export function ExportMenu({ doc, onVideo }: { doc: CatalogDocument; onVideo: ()
     });
 
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="outline" size="sm" disabled={!!busy} />}>
-        {busy ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={FileDownloadIcon} />} {busy ? `Exporting ${busy.toUpperCase()}…` : "Export"} <HugeiconsIcon icon={ArrowDown01Icon} className="size-3" />
-      </DropdownMenuTrigger>
+    <Tooltip>
+      <DropdownMenu>
+      <TooltipTrigger render={<DropdownMenuTrigger render={<Button variant="outline" size="icon-sm" aria-label="Export" disabled={!!busy} />} />}>
+        {busy ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={FileDownloadIcon} />}
+      </TooltipTrigger>
       <DropdownMenuContent align="end" className="w-60 bg-card">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Export as</DropdownMenuLabel>
@@ -175,6 +177,8 @@ export function ExportMenu({ doc, onVideo }: { doc: CatalogDocument; onVideo: ()
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => run("file", () => flushEditorSave(doc.id).then(() => downloadProjectFile(doc.id, doc.metadata.title)))}><HugeiconsIcon icon={PackageIcon} /> Kavero project file</DropdownMenuItem>
       </DropdownMenuContent>
-    </DropdownMenu>
+      </DropdownMenu>
+      <TooltipContent>{busy ? `Exporting ${busy.toUpperCase()}…` : "Export"}</TooltipContent>
+    </Tooltip>
   );
 }

@@ -10,6 +10,7 @@ import {
   SelectValue,
 } from "@Kavero/ui/components/select"
 import { cn } from "@Kavero/ui/lib/utils"
+import { Tooltip, TooltipContent, TooltipTrigger } from "@Kavero/ui/components/tooltip"
 
 export type SimpleSelectOption<T extends string = string> = {
   value: T
@@ -82,21 +83,40 @@ function SimpleSelect<T extends string>({
       disabled={disabled}
       required={required}
     >
-      <SelectTrigger
-        ref={triggerRef}
-        id={id}
-        size={size}
-        title={title}
-        aria-label={ariaLabel}
-        aria-invalid={ariaInvalid}
-        className={cn(
-          "w-full min-w-0",
-          size === "sm" && "gap-1 pr-1.5 pl-2 text-xs [&_svg:not([class*='size-'])]:size-3.5",
-          className
-        )}
-      >
-        <SelectValue placeholder={placeholder} className="min-w-0 truncate" />
-      </SelectTrigger>
+      {title ? (
+        <Tooltip>
+          <TooltipTrigger render={<SelectTrigger
+            ref={triggerRef}
+            id={id}
+            size={size}
+            aria-label={ariaLabel ?? title}
+            aria-invalid={ariaInvalid}
+            className={cn(
+              "w-full min-w-0",
+              size === "sm" && "gap-1 pr-1.5 pl-2 text-xs [&_svg:not([class*='size-'])]:size-3.5",
+              className
+            )}
+          />}>
+            <SelectValue placeholder={placeholder} className="min-w-0 truncate" />
+          </TooltipTrigger>
+          <TooltipContent>{title}</TooltipContent>
+        </Tooltip>
+      ) : (
+        <SelectTrigger
+          ref={triggerRef}
+          id={id}
+          size={size}
+          aria-label={ariaLabel ?? title}
+          aria-invalid={ariaInvalid}
+          className={cn(
+            "w-full min-w-0",
+            size === "sm" && "gap-1 pr-1.5 pl-2 text-xs [&_svg:not([class*='size-'])]:size-3.5",
+            className
+          )}
+        >
+          <SelectValue placeholder={placeholder} className="min-w-0 truncate" />
+        </SelectTrigger>
+      )}
       <SelectContent
         container={dialog ?? undefined}
         positionMethod={dialog ? "fixed" : undefined}

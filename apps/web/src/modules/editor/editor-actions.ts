@@ -14,11 +14,11 @@ export const kbd = (combo: string) => (isMac ? combo.replace(/Ctrl\+/g, "⌘").r
 export const SHORTCUTS: { group: string; keys: string; label: string }[] = [
   { group: "Edit", keys: "Ctrl+Z", label: "Undo" },
   { group: "Edit", keys: "Ctrl+Shift+Z", label: "Redo" },
-  { group: "Edit", keys: "Ctrl+C", label: "Copy" },
-  { group: "Edit", keys: "Ctrl+X", label: "Cut" },
-  { group: "Edit", keys: "Ctrl+V", label: "Paste (also images and text from other apps)" },
-  { group: "Edit", keys: "Ctrl+D", label: "Duplicate" },
-  { group: "Edit", keys: "Delete", label: "Delete" },
+  { group: "Edit", keys: "Ctrl+C", label: "Copy selection or focused slide" },
+  { group: "Edit", keys: "Ctrl+X", label: "Cut selection or focused slide" },
+  { group: "Edit", keys: "Ctrl+V", label: "Paste selection or slide; also images and text from other apps" },
+  { group: "Edit", keys: "Ctrl+D", label: "Duplicate selection or active slide" },
+  { group: "Edit", keys: "Delete / Backspace", label: "Delete selection or focused slide" },
   { group: "Edit", keys: "Ctrl+Alt+C", label: "Copy style" },
   { group: "Edit", keys: "Ctrl+Alt+V", label: "Paste style" },
   { group: "Select", keys: "Ctrl+A", label: "Select all" },
@@ -38,7 +38,8 @@ export const SHORTCUTS: { group: string; keys: string; label: string }[] = [
   { group: "Align", keys: "Alt+W / Alt+V / Alt+S", label: "Align top / middle / bottom" },
   { group: "Slides", keys: "PageUp / PageDown", label: "Previous / next slide" },
   { group: "Slides", keys: "Ctrl+M", label: "New slide" },
-  { group: "Slides", keys: "Ctrl+Shift+D", label: "Duplicate slide" },
+  { group: "Slides", keys: "Ctrl+Shift+D", label: "Duplicate active slide" },
+  { group: "Slides", keys: "Space → ↑/↓ → Space", label: "Reorder focused slide (Esc cancels)" },
   { group: "View", keys: "Ctrl+= / Ctrl+-", label: "Zoom in / out" },
   { group: "View", keys: "Ctrl+0", label: "Zoom to fit" },
   { group: "View", keys: "?", label: "Show shortcuts" },
@@ -139,7 +140,8 @@ export function createActions({ editor, run, uploadImage }: ActionDeps) {
       a.remove();
     },
     /** Paste Kavero elements/slides, else images or text from other apps. */
-    async paste(event?: ClipboardEvent, at?: { x: number; y: number }) {
+    async paste(event?: ClipboardEvent, at?: { x: number; y: number }, targetSlideId?: string) {
+      if (targetSlideId && doc().slides.some((s) => s.id === targetSlideId)) editor.setActiveSlide(targetSlideId);
       const data = event?.clipboardData;
       const files = data ? [...data.files].filter((f) => f.type.startsWith("image/")) : [];
       if (files.length) {
@@ -167,7 +169,7 @@ export function createActions({ editor, run, uploadImage }: ActionDeps) {
       if (clip) {
         event?.preventDefault();
         if (clip.kind === "elements") pasteElements(clip.elements, at);
-        else a.pasteSlide(clip.slide);
+        else a.pasteSlide(clip.slide, targetSlideId);
         return;
       }
       if (text.trim()) {
@@ -305,15 +307,27 @@ export function createActions({ editor, run, uploadImage }: ActionDeps) {
     renameSlide(slideId: string, name: string) {
       if (name.trim()) run({ type: "slide.update", slideId, changes: { name: name.trim() } });
     },
-    copySlide(slideId = slide().id) {
+    copySlide(slideId = slide().id, event?: ClipboardEvent) {
       const s = doc().slides.find((x) => x.id === slideId);
-      if (s) setClipboard({ kind: "slide", slide: structuredClone(s) });
+      if (!s) return false;
+      setClipboard({ kind: "slide", slide: structuredClone(s) }, event);
       toast.message("Slide copied");
+      return true;
     },
-    pasteSlide(source?: CatalogSlide) {
+    cutSlide(slideId = slide().id, event?: ClipboardEvent) {
+      if (doc().slides.length <= 1) return false;
+      const s = doc().slides.find((x) => x.id === slideId);
+      if (!s) return false;
+      setClipboard({ kind: "slide", slide: structuredClone(s) }, event);
+      a.deleteSlide(slideId);
+      toast.message("Slide cut");
+      return true;
+    },
+    pasteSlide(source?: CatalogSlide, afterSlideId = slide().id) {
       const s = source ?? (memory?.kind === "slide" ? memory.slide : null);
       if (!s) return;
-      const i = doc().slides.findIndex((x) => x.id === slide().id);
+      const requestedIndex = doc().slides.findIndex((x) => x.id === afterSlideId);
+      const i = requestedIndex >= 0 ? requestedIndex : doc().slides.findIndex((x) => x.id === slide().id);
       const groups = new Map<string, string>();
       const copy: CatalogSlide = {
         ...structuredClone(s), id: createId("sld"), name: `${s.name} copy`,

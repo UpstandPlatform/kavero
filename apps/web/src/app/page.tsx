@@ -30,31 +30,45 @@ const featuredTemplates = TEMPLATES.filter((template) => ["minimal", "dark-luxur
 export default function Home() {
   return (
     <main className="w-full">
-      <section className="mx-auto grid w-full max-w-7xl items-center gap-8 px-4 py-10 sm:px-6 sm:py-14 lg:grid-cols-[0.92fr_1.08fr] lg:gap-10 lg:py-14">
-        <div className="grid content-center gap-6">
-          <Badge variant="outline" className="w-fit rounded-full px-3 py-1 text-xs font-normal">
-            <HugeiconsIcon icon={Layout01Icon} data-icon="inline-start" /> Product catalogs · presentations · websites
-          </Badge>
-          <div className="grid gap-4">
-            <h1 className="max-w-2xl text-4xl font-semibold tracking-tight text-balance sm:text-5xl lg:text-5xl">
-              Turn product data into a story people remember.
-            </h1>
-            <p className="max-w-xl text-base leading-relaxed text-muted-foreground sm:text-lg">
-              Design a product catalog or presentation in one place. Refine every slide, then share it as PowerPoint, PDF, video or a website.
-            </p>
-          </div>
-
-          <LandingPrompt />
-
-          <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
-            <Link href="/dashboard" className="inline-flex items-center gap-2 font-medium underline-offset-4 hover:underline">
-              <HugeiconsIcon icon={Presentation01Icon} /> Open your catalog workspace
-            </Link>
-            <span className="text-xs text-muted-foreground">No account needed to get started.</span>
-          </div>
+      <section className="relative isolate overflow-hidden border-b">
+        <div aria-hidden="true" className="pointer-events-none absolute inset-0 -z-10 overflow-hidden">
+          <div className="absolute inset-x-0 top-28 mx-auto h-72 max-w-4xl rounded-full bg-primary/10 blur-[110px] sm:h-96" />
+          <div className="absolute -top-24 end-[8%] size-64 rounded-full bg-orange-300/10 blur-[100px] dark:bg-primary/10" />
+          <div className="absolute top-72 start-[4%] size-56 rounded-full bg-amber-200/10 blur-[100px] dark:bg-primary/5" />
         </div>
 
-        <HomePreview />
+        <div className="mx-auto w-full max-w-7xl px-4 pb-14 pt-12 sm:px-6 sm:pb-16 sm:pt-16 lg:pt-20">
+          <div className="mx-auto grid max-w-4xl justify-items-center gap-5 text-center sm:gap-6">
+            <Badge variant="outline" className="rounded-full border-primary/20 bg-background/60 px-3 py-1 text-xs font-normal text-muted-foreground shadow-sm backdrop-blur">
+              <HugeiconsIcon icon={Layout01Icon} data-icon="inline-start" className="text-primary" /> Product catalogs · presentations · websites
+            </Badge>
+            <div className="grid justify-items-center gap-3 sm:gap-4">
+              <h1 className="max-w-4xl text-4xl leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
+                Turn product data into a <span className="text-primary">story people remember.</span>
+              </h1>
+              <p className="max-w-2xl text-base leading-relaxed text-muted-foreground sm:text-lg">
+                Design a product catalog or presentation in one place. Refine every slide, then share it as PowerPoint, PDF, video or a website.
+              </p>
+            </div>
+
+            <div className="w-full max-w-3xl pt-1 sm:pt-2">
+              <LandingPrompt />
+            </div>
+
+            <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm">
+              <Link href="/dashboard" className="inline-flex items-center gap-2 font-medium underline-offset-4 hover:underline">
+                <HugeiconsIcon icon={Presentation01Icon} /> Open your catalog workspace
+              </Link>
+              <span className="hidden text-muted-foreground sm:inline" aria-hidden="true">·</span>
+              <span className="text-xs text-muted-foreground">No account needed to get started.</span>
+            </div>
+          </div>
+
+          <div className="relative mx-auto mt-12 max-w-5xl sm:mt-16">
+            <div aria-hidden="true" className="pointer-events-none absolute -inset-x-8 -inset-y-5 -z-10 rounded-[3rem] bg-primary/5 blur-3xl" />
+            <HomePreview />
+          </div>
+        </div>
       </section>
 
       <section className="border-y bg-muted/30">

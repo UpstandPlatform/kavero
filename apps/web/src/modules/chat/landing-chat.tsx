@@ -65,13 +65,13 @@ export function LandingPrompt() {
 
   return (
     <form
-      className="grid gap-3"
+      className="grid w-full gap-4"
       onSubmit={(e) => {
         e.preventDefault();
         start(prompt);
       }}
     >
-      <InputGroup className="rounded-xl border bg-background shadow-sm">
+      <InputGroup className="rounded-2xl border bg-card/90 text-start shadow-xl shadow-primary/10 ring-1 ring-border/50 backdrop-blur-sm">
         <InputGroupTextarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}
@@ -84,23 +84,23 @@ export function LandingPrompt() {
           placeholder="Describe the catalog or presentation you want to make…"
           aria-label="Describe the catalog you want to make"
           rows={3}
-          className="min-h-20 resize-none text-base"
+          className="min-h-28 resize-none px-4 pt-4 text-base leading-relaxed sm:min-h-32 sm:px-5 sm:pt-5"
           dir="auto"
         />
-        <InputGroupAddon align="block-end" className="justify-between">
-          <span className="text-xs text-muted-foreground">
+        <InputGroupAddon align="block-end" className="justify-between gap-3 px-3 pb-3 sm:px-4 sm:pb-4">
+          <span className="min-w-0 text-start text-[11px] leading-relaxed text-muted-foreground sm:text-xs">
             {isPending ? " " : session && aiReady ? "Chat with your AI model" : "Generates with Kavero's built-in planner · connect a model for chat"}
           </span>
-          <InputGroupButton type="submit" size="icon-sm" variant="default" aria-label="Start" disabled={!prompt.trim()}><HugeiconsIcon icon={ArrowUp01Icon} /></InputGroupButton>
+          <InputGroupButton type="submit" size="icon-sm" variant="default" className="size-10 shrink-0 rounded-full shadow-md shadow-primary/20" aria-label="Start" disabled={!prompt.trim()}><HugeiconsIcon icon={ArrowUp01Icon} /></InputGroupButton>
         </InputGroupAddon>
       </InputGroup>
-      <div className="flex flex-wrap gap-2">
+      <div role="group" aria-label="Try an example prompt" className="flex flex-wrap justify-center gap-2">
         {SUGGESTIONS.map((s) => (
           <button
             key={s}
             type="button"
             onClick={() => setPrompt(s)}
-            className="rounded-full border px-3 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            className="rounded-full border border-border/70 bg-background/55 px-3.5 py-1.5 text-xs text-muted-foreground shadow-sm transition-[background-color,border-color,color,transform] hover:-translate-y-0.5 hover:border-primary/30 hover:bg-primary/5 hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring focus-visible:outline-none"
           >
             {s}
           </button>

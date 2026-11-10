@@ -14,7 +14,7 @@ export const catalog = pgTable(
   {
     id: text("id").primaryKey(),
     ownerId: text("owner_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-    /** Shared workspace, or null for a personal catalog. */
+    /** Workspace containing this catalog; null is reserved for legacy/unassigned records. */
     workspaceId: text("workspace_id").references(() => workspace.id, { onDelete: "set null" }),
     documentId: text("document_id").notNull(),
     title: text("title").notNull(),

@@ -414,7 +414,7 @@ html,body{margin:0;width:100%;height:100%;overflow:hidden;background:${backgroun
 *{box-sizing:border-box}</style><style>${css.replace(/<\/style/gi, "")}</style></head><body>${html}</body></html>`;
   return (
     <iframe
-      title="Custom HTML"
+      aria-label="Custom HTML"
       srcDoc={srcDoc}
       sandbox={interactive ? "allow-popups allow-popups-to-escape-sandbox" : ""}
       referrerPolicy="no-referrer"

@@ -5,6 +5,7 @@ import { Add01Icon, ArrowDown01Icon, ArrowLeft01Icon, ArrowRight01Icon, ArrowUp0
 import { AVAILABILITY_LABELS, PRODUCT_AVAILABILITY, productSchema, productUsage, type CatalogDocument, type Product } from "@Kavero/catalog-engine";
 import type { Editor } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
+import { TooltipHint } from "@Kavero/ui/components/tooltip";
 import { Input } from "@Kavero/ui/components/input";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { Textarea } from "@Kavero/ui/components/textarea";
@@ -222,11 +223,11 @@ export function ProductFormDialog({ editor, doc, productId, assetUrls, uploadIma
             {libraryOpen && (
               <div className="grid max-h-48 grid-cols-4 gap-1 overflow-y-auto rounded-lg border p-1" role="group" aria-label="Images already in this catalog">
                 {libraryImages.map((a) => (
-                  <button key={a.id} type="button" title={`Add ${a.name}`} aria-label={`Add ${a.name}`} className="overflow-hidden rounded border hover:ring-2 hover:ring-ring focus-visible:ring-2 focus-visible:ring-ring"
+                  <TooltipHint key={a.id} content={`Add ${a.name}`}><button type="button" aria-label={`Add ${a.name}`} className="overflow-hidden rounded border hover:ring-2 hover:ring-ring focus-visible:ring-2 focus-visible:ring-ring"
                     onClick={() => setD((x) => ({ ...x, images: [...x.images, a.id] }))}>
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={assetUrls[a.id]} alt="" className="aspect-square w-full object-cover" />
-                  </button>
+                  </button></TooltipHint>
                 ))}
               </div>
             )}

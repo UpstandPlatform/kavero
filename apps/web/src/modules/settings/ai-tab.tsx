@@ -11,6 +11,7 @@ import { toast } from "sonner";
 import { SectionHeader } from "@/components/page-tabs";
 import { surface } from "@/components/surface";
 import { makeTRPCClient } from "@/utils/trpc";
+import { confirmAction } from "@/components/confirm-dialog";
 
 let client: ReturnType<typeof makeTRPCClient> | null = null;
 const api = () => (client ??= makeTRPCClient());
@@ -84,7 +85,7 @@ export function AiTab() {
   }
 
   async function remove() {
-    if (!confirm("Remove your AI key? Kavero will use the server's model (if any) or its built-in planner.")) return;
+    if (!await confirmAction({ title: "Remove your AI key?", description: "Kavero will use the server's model (if any) or its built-in planner.", confirmLabel: "Remove key", destructive: true })) return;
     setBusy("remove");
     await api().ai.credential.remove.mutate().catch((e: Error) => toast.error(e.message));
     setApiKey("");

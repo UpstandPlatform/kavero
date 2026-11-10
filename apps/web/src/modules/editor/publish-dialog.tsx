@@ -15,6 +15,8 @@ import { authClient } from "@/lib/auth-client";
 import { SyncConflictError, pushCatalog } from "@/modules/catalog/cloud-sync";
 import { localCatalogs } from "@/modules/catalog/local-catalogs";
 import { makeTRPCClient } from "@/utils/trpc";
+import { confirmAction } from "@/components/confirm-dialog";
+import { TooltipHint } from "@Kavero/ui/components/tooltip";
 
 import { flushEditorSave } from "./use-catalog-editor";
 
@@ -121,7 +123,7 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
   }
 
   async function unpublish() {
-    if (!cloudId || !confirm("Take this catalog offline? The link will stop working.")) return;
+    if (!cloudId || !await confirmAction({ title: "Take this catalog offline?", description: "The published link will stop working until you publish it again.", confirmLabel: "Take offline", destructive: true })) return;
     setBusy(true);
     try {
       await api().publication.unpublish.mutate({ catalogId: cloudId });
@@ -167,14 +169,14 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
                 <Button variant="ghost" size="icon-xs" title="Copy link" onClick={async () => { await navigator.clipboard.writeText(url); setCopied(true); setTimeout(() => setCopied(false), 1500); }}>
                   {copied ? <HugeiconsIcon icon={Tick01Icon} /> : <HugeiconsIcon icon={Copy01Icon} />}
                 </Button>
-                <a href={url} target="_blank" rel="noreferrer" title="Open"><Button variant="ghost" size="icon-xs"><HugeiconsIcon icon={LinkSquare01Icon} /></Button></a>
+                <TooltipHint content="Open published site"><a href={url} target="_blank" rel="noreferrer" aria-label="Open published site"><Button variant="ghost" size="icon-xs"><HugeiconsIcon icon={LinkSquare01Icon} /></Button></a></TooltipHint>
               </div>
               {status && status.daily.length > 0 && (
                 <div className="grid gap-1">
                   <div className="flex h-8 items-end gap-px" role="img" aria-label={`Views over the last 30 days: ${status.daily.reduce((n, d) => n + d.views, 0)}`}>
                     {status.daily.map((d) => {
                       const max = Math.max(1, ...status.daily.map((x) => x.views));
-                      return <div key={d.day} title={`${d.day}: ${d.views}`} className="flex-1 rounded-t-[2px] bg-foreground/60" style={{ height: `${Math.max(4, (d.views / max) * 100)}%`, opacity: d.views ? 1 : 0.2 }} />;
+                      return <TooltipHint key={d.day} content={`${d.day}: ${d.views} views`}><div className="flex-1 rounded-t-[2px] bg-foreground/60" style={{ height: `${Math.max(4, (d.views / max) * 100)}%`, opacity: d.views ? 1 : 0.2 }} /></TooltipHint>;
                     })}
                   </div>
                   <p className="text-muted-foreground">{status.daily.slice(-7).reduce((n, d) => n + d.views, 0)} views in the last 7 days · {status.daily.reduce((n, d) => n + d.views, 0)} in 30 days</p>

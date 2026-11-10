@@ -81,12 +81,11 @@ export function canvasMenu(a: EditorActions, at: { x: number; y: number }): Menu
 export function slideMenu(a: EditorActions, slideId: string, index: number, count: number, onRename: () => void): MenuItem[] {
   return [
     { label: "New slide after", icon: <HugeiconsIcon icon={Add01Icon} />, onSelect: () => a.addSlide(index) },
-    { label: "Duplicate", icon: <HugeiconsIcon icon={Copy01Icon} />, onSelect: () => a.duplicateSlide(slideId) },
-    { label: "Copy slide", icon: <HugeiconsIcon icon={Copy01Icon} />, onSelect: () => a.copySlide(slideId) },
+    { label: "Duplicate", icon: <HugeiconsIcon icon={Copy01Icon} />, shortcut: kbd("Ctrl+D"), onSelect: () => a.duplicateSlide(slideId) },
+    { label: "Copy slide", icon: <HugeiconsIcon icon={Copy01Icon} />, shortcut: kbd("Ctrl+C"), onSelect: () => a.copySlide(slideId) },
+    { label: "Cut slide", icon: <HugeiconsIcon icon={ScissorsIcon} />, shortcut: kbd("Ctrl+X"), disabled: count === 1, onSelect: () => a.cutSlide(slideId) },
     { label: "Paste slide after", icon: <HugeiconsIcon icon={FilePasteIcon} />, disabled: !a.hasSlideClip(), onSelect: () => a.pasteSlide() },
     { type: "separator" },
-    { label: "Move up", icon: <HugeiconsIcon icon={ArrowUp01Icon} />, disabled: index === 0, onSelect: () => a.moveSlide(slideId, index - 1) },
-    { label: "Move down", icon: <HugeiconsIcon icon={ArrowDown01Icon} />, disabled: index === count - 1, onSelect: () => a.moveSlide(slideId, index + 1) },
     { label: "Rename…", icon: <HugeiconsIcon icon={PencilIcon} />, onSelect: onRename },
     { type: "separator" },
     { label: "Delete slide", icon: <HugeiconsIcon icon={Delete02Icon} />, danger: true, disabled: count === 1, onSelect: () => a.deleteSlide(slideId) },

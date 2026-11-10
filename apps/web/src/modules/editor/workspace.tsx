@@ -14,6 +14,7 @@ import {
   DropdownMenuTrigger,
 } from "@Kavero/ui/components/dropdown-menu";
 import { cn } from "@Kavero/ui/lib/utils";
+import { TooltipHint } from "@Kavero/ui/components/tooltip";
 import { Fragment, useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 
 /**
@@ -227,7 +228,7 @@ function PanelFrame({
       )}
     >
       <div className="flex h-10 shrink-0 items-center gap-1 border-b px-1.5">
-        <button
+        <TooltipHint content={`Drag to move ${title}`}><button
           type="button"
           draggable
           onDragStart={(e) => {
@@ -237,11 +238,10 @@ function PanelFrame({
           }}
           onDragEnd={onDragEnd}
           className="grid size-6 shrink-0 cursor-grab place-items-center rounded-md text-muted-foreground hover:bg-muted active:cursor-grabbing"
-          title={`Drag to move ${title}`}
           aria-label={`Move the ${title} panel (drag to the other side or reorder)`}
         >
           <HugeiconsIcon icon={DragDropVerticalIcon} className="size-3.5" />
-        </button>
+        </button></TooltipHint>
         <div className="flex min-w-0 flex-1 items-center gap-1">{header ?? <span className="truncate text-xs font-medium">{title}</span>}</div>
         <Button
           variant="ghost"
@@ -282,9 +282,9 @@ function PanelFrame({
 export function WorkspaceMenu({ api }: { api: WorkspaceApi }) {
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label="Workspace: show, hide and reset panels" title="Workspace" />}>
+      <TooltipHint content="Show, hide and reset workspace panels"><DropdownMenuTrigger render={<Button variant="ghost" size="icon" aria-label="Workspace: show, hide and reset panels" />}>
         <HugeiconsIcon icon={LayoutLeftIcon} />
-      </DropdownMenuTrigger>
+      </DropdownMenuTrigger></TooltipHint>
       <DropdownMenuContent side="right" align="end" className="min-w-52">
         <DropdownMenuGroup>
           <DropdownMenuLabel>Panels</DropdownMenuLabel>

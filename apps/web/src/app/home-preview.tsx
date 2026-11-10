@@ -7,7 +7,7 @@ const featured = TEMPLATES.find((template) => template.id === "dark-luxury") ?? 
 /** A lightweight, stable product preview: no client animation or remote media required. */
 export function HomePreview() {
   return (
-    <div className="relative mx-auto w-full max-w-2xl" aria-label="Kavero catalog editor preview" role="img">
+    <div className="relative mx-auto w-full max-w-4xl" aria-label="Kavero catalog editor preview" role="img">
       <div className="overflow-hidden rounded-2xl border bg-card shadow-xl shadow-foreground/5">
         <div className="flex h-11 items-center gap-3 border-b px-3 sm:px-4">
           <div className="flex items-center gap-1.5" aria-hidden="true">
@@ -31,7 +31,7 @@ export function HomePreview() {
             <div className="grid aspect-video place-items-center rounded-md border border-dashed text-xs text-muted-foreground">+</div>
           </div>
 
-          <div className="grid min-h-[260px] place-items-center bg-muted/40 p-4 sm:min-h-[360px] sm:p-7">
+          <div className="grid min-h-[260px] place-items-center bg-muted/40 p-4 sm:min-h-[380px] sm:p-7">
             <div className="w-full max-w-xl rounded-md border bg-background p-[4%] shadow-md">
               <div className="grid aspect-video grid-cols-[1.15fr_0.85fr] overflow-hidden rounded-sm" style={{ backgroundColor: featured.theme.colors.background }}>
                 <div className="flex flex-col justify-between p-[8%]" style={{ color: featured.theme.colors.text }}>

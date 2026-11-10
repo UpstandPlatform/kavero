@@ -72,7 +72,7 @@ export function ProductPickerDialog({ doc, assetUrls, options, ui, onClose }: {
   const byId = useMemo(() => new Map(doc.products.map((p) => [p.id, p])), [doc.products]);
   const shown = doc.products.filter((p) => matchesProduct(p, query));
 
-  const confirm = (ids = selected) => {
+  const completeSelection = (ids = selected) => {
     if (!ids.length) return;
     onClose();
     options.onConfirm(ids);
@@ -88,7 +88,7 @@ export function ProductPickerDialog({ doc, assetUrls, options, ui, onClose }: {
     [next[i], next[j]] = [next[j]!, next[i]!];
     return next;
   });
-  const newProduct = () => ui.edit(undefined, (id) => (multiple ? setSelected((s) => [...s, id]) : confirm([id])));
+  const newProduct = () => ui.edit(undefined, (id) => (multiple ? setSelected((s) => [...s, id]) : completeSelection([id])));
 
   return (
     <dialog ref={ref} onClose={onClose} aria-labelledby={`${uid}-t`} className="m-auto w-[min(760px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50">
@@ -109,7 +109,7 @@ export function ProductPickerDialog({ doc, assetUrls, options, ui, onClose }: {
                   autoFocus type="search" value={query} onChange={(e) => setQuery(e.target.value)}
                   placeholder="Search by name, SKU, brand or category" aria-label="Search products"
                   className="h-8 min-w-0 flex-1 bg-transparent text-xs outline-none"
-                  onKeyDown={(e) => { if (e.key === "Enter" && !multiple && shown.length === 1) { e.preventDefault(); confirm([shown[0]!.id]); } }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !multiple && shown.length === 1) { e.preventDefault(); completeSelection([shown[0]!.id]); } }}
                 />
                 <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{shown.length} of {doc.products.length}</span>
               </div>
@@ -121,7 +121,7 @@ export function ProductPickerDialog({ doc, assetUrls, options, ui, onClose }: {
                   return (
                     <li key={p.id}>
                       <label className={`flex cursor-pointer items-center gap-3 px-5 py-2 text-xs hover:bg-muted/60 ${on ? "bg-muted" : ""}`}
-                        onDoubleClick={() => !multiple && confirm([p.id])}>
+                        onDoubleClick={() => !multiple && completeSelection([p.id])}>
                         <input type={multiple ? "checkbox" : "radio"} name={`${uid}-pick`} checked={on} onChange={() => toggle(p.id)} className="shrink-0" />
                         <ProductThumb product={p} assetUrls={assetUrls} />
                         <span className="min-w-0 flex-1">
@@ -167,7 +167,7 @@ export function ProductPickerDialog({ doc, assetUrls, options, ui, onClose }: {
           {doc.products.length > 0 && <Button variant="outline" size="sm" onClick={newProduct}><HugeiconsIcon icon={Add01Icon} /> New product</Button>}
           <span className="flex-1" />
           <Button variant="ghost" size="sm" onClick={onClose}>Cancel</Button>
-          <Button size="sm" disabled={!selected.length} onClick={() => confirm()}>{options.confirmLabel}</Button>
+          <Button size="sm" disabled={!selected.length} onClick={() => completeSelection()}>{options.confirmLabel}</Button>
         </div>
       </div>
     </dialog>

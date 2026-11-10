@@ -15,6 +15,7 @@ import { PageTabs, SectionHeader } from "@/components/page-tabs";
 import { surface } from "@/components/surface";
 import { authClient } from "@/lib/auth-client";
 import { makeTRPCClient } from "@/utils/trpc";
+import { confirmAction } from "@/components/confirm-dialog";
 
 import { AiTab } from "./ai-tab";
 import { WorkspacesTab } from "./workspaces-tab";
@@ -162,7 +163,7 @@ function TokensTab() {
                     {t.expiresAt ? ` · expires ${new Date(t.expiresAt).toLocaleDateString()}` : ""}
                   </p>
                 </div>
-                <Button variant="ghost" size="sm" onClick={async () => { if (confirm(`Revoke "${t.name}"? Agents using it will stop working.`)) { await api().integrations.tokens.revoke.mutate({ id: t.id }); refresh(); } }}>
+                <Button variant="ghost" size="sm" onClick={async () => { if (await confirmAction({ title: `Revoke “${t.name}”?`, description: "Agents using this token will stop working.", confirmLabel: "Revoke token", destructive: true })) { await api().integrations.tokens.revoke.mutate({ id: t.id }); refresh(); } }}>
                   <HugeiconsIcon icon={Delete02Icon} /> Revoke
                 </Button>
               </li>
@@ -245,7 +246,7 @@ function ConnectionsTab() {
                       setBusy(null);
                       refresh();
                     }}>{busy === c.id ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={Refresh01Icon} />} Test</Button>
-                    <Button variant="ghost" size="sm" onClick={async () => { if (confirm(`Remove "${c.name}"? Its stored credentials are deleted.`)) { await api().integrations.connections.remove.mutate({ id: c.id }); refresh(); } }}><HugeiconsIcon icon={Delete02Icon} /> Remove</Button>
+                    <Button variant="ghost" size="sm" onClick={async () => { if (await confirmAction({ title: `Remove “${c.name}”?`, description: "Its stored credentials will be deleted.", confirmLabel: "Remove server", destructive: true })) { await api().integrations.connections.remove.mutate({ id: c.id }); refresh(); } }}><HugeiconsIcon icon={Delete02Icon} /> Remove</Button>
                   </span>
                 </div>
                 {c.status === "error" && c.lastError && <p className="text-destructive">{c.lastError}</p>}

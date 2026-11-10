@@ -43,8 +43,6 @@ export interface NewCatalogValues {
   title: string;
   description?: string;
   page: PagePreset;
-  language: string;
-  currency: string;
   templateId: string;
 }
 
@@ -75,8 +73,6 @@ export function NewCatalogDialog({
         title: String(form.get("title")).trim() || "Untitled catalog",
         description: String(form.get("description") ?? "").trim() || undefined,
         page: form.get("page") as PagePreset,
-        language: String(form.get("language")),
-        currency: String(form.get("currency")),
         templateId,
       });
     } finally {
@@ -107,26 +103,16 @@ export function NewCatalogDialog({
               </FieldGroup>
 
               <FieldSet className="gap-3">
-                <FieldLegend variant="label">Format &amp; language</FieldLegend>
+                <FieldLegend variant="label">Format</FieldLegend>
                 <FieldGroup className="gap-3">
                   <Field>
                     <FieldLabel htmlFor="catalog-page">Page size</FieldLabel>
                     <SimpleSelect id="catalog-page" name="page" defaultValue="16:9" options={(Object.keys(PAGE_PRESETS) as PagePreset[]).map((preset) => ({ value: preset, label: PRESET_LABELS[preset] }))} />
                   </Field>
-                  <div className="grid grid-cols-2 gap-3">
-                    <Field>
-                      <FieldLabel htmlFor="catalog-language">Language</FieldLabel>
-                      <SimpleSelect id="catalog-language" name="language" defaultValue="en" options={[["en", "English"], ["de", "German"], ["fr", "French"], ["es", "Spanish"], ["it", "Italian"], ["fa", "Persian"], ["ar", "Arabic"]].map(([value, label]) => ({ value: value!, label: label! }))} />
-                    </Field>
-                    <Field>
-                      <FieldLabel htmlFor="catalog-currency">Currency</FieldLabel>
-                      <SimpleSelect id="catalog-currency" name="currency" defaultValue="USD" options={["USD", "EUR", "GBP", "CHF", "JPY", "AED", "IRR"].map((currency) => ({ value: currency, label: currency }))} />
-                    </Field>
-                  </div>
                 </FieldGroup>
               </FieldSet>
 
-              <p className="text-xs leading-relaxed text-muted-foreground">You can update the format, language, currency, and visual theme later.</p>
+              <p className="text-xs leading-relaxed text-muted-foreground">You can change the format and other catalog details later.</p>
             </section>
 
             <section aria-label="Choose a starting design" className="min-h-0 p-4 sm:p-6 lg:overflow-y-auto">

@@ -1,0 +1,134 @@
+{
+  "type": "diff",
+  "version": "9",
+  "dialect": "postgres",
+  "id": "cab11d6b-ec8f-48e0-9bb7-f64baa619205",
+  "prevIds": [
+    "f09720c1-030c-4be3-bff7-1e0223af339e"
+  ],
+  "footprints": [
+    {
+      "statementType": "add_column",
+      "statementTarget": [
+        "column",
+        "public",
+        "workspace",
+        "personal_owner_id"
+      ],
+      "writes": [
+        "s|col|public.workspace.personal_owner_id",
+        "n|col|public.workspace.personal_owner_id",
+        "e|col|public.workspace.personal_owner_id"
+      ],
+      "reads": [
+        "n|tbl|public.workspace",
+        "n|sch|public"
+      ]
+    },
+    {
+      "statementType": "create_index",
+      "statementTarget": [
+        "index",
+        "public",
+        "workspace",
+        "workspace_personal_owner_idx"
+      ],
+      "writes": [
+        "s|idx|public.workspace_personal_owner_idx",
+        "n|idx|public.workspace_personal_owner_idx",
+        "e|idx|public.workspace_personal_owner_idx",
+        "n|rel|public.workspace_personal_owner_idx"
+      ],
+      "reads": [
+        "n|tbl|public.workspace",
+        "n|sch|public",
+        "n|col|public.workspace.personal_owner_id"
+      ]
+    },
+    {
+      "statementType": "create_fk",
+      "statementTarget": [
+        "table",
+        "public",
+        "workspace"
+      ],
+      "writes": [
+        "s|fk|public.workspace.workspace_personal_owner_id_user_id_fkey",
+        "n|fk|public.workspace.workspace_personal_owner_id_user_id_fkey",
+        "e|fk|public.workspace.workspace_personal_owner_id_user_id_fkey",
+        "n|con|public.workspace.workspace_personal_owner_id_user_id_fkey"
+      ],
+      "reads": [
+        "n|tbl|public.workspace",
+        "n|sch|public",
+        "n|tbl|public.user",
+        "n|sch|public",
+        "n|col|public.workspace.personal_owner_id",
+        "n|col|public.user.id",
+        "e|uniqueness|public.user.id"
+      ]
+    }
+  ],
+  "deltas": [
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace",
+        "name": "personal_owner_id",
+        "type": "text",
+        "typeSchema": null,
+        "notNull": false,
+        "dimensions": 0,
+        "default": null,
+        "generated": null,
+        "identity": null,
+        "entityType": "columns"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace",
+        "name": "workspace_personal_owner_idx",
+        "nameExplicit": true,
+        "columns": [
+          {
+            "value": "personal_owner_id",
+            "isExpression": false,
+            "asc": true,
+            "nullsFirst": false,
+            "opclass": null
+          }
+        ],
+        "isUnique": true,
+        "where": null,
+        "with": "",
+        "method": "btree",
+        "concurrently": false,
+        "entityType": "indexes"
+      }
+    },
+    {
+      "op": "create",
+      "row": {
+        "schema": "public",
+        "table": "workspace",
+        "name": "workspace_personal_owner_id_user_id_fkey",
+        "nameExplicit": false,
+        "columns": [
+          "personal_owner_id"
+        ],
+        "schemaTo": "public",
+        "tableTo": "user",
+        "columnsTo": [
+          "id"
+        ],
+        "onUpdate": "NO ACTION",
+        "onDelete": "CASCADE",
+        "entityType": "fks"
+      }
+    }
+  ]
+}

@@ -11,16 +11,18 @@ import { toast } from "sonner";
 import { kbd } from "./editor-actions";
 import { NoProducts, ProductThumb, productPrice, type ProductUi } from "./product-picker";
 import { useRun } from "./use-catalog-editor";
+import { confirmAction } from "@/components/confirm-dialog";
+import { TooltipHint } from "@Kavero/ui/components/tooltip";
 
 /** Delete a product, warning first when slides show it. Returns false when cancelled. */
-export function deleteProduct(editor: Editor, run: ReturnType<typeof useRun>, productId: string): boolean {
+export async function deleteProduct(editor: Editor, run: ReturnType<typeof useRun>, productId: string): Promise<boolean> {
   const doc = editor.getDocument();
   const product = doc.products.find((p) => p.id === productId);
   if (!product) return false;
   const usage = productUsage(doc, productId);
   if (usage.length) {
     const where = usage.map((u) => `• Slide ${u.slideIndex + 1} “${u.slideName}”: ${u.elementType === "product" ? "product card (removed)" : "product grid (taken out)"}`).join("\n");
-    if (!confirm(`“${product.name}” is used on ${usage.length === 1 ? "1 element" : `${usage.length} elements`}:\n${where}\n\nDelete it anyway? You can undo this.`)) return false;
+    if (!await confirmAction({ title: `Delete “${product.name}” from this catalog?`, description: `It is used on ${usage.length === 1 ? "1 element" : `${usage.length} elements`}:\n${where}\n\nYou can undo this.`, confirmLabel: "Delete product", destructive: true })) return false;
   }
   if (!run({ type: "product.delete", productId, removeFromSlides: true })) return false;
   toast.success(`Deleted “${product.name}”. Undo with ${kbd("Ctrl+Z")}.`);
@@ -57,7 +59,7 @@ export function ProductsPanel({ editor, doc, assetUrls, ui, onInsert }: {
           const n = uses.get(p.id) ?? 0;
           return (
             <li key={p.id} className="group relative rounded-md hover:bg-muted/60 focus-within:bg-muted/60">
-              <button type="button" className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1.5 text-start" onClick={() => ui.edit(p.id)} title={`Edit ${p.name}`}>
+              <TooltipHint content={`Edit ${p.name}`}><button type="button" className="flex w-full min-w-0 items-center gap-2 rounded-md px-1.5 py-1.5 text-start" onClick={() => ui.edit(p.id)}>
                 <ProductThumb product={p} assetUrls={assetUrls} className="size-8" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-xs font-medium">{p.name}</span>
@@ -65,7 +67,7 @@ export function ProductsPanel({ editor, doc, assetUrls, ui, onInsert }: {
                     {[price, n ? `on ${n === 1 ? "1 card" : `${n} cards`}` : "not placed"].filter(Boolean).join(" · ")}
                   </span>
                 </span>
-              </button>
+              </button></TooltipHint>
               {/* Revealed on hover/focus, like slide actions. */}
               <span className="absolute end-1 top-1 hidden gap-0.5 rounded-md bg-background/95 shadow-sm group-hover:flex group-focus-within:flex">
                 <Button variant="ghost" size="icon-xs" title="Add to slide" aria-label={`Add ${p.name} to slide`} onClick={() => onInsert(p.id)}><HugeiconsIcon icon={AddSquareIcon} /></Button>

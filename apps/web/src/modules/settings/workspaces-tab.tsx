@@ -2,6 +2,7 @@
 
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, Delete02Icon, Loading02Icon } from "@hugeicons/core-free-icons";
+import { Badge } from "@Kavero/ui/components/badge";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
 import { CopyField } from "@Kavero/ui/components/code-block";
@@ -13,6 +14,8 @@ import { SectionHeader } from "@/components/page-tabs";
 import { surface } from "@/components/surface";
 import { authClient } from "@/lib/auth-client";
 import { makeTRPCClient } from "@/utils/trpc";
+import { confirmAction } from "@/components/confirm-dialog";
+import { TooltipHint } from "@Kavero/ui/components/tooltip";
 
 let client: ReturnType<typeof makeTRPCClient> | null = null;
 const api = () => (client ??= makeTRPCClient());
@@ -34,7 +37,7 @@ export function WorkspacesTab() {
   const [list, setList] = useState<Ws[] | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [name, setName] = useState("");
-  const refresh = useCallback(() => void api().workspace.list.query().then((l) => { setList(l); setSelected((s) => s ?? l[0]?.id ?? null); }), []);
+  const refresh = useCallback(() => void api().workspace.list.query().then((l) => { setList(l); setSelected((s) => s ?? l.find((w) => w.isPersonal)?.id ?? l[0]?.id ?? null); }), []);
   useEffect(refresh, [refresh]);
 
   async function create() {
@@ -50,7 +53,7 @@ export function WorkspacesTab() {
 
   return (
     <div className="grid gap-6 text-xs">
-      <p className="text-sm text-muted-foreground">Workspaces let a team share catalogs. Save a catalog to a workspace from the dashboard (catalog menu → Save to cloud).</p>
+      <p className="text-sm text-muted-foreground">Every account has a protected Personal workspace. New cloud catalogs are saved there by default; choose a team workspace from a catalog’s save menu to share work with others.</p>
       <div className="flex flex-wrap items-end gap-2">
         <label className="grid gap-1.5">New workspace<Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Marketing team" maxLength={80} /></label>
         <Button onClick={create} disabled={!name.trim()}><HugeiconsIcon icon={Add01Icon} /> Create</Button>
@@ -61,7 +64,7 @@ export function WorkspacesTab() {
             {list.map((w) => (
               <li key={w.id}>
                 <button type="button" onClick={() => setSelected(w.id)} aria-pressed={selected === w.id} className={`w-full px-3 py-2 ${surface.option}`}>
-                  <span className="block truncate font-medium">{w.name}</span>
+                  <span className="flex items-center gap-2"><span className="truncate font-medium">{w.name}</span>{w.isPersonal && <Badge variant="secondary">Personal</Badge>}</span>
                   <span className="text-muted-foreground capitalize">{w.role}</span>
                 </button>
               </li>
@@ -103,19 +106,25 @@ function WorkspaceDetail({ workspaceId, me, onChanged, onGone }: { workspaceId: 
 
   return (
     <div className="grid gap-5">
+      {data.isPersonal && <p className={surface.muted}>This is your default workspace. It stays with your account, and you can’t delete it, leave it, or invite other members to it.</p>}
       <section className="grid gap-3">
         <SectionHeader as="h3" title="Members" />
         <ul className={surface.list}>
           {data.members.map((m) => (
             <li key={m.userId} className="flex flex-wrap items-center gap-2 p-3">
               <div className="min-w-0 flex-1"><p className="truncate font-medium">{m.name}{m.userId === me ? " (you)" : ""}</p><p className="truncate text-muted-foreground">{m.email}</p></div>
-              {canManage && m.userId !== me && (data.you === "owner" || m.role !== "owner") ? (
+              {!data.isPersonal && canManage && m.userId !== me && (data.you === "owner" || m.role !== "owner") ? (
                 <SimpleSelect size="sm" className="w-28 capitalize" contentClassName="capitalize" value={m.role} disabled={busy} title={ROLE_HELP[m.role]} aria-label={`Role of ${m.name}`}
                   onValueChange={(v) => act(() => api().workspace.setRole.mutate({ workspaceId, userId: m.userId, role: v }), "Role updated")}
                   options={roles.map((r) => ({ value: r, label: r }))} />
-              ) : <span className="capitalize text-muted-foreground" title={ROLE_HELP[m.role]}>{m.role}</span>}
-              {(m.userId === me || (canManage && (data.you === "owner" || m.role !== "owner"))) && (
-                <Button variant="ghost" size="sm" disabled={busy} onClick={() => confirm(m.userId === me ? "Leave this workspace?" : `Remove ${m.name}?`) && act(() => api().workspace.removeMember.mutate({ workspaceId, userId: m.userId }), m.userId === me ? "You left the workspace" : "Member removed").then(() => m.userId === me && onGone())}>
+              ) : <TooltipHint content={data.isPersonal ? "Owner of your protected Personal workspace" : ROLE_HELP[m.role]}><span tabIndex={0} className="capitalize text-muted-foreground">{m.role}</span></TooltipHint>}
+              {!data.isPersonal && (m.userId === me || (canManage && (data.you === "owner" || m.role !== "owner"))) && (
+                <Button variant="ghost" size="sm" disabled={busy} onClick={async () => {
+                  const leaving = m.userId === me;
+                  if (!await confirmAction({ title: leaving ? "Leave this workspace?" : `Remove ${m.name}?`, description: leaving ? "You will lose access to this workspace and its shared catalogs." : "This person will lose access to the workspace and its shared catalogs.", confirmLabel: leaving ? "Leave workspace" : "Remove member", destructive: true })) return;
+                  await act(() => api().workspace.removeMember.mutate({ workspaceId, userId: m.userId }), leaving ? "You left the workspace" : "Member removed");
+                  if (leaving) onGone();
+                }}>
                   {m.userId === me ? "Leave" : "Remove"}
                 </Button>
               )}
@@ -124,7 +133,7 @@ function WorkspaceDetail({ workspaceId, me, onChanged, onGone }: { workspaceId: 
         </ul>
       </section>
 
-      {canManage && (
+      {canManage && !data.isPersonal && (
         <section className="grid gap-3">
           <SectionHeader as="h3" title="Invite someone" />
           <div className="flex flex-wrap items-end gap-2">
@@ -158,13 +167,17 @@ function WorkspaceDetail({ workspaceId, me, onChanged, onGone }: { workspaceId: 
         </section>
       )}
 
-      {data.you === "owner" && (
+      {data.you === "owner" && !data.isPersonal && (
         <section className={`flex flex-wrap items-center justify-between gap-3 ${surface.danger}`}>
           <div className="grid gap-0.5">
             <p className="text-sm font-semibold">Delete workspace</p>
-            <p className="text-muted-foreground">Members lose access. Its catalogs return to their creators as personal catalogs.</p>
+            <p className="text-muted-foreground">Members lose access. Its catalogs move into their creators’ Personal workspaces.</p>
           </div>
-          <Button variant="destructive" size="sm" disabled={busy} onClick={() => confirm("Delete this workspace? Members lose access. Its catalogs return to their creators as personal catalogs.") && act(() => api().workspace.remove.mutate({ workspaceId }), "Workspace deleted").then(onGone)}>
+          <Button variant="destructive" size="sm" disabled={busy} onClick={async () => {
+            if (!await confirmAction({ title: "Delete this workspace?", description: "Members lose access. Its catalogs move into their creators’ Personal workspaces.", confirmLabel: "Delete workspace", destructive: true })) return;
+            await act(() => api().workspace.remove.mutate({ workspaceId }), "Workspace deleted");
+            onGone();
+          }}>
             <HugeiconsIcon icon={Delete02Icon} /> Delete workspace
           </Button>
         </section>

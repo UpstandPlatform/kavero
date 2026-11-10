@@ -23,6 +23,8 @@ import { toast } from "sonner";
 
 import { surface } from "@/components/surface";
 import { authClient } from "@/lib/auth-client";
+import { confirmAction } from "@/components/confirm-dialog";
+import { TooltipHint } from "@Kavero/ui/components/tooltip";
 
 import {
   addExampleCatalogs,
@@ -90,7 +92,7 @@ export function CatalogDashboard() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [conflicts, setConflicts] = useState<Set<string>>(new Set());
   const [cloudOnlyCount, setCloudOnlyCount] = useState(0);
-  const [workspaces, setWorkspaces] = useState<{ id: string; name: string; role: string }[]>([]);
+  const [workspaces, setWorkspaces] = useState<{ id: string; name: string; role: string; isPersonal: boolean }[]>([]);
   const [cloudInfo, setCloudInfo] = useState<Map<string, { workspaceName: string | null; role: string }>>(new Map());
 
   useEffect(() => {
@@ -288,7 +290,7 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
   catalog: CatalogSummary;
   userId: string | null;
   cloudConflict?: boolean;
-  workspaces?: { id: string; name: string; role: string }[];
+  workspaces?: { id: string; name: string; role: string; isPersonal: boolean }[];
   cloud?: { workspaceName: string | null; role: string };
   viewMode?: "grid" | "list";
 }) {
@@ -312,7 +314,7 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
     setSyncing(true);
     await act(async () => {
       const r = await pushCatalog(c.id, userId, { workspaceId: workspace?.id });
-      toast.success(r.status === "unchanged" ? "Already up to date" : c.cloud ? "Synced to cloud" : workspace ? `Saved to ${workspace.name}` : "Saved to your cloud");
+      toast.success(r.status === "unchanged" ? "Already up to date" : c.cloud ? "Synced to cloud" : workspace ? `Saved to ${workspace.name}` : "Saved to Personal workspace");
     });
     setSyncing(false);
   }
@@ -356,10 +358,10 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
             <Link href={`/editor/${c.id}`} className="block truncate text-sm font-medium hover:underline">{c.title}</Link>
           )}
           <p className="mt-0.5 flex items-center gap-1.5 text-xs text-muted-foreground">
-            <Badge variant="outline" title={status.title} className="h-4 px-1.5 text-[10px] font-normal tracking-wide uppercase">
+            <TooltipHint content={status.title}><Badge variant="outline" className="h-4 px-1.5 text-[10px] font-normal tracking-wide uppercase">
               {syncing ? <HugeiconsIcon icon={Refresh01Icon} className="animate-spin" /> : status.icon} {status.label}
-            </Badge>
-            {cloud?.workspaceName && <span className="truncate" title={`Workspace · your role: ${cloud.role}`}>{cloud.workspaceName}{cloud.role === "viewer" ? " (view only)" : ""} ·</span>}
+            </Badge></TooltipHint>
+            {cloud?.workspaceName && <TooltipHint content={`Workspace · your role: ${cloud.role}`}><span tabIndex={0} className="truncate">{cloud.workspaceName}{cloud.role === "viewer" ? " (view only)" : ""} ·</span></TooltipHint>}
             {c.slideCount} slide{c.slideCount === 1 ? "" : "s"} · {timeAgo(c.updatedAt)}
           </p>
         </div>
@@ -378,16 +380,16 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
                   <DropdownMenuItem onClick={() => sync()}><HugeiconsIcon icon={Refresh01Icon} /> Sync now</DropdownMenuItem>
                 ) : (
                   <>
-                    <DropdownMenuItem onClick={() => sync()}><HugeiconsIcon icon={CloudUploadIcon} /> Save to my cloud</DropdownMenuItem>
-                    {workspaces.filter((w) => w.role !== "viewer").map((w) => (
+                    <DropdownMenuItem onClick={() => sync()}><HugeiconsIcon icon={CloudUploadIcon} /> Save to Personal workspace</DropdownMenuItem>
+                    {workspaces.filter((w) => !w.isPersonal && w.role !== "viewer").map((w) => (
                       <DropdownMenuItem key={w.id} onClick={() => sync(w)}><HugeiconsIcon icon={CloudUploadIcon} /> Save to {w.name}</DropdownMenuItem>
                     ))}
                   </>
                 )}
                 {c.cloud && (
                   <DropdownMenuItem
-                    onClick={() => {
-                      if (confirm(`Remove the cloud copy of "${c.title}"? The copy in this browser stays. Other devices will no longer see it.`)) {
+                    onClick={async () => {
+                      if (await confirmAction({ title: `Remove the cloud copy of “${c.title}”?`, description: "The copy in this browser stays. Other devices will no longer see it.", confirmLabel: "Remove cloud copy", destructive: true })) {
                         act(() => deleteCloudCopy(c.id), "Cloud copy removed");
                       }
                     }}
@@ -400,8 +402,8 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
             <DropdownMenuSeparator />
             <DropdownMenuItem
               variant="destructive"
-              onClick={() => {
-                if (confirm(`Delete "${c.title}" from this browser? This removes it and its images here and cannot be undone.${c.cloud ? " Your cloud copy is kept." : ""}`)) {
+              onClick={async () => {
+                if (await confirmAction({ title: `Delete “${c.title}” from this browser?`, description: `This removes it and its images here and cannot be undone.${c.cloud ? " Your cloud copy is kept." : ""}`, confirmLabel: "Delete catalog", destructive: true })) {
                   act(() => deleteLocalCatalog(c.id), "Catalog deleted");
                 }
               }}

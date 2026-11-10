@@ -2,6 +2,7 @@
 
 import { Tooltip as TooltipPrimitive } from "@base-ui/react/tooltip"
 import { cn } from "cn"
+import type { ReactElement, ReactNode } from "react"
 
 function TooltipProvider({
   delay = 0,
@@ -18,6 +19,15 @@ function TooltipProvider({
 
 function Tooltip({ ...props }: TooltipPrimitive.Root.Props) {
   return <TooltipPrimitive.Root data-slot="tooltip" {...props} />
+}
+
+function TooltipHint({ children, content, side = "top" }: { children: ReactElement; content: ReactNode; side?: "top" | "bottom" | "left" | "right" }) {
+  return (
+    <Tooltip>
+      <TooltipTrigger render={children} />
+      <TooltipContent side={side}>{content}</TooltipContent>
+    </Tooltip>
+  )
 }
 
 function TooltipTrigger({ ...props }: TooltipPrimitive.Trigger.Props) {
@@ -62,4 +72,4 @@ function TooltipContent({
   )
 }
 
-export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider }
+export { Tooltip, TooltipTrigger, TooltipContent, TooltipProvider, TooltipHint }

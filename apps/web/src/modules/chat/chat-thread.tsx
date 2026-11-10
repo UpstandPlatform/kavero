@@ -1,12 +1,13 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { ArrowUp01Icon, Loading02Icon, RotateLeft01Icon, SquareIcon } from "@hugeicons/core-free-icons";
+import { ArrowUp01Icon, Cancel01Icon, CursorPointer02Icon, Loading02Icon, RotateLeft01Icon, SquareIcon } from "@hugeicons/core-free-icons";
 import { useChat } from "@ai-sdk/react";
 import { Bubble, BubbleContent } from "@Kavero/ui/components/bubble";
 import { Button } from "@Kavero/ui/components/button";
 import { InputGroup, InputGroupAddon, InputGroupButton, InputGroupTextarea } from "@Kavero/ui/components/input-group";
 import { Message, MessageContent } from "@Kavero/ui/components/message";
+import { TooltipHint } from "@Kavero/ui/components/tooltip";
 import {
   MessageScroller,
   MessageScrollerButton,
@@ -17,9 +18,36 @@ import {
 } from "@Kavero/ui/components/message-scroller";
 import { cn } from "@Kavero/ui/lib/utils";
 import { DefaultChatTransport, type UIMessage } from "ai";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 export type ChatMode = "landing" | "editor";
+export type ChatAnnotationAttachment = { id: string; label: string; detail: string };
+
+const markdownComponents: Components = {
+  p: ({ children }) => <p className="my-1.5 break-words leading-relaxed first:mt-0 last:mb-0">{children}</p>,
+  h1: ({ children }) => <h1 className="mt-3 mb-1.5 text-base font-semibold leading-tight">{children}</h1>,
+  h2: ({ children }) => <h2 className="mt-3 mb-1.5 text-sm font-semibold leading-tight">{children}</h2>,
+  h3: ({ children }) => <h3 className="mt-2.5 mb-1 text-sm font-medium leading-tight">{children}</h3>,
+  ul: ({ children }) => <ul className="my-2 list-disc space-y-1 ps-5">{children}</ul>,
+  ol: ({ children }) => <ol className="my-2 list-decimal space-y-1 ps-5">{children}</ol>,
+  li: ({ children }) => <li className="ps-0.5">{children}</li>,
+  blockquote: ({ children }) => <blockquote className="my-2 border-s-2 border-primary/50 ps-3 text-muted-foreground">{children}</blockquote>,
+  a: ({ href, children }) => <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-4 hover:text-primary/80">{children}</a>,
+  hr: () => <hr className="my-3 border-border" />,
+  table: ({ children }) => (
+    <div className="my-2 max-w-full overflow-x-auto rounded-md border border-border/80">
+      <table className="w-full border-collapse text-xs leading-relaxed">{children}</table>
+    </div>
+  ),
+  thead: ({ children }) => <thead className="bg-muted/70">{children}</thead>,
+  th: ({ children }) => <th className="border-b border-e border-border/80 px-2 py-1.5 text-start font-medium last:border-e-0">{children}</th>,
+  td: ({ children }) => <td className="border-b border-e border-border/70 px-2 py-1.5 align-top last:border-e-0">{children}</td>,
+  tr: ({ children }) => <tr className="last:[&>td]:border-b-0">{children}</tr>,
+  pre: ({ children }) => <pre className="my-2 max-w-full overflow-x-auto rounded-lg bg-muted/70 p-3 text-xs leading-relaxed">{children}</pre>,
+  code: ({ children, className }) => <code className={cn("font-mono text-[0.92em]", className ? "" : "rounded bg-muted px-1 py-0.5")}>{children}</code>,
+};
 
 /** A tool call as the UI sees it (AI SDK "tool-<name>" parts). */
 export type ToolPart = {
@@ -89,6 +117,10 @@ export function ChatThread({
   initialPrompt,
   className,
   footer,
+  annotations = [],
+  onRemoveAnnotation,
+  annotationMode = false,
+  onToggleAnnotationMode,
   storageKey,
   onClear,
 }: {
@@ -106,6 +138,10 @@ export function ChatThread({
   initialPrompt?: string;
   className?: string;
   footer?: ReactNode;
+  annotations?: ChatAnnotationAttachment[];
+  onRemoveAnnotation?: (id: string) => void;
+  annotationMode?: boolean;
+  onToggleAnnotationMode?: () => void;
 }) {
   const contextRef = useRef(context);
   contextRef.current = context;
@@ -176,7 +212,9 @@ export function ChatThread({
                           if (!part.text.trim()) return null;
                           return (
                             <Bubble key={i} align={m.role === "user" ? "end" : "start"} variant={m.role === "user" ? "muted" : "ghost"}>
-                              <BubbleContent className="whitespace-pre-wrap" dir="auto">{part.text}</BubbleContent>
+                              <BubbleContent className="min-w-0 max-w-full break-words" dir="auto">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{part.text}</ReactMarkdown>
+                              </BubbleContent>
                             </Bubble>
                           );
                         }
@@ -206,7 +244,24 @@ export function ChatThread({
           submit();
         }}
       >
-        <InputGroup className="rounded-xl bg-background">
+        {annotations.length > 0 && (
+          <div role="group" className="mb-2 grid gap-1.5" aria-label="Prompt context attachments">
+            <p className="px-1 text-[11px] font-medium text-muted-foreground">Attached slide context</p>
+            {annotations.map((annotation) => (
+              <div key={annotation.id} className="flex min-w-0 items-center gap-2 rounded-xl border border-border/80 bg-muted/35 px-2.5 py-2">
+                <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-[10px] font-semibold text-primary">{annotation.label.slice(0, 1).toUpperCase()}</span>
+                <span className="grid min-w-0 flex-1 gap-0.5">
+                  <span className="truncate text-xs font-medium">{annotation.label}</span>
+                  <span className="truncate text-[10px] text-muted-foreground">{annotation.detail}</span>
+                </span>
+                <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${annotation.label} from prompt context`} onClick={() => onRemoveAnnotation?.(annotation.id)}>
+                  <HugeiconsIcon icon={Cancel01Icon} />
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
+        <InputGroup className="rounded-2xl border border-border/80 bg-background shadow-sm transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
           <InputGroupTextarea
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -219,17 +274,25 @@ export function ChatThread({
             placeholder={placeholder}
             aria-label={placeholder}
             rows={2}
-            className="max-h-40 min-h-16 resize-none"
+            className="max-h-40 min-h-20 resize-none px-3 py-3 text-sm leading-relaxed placeholder:text-muted-foreground/80"
             dir="auto"
           />
-          <InputGroupAddon align="block-end" className="justify-between">
-            <span className="flex min-w-0 items-center gap-1 text-xs text-muted-foreground">
+          <InputGroupAddon align="block-end" className="justify-between gap-2 px-2.5 pb-2.5 pt-1">
+            <span className="flex min-w-0 items-center gap-1">
               {messages.length > 0 && (
-                <InputGroupButton type="button" size="xs" variant="ghost" onClick={clear} title="Start over: forget this conversation">
-                  <HugeiconsIcon icon={RotateLeft01Icon} /> New chat
-                </InputGroupButton>
+                <TooltipHint content="Start a new chat">
+                  <InputGroupButton type="button" size="xs" variant="ghost" onClick={clear}>
+                    <HugeiconsIcon icon={RotateLeft01Icon} /> New chat
+                  </InputGroupButton>
+                </TooltipHint>
               )}
-              <span className="truncate">Enter to send · Shift+Enter for a new line</span>
+              {onToggleAnnotationMode && (
+                <TooltipHint content={annotationMode ? "Finish selecting slide elements" : "Attach slide elements to your prompt"}>
+                  <InputGroupButton type="button" size="icon-sm" variant={annotationMode ? "secondary" : "ghost"} aria-label={annotationMode ? "Finish selecting elements" : "Annotate slide elements"} aria-pressed={annotationMode} onClick={onToggleAnnotationMode}>
+                    <HugeiconsIcon icon={CursorPointer02Icon} />
+                  </InputGroupButton>
+                </TooltipHint>
+              )}
             </span>
             {busy ? (
               <InputGroupButton type="button" size="icon-sm" variant="secondary" aria-label="Stop" onClick={() => void stop()}><HugeiconsIcon icon={SquareIcon} /></InputGroupButton>

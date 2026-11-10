@@ -1,13 +1,14 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, ArrowDown01Icon, ArrowLeft01Icon, ArrowUp01Icon, CircleIcon, CodeIcon, Copy01Icon, Delete02Icon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PackageAddIcon, PlayIcon, Presentation01Icon, Redo02Icon, SquareIcon, Tag01Icon, TextIcon, Undo02Icon, Upload01Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
+import { Add01Icon, ArrowLeft01Icon, CircleIcon, CodeIcon, Copy01Icon, Delete02Icon, DragDropVerticalIcon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PackageAddIcon, PlayIcon, Presentation01Icon, Redo02Icon, SquareIcon, Tag01Icon, TextIcon, Undo02Icon, Upload01Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
 import { createBlankSlide, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { CatalogFonts, SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
+import { TooltipHint } from "@Kavero/ui/components/tooltip";
 import Link from "next/link";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
 import { Canvas } from "./canvas";
@@ -28,7 +29,7 @@ import { PreviewPlayer } from "./preview-player";
 import { EditorLibraryPanel, type EditorLibraryTab } from "./editor-library-panel";
 import { RailButton, ToolRail } from "./tool-rail";
 import { Workspace, WorkspaceMenu, useWorkspace } from "./workspace";
-import { EditorChat } from "@/modules/chat/editor-chat";
+import { EditorChat, type EditorChatAnnotationRef } from "@/modules/chat/editor-chat";
 import { authClient } from "@/lib/auth-client";
 import { pullCatalog, refreshFromCloud } from "@/modules/catalog/cloud-sync";
 import { localCatalogs } from "@/modules/catalog/local-catalogs";
@@ -152,6 +153,9 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
 
   const actions = useMemo(() => createActions({ editor, run, uploadImage }), [editor, run, uploadImage]);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [annotationMode, setAnnotationMode] = useState(false);
+  const [chatAnnotations, setChatAnnotations] = useState<EditorChatAnnotationRef[]>([]);
+  const cancelAnnotationMode = useCallback(() => setAnnotationMode(false), []);
   const [sidebar, setSidebar] = useState<"slides" | "layers" | "products">("slides");
   const [libraryTab, setLibraryTab] = useState<EditorLibraryTab>("design");
   const workspace = useWorkspace();
@@ -175,13 +179,151 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   const view = useMemo(() => ({ zoomIn: () => zoomBy(1.25), zoomOut: () => zoomBy(0.8), zoomFit: () => setZoom("fit"), showShortcuts: () => setShortcutsOpen(true) }), [zoomBy]);
   useEditorKeyboard(editor, actions, view);
   const [listWidth, setListWidth] = useState(176);
+  const slideListElement = useRef<HTMLOListElement | null>(null);
+  const [previewSlideIds, setPreviewSlideIds] = useState<string[] | null>(null);
+  const previewSlideIdsRef = useRef<string[] | null>(null);
+  const previousSlideTops = useRef<Map<string, number> | null>(null);
+  const pointerSlideDrag = useRef<{ slideId: string; pointerId: number } | null>(null);
+  const [draggingSlideId, setDraggingSlideId] = useState<string | null>(null);
+  const [keyboardDraggingSlideId, setKeyboardDraggingSlideId] = useState<string | null>(null);
+  const [slideReorderAnnouncement, setSlideReorderAnnouncement] = useState("");
   const listRef = useCallback((node: HTMLOListElement | null) => {
+    slideListElement.current = node;
     if (!node) return;
     const ro = new ResizeObserver(([e]) => setListWidth(e!.contentRect.width));
     ro.observe(node);
-    return () => ro.disconnect();
+    return () => {
+      ro.disconnect();
+      if (slideListElement.current === node) slideListElement.current = null;
+    };
   }, []);
   const thumbScale = Math.max(40, listWidth) / W;
+  const slidesForList = previewSlideIds
+    ? previewSlideIds.map((id) => doc.slides.find((s) => s.id === id)).filter((s): s is CatalogSlide => !!s)
+    : doc.slides;
+
+  function snapshotSlideTops() {
+    const positions = new Map<string, number>();
+    slideListElement.current?.querySelectorAll<HTMLElement>("[data-sortable-slide-id]").forEach((node) => {
+      const id = node.dataset.sortableSlideId;
+      if (id) positions.set(id, node.getBoundingClientRect().top);
+    });
+    return positions;
+  }
+
+  function updatePreviewSlideOrder(next: string[]) {
+    const current = previewSlideIdsRef.current ?? doc.slides.map((s) => s.id);
+    if (current.length === next.length && current.every((id, index) => id === next[index])) return;
+    previousSlideTops.current = snapshotSlideTops();
+    previewSlideIdsRef.current = next;
+    setPreviewSlideIds(next);
+  }
+
+  function startSlideReorder(slideId: string) {
+    const order = doc.slides.map((s) => s.id);
+    previewSlideIdsRef.current = order;
+    previousSlideTops.current = null;
+    setPreviewSlideIds(order);
+    setDraggingSlideId(slideId);
+    editor.setActiveSlide(slideId);
+  }
+
+  function commitSlideReorder(slideId: string) {
+    const order = previewSlideIdsRef.current ?? doc.slides.map((s) => s.id);
+    const from = doc.slides.findIndex((s) => s.id === slideId);
+    const to = order.indexOf(slideId);
+    if (from >= 0 && to >= 0 && from !== to) actions.moveSlide(slideId, to);
+    previewSlideIdsRef.current = null;
+    previousSlideTops.current = null;
+    setPreviewSlideIds(null);
+    setDraggingSlideId(null);
+  }
+
+  function cancelSlideReorder() {
+    if (!previewSlideIdsRef.current) return;
+    previousSlideTops.current = snapshotSlideTops();
+    previewSlideIdsRef.current = null;
+    setPreviewSlideIds(null);
+    setDraggingSlideId(null);
+  }
+
+  function movePreviewSlide(slideId: string, direction: -1 | 1) {
+    const order = previewSlideIdsRef.current ?? doc.slides.map((s) => s.id);
+    const from = order.indexOf(slideId);
+    const to = Math.max(0, Math.min(order.length - 1, from + direction));
+    if (from < 0 || from === to) return to;
+    const next = [...order];
+    next.splice(from, 1);
+    next.splice(to, 0, slideId);
+    updatePreviewSlideOrder(next);
+    return to;
+  }
+
+  function onSlideDragStart(event: React.PointerEvent<HTMLButtonElement>, slideId: string) {
+    if (event.button !== 0 || !event.isPrimary || pointerSlideDrag.current) return;
+    event.currentTarget.setPointerCapture(event.pointerId);
+    pointerSlideDrag.current = { slideId, pointerId: event.pointerId };
+    setKeyboardDraggingSlideId(null);
+    startSlideReorder(slideId);
+  }
+
+  function onSlideDragMove(event: React.PointerEvent<HTMLButtonElement>, slideId: string) {
+    const drag = pointerSlideDrag.current;
+    if (!drag || drag.slideId !== slideId || drag.pointerId !== event.pointerId) return;
+    const list = slideListElement.current;
+    if (!list) return;
+    const bounds = list.getBoundingClientRect();
+    const edge = 36;
+    if (event.clientY < bounds.top + edge) list.scrollTop -= Math.max(4, (bounds.top + edge - event.clientY) / 2);
+    else if (event.clientY > bounds.bottom - edge) list.scrollTop += Math.max(4, (event.clientY - bounds.bottom + edge) / 2);
+
+    const otherItems = [...list.querySelectorAll<HTMLElement>("[data-sortable-slide-id]")]
+      .filter((node) => node.dataset.sortableSlideId !== slideId);
+    const target = otherItems.findIndex((node) => event.clientY < node.getBoundingClientRect().top + node.getBoundingClientRect().height / 2);
+    const order = [...(previewSlideIdsRef.current ?? doc.slides.map((s) => s.id)).filter((id) => id !== slideId)];
+    order.splice(target < 0 ? otherItems.length : target, 0, slideId);
+    updatePreviewSlideOrder(order);
+  }
+
+  function onSlideDragEnd(event: React.PointerEvent<HTMLButtonElement>, slideId: string) {
+    const drag = pointerSlideDrag.current;
+    if (!drag || drag.slideId !== slideId || drag.pointerId !== event.pointerId) return;
+    pointerSlideDrag.current = null;
+    commitSlideReorder(slideId);
+  }
+
+  function onSlideDragCancel(event: React.PointerEvent<HTMLButtonElement>, slideId: string) {
+    const drag = pointerSlideDrag.current;
+    if (!drag || drag.slideId !== slideId || drag.pointerId !== event.pointerId) return;
+    pointerSlideDrag.current = null;
+    cancelSlideReorder();
+    setKeyboardDraggingSlideId(null);
+  }
+
+  useLayoutEffect(() => {
+    const previous = previousSlideTops.current;
+    const list = slideListElement.current;
+    if (!previous || !list) return;
+    previousSlideTops.current = null;
+    list.querySelectorAll<HTMLElement>("[data-sortable-slide-id]").forEach((node) => {
+      const id = node.dataset.sortableSlideId;
+      const oldTop = id ? previous.get(id) : undefined;
+      if (oldTop === undefined) return;
+      const offset = oldTop - node.getBoundingClientRect().top;
+      if (Math.abs(offset) < 1) return;
+      node.style.transition = "none";
+      node.style.transform = `translateY(${offset}px)`;
+      node.style.willChange = "transform";
+      void node.offsetHeight;
+      node.style.transition = "transform 180ms cubic-bezier(0.2, 0, 0, 1)";
+      node.style.transform = "translateY(0)";
+      window.setTimeout(() => {
+        node.style.transition = "";
+        node.style.transform = "";
+        node.style.willChange = "";
+      }, 220);
+    });
+  }, [previewSlideIds]);
 
   if (!slide) return <p className="p-8 text-sm text-muted-foreground">Opening catalog…</p>;
   const conflict = saveStatus === "conflict";
@@ -201,12 +343,12 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
         />
         <span className={`shrink-0 text-xs ${saveStatus === "error" ? "text-destructive" : "text-muted-foreground"}`} aria-live="polite">{SAVE_LABEL[saveStatus]}</span>
         {cloudLabel && <span className="hidden shrink-0 text-xs text-muted-foreground lg:inline" aria-live="polite">· {cloudLabel}</span>}
-        <Button variant="ghost" size="icon-sm" title="Undo (Ctrl+Z)" disabled={!state.canUndo} onClick={() => editor.undo()}><HugeiconsIcon icon={Undo02Icon} /></Button>
-        <Button variant="ghost" size="icon-sm" title="Redo (Ctrl+Shift+Z)" disabled={!state.canRedo} onClick={() => editor.redo()}><HugeiconsIcon icon={Redo02Icon} /></Button>
-        <Button variant={workspace.isOpen("chat") ? "secondary" : "ghost"} size="sm" aria-pressed={workspace.isOpen("chat")} onClick={() => workspace.toggle("chat")} title="Chat with your AI model about this catalog"><HugeiconsIcon icon={MessageMultiple01Icon} /> <span className="hidden lg:inline">Chat</span></Button>
+        <TooltipHint content={`Undo (${kbd("Ctrl+Z")})`}><Button variant="ghost" size="icon-sm" aria-label="Undo" disabled={!state.canUndo} onClick={() => editor.undo()}><HugeiconsIcon icon={Undo02Icon} /></Button></TooltipHint>
+        <TooltipHint content={`Redo (${kbd("Ctrl+Shift+Z")})`}><Button variant="ghost" size="icon-sm" aria-label="Redo" disabled={!state.canRedo} onClick={() => editor.redo()}><HugeiconsIcon icon={Redo02Icon} /></Button></TooltipHint>
+        <TooltipHint content="Chat with your AI model about this catalog"><Button variant={workspace.isOpen("chat") ? "secondary" : "ghost"} size="icon-sm" aria-label="Chat" aria-pressed={workspace.isOpen("chat")} onClick={() => workspace.toggle("chat")}><HugeiconsIcon icon={MessageMultiple01Icon} /></Button></TooltipHint>
         <ExportMenu doc={doc} onVideo={() => setPreviewing("export")} />
-        <Button variant="outline" size="sm" onClick={() => setPublishing(true)} title="Publish as a website"><HugeiconsIcon icon={GlobeIcon} /> Publish</Button>
-        <Button size="sm" className="ml-1" onClick={() => setPreviewing("play")} title="Play from this slide"><HugeiconsIcon icon={PlayIcon} /> Preview</Button>
+        <TooltipHint content="Publish as a website"><Button variant="outline" size="icon-sm" aria-label="Publish" onClick={() => setPublishing(true)}><HugeiconsIcon icon={GlobeIcon} /></Button></TooltipHint>
+        <TooltipHint content="Preview from this slide"><Button size="icon-sm" className="ml-1" aria-label="Preview" onClick={() => setPreviewing("play")}><HugeiconsIcon icon={PlayIcon} /></Button></TooltipHint>
       </header>
 
       {conflict && (
@@ -255,11 +397,31 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
         center={
           <>
             <input ref={fileInput} type="file" accept="image/*" className="hidden" onChange={(e) => addImage(e.target.files?.[0])} />
-            <Canvas editor={editor} state={state} slide={slide} assetUrls={assetUrls} zoom={zoom} onFitScale={onFitScale} actions={actions} />
+            <Canvas
+              editor={editor}
+              state={state}
+              slide={slide}
+              assetUrls={assetUrls}
+              zoom={zoom}
+              onFitScale={onFitScale}
+              actions={actions}
+              annotationMode={annotationMode}
+              onAnnotateElement={(slideId, elementId) => {
+                setChatAnnotations((current) => {
+                  if (current.some((item) => item.slideId === slideId && item.elementId === elementId)) return current;
+                  if (current.length >= 8) {
+                    toast.info("You can attach up to 8 slide elements to chat at a time.");
+                    return current;
+                  }
+                  return [...current, { slideId, elementId }];
+                });
+              }}
+              onCancelAnnotation={cancelAnnotationMode}
+            />
             {/* Zoom */}
             <div className="absolute right-3 bottom-3 z-10 flex items-center gap-0.5 rounded-lg border bg-background/90 p-0.5 text-xs shadow-sm backdrop-blur">
               <Button variant="ghost" size="icon-sm" title={`Zoom out (${kbd("Ctrl+-")})`} aria-label="Zoom out" onClick={() => zoomBy(0.8)}><HugeiconsIcon icon={ZoomOutIcon} /></Button>
-              <button type="button" className="w-12 rounded-md py-1 text-center tabular-nums hover:bg-muted" title={`Fit to window (${kbd("Ctrl+0")})`} onClick={() => setZoom("fit")}>{Math.round(scale * 100)}%</button>
+              <TooltipHint content={`Fit to window (${kbd("Ctrl+0")})`}><button type="button" aria-label="Fit to window" className="w-12 rounded-md py-1 text-center tabular-nums hover:bg-muted" onClick={() => setZoom("fit")}>{Math.round(scale * 100)}%</button></TooltipHint>
               <Button variant="ghost" size="icon-sm" title={`Zoom in (${kbd("Ctrl+=")})`} aria-label="Zoom in" onClick={() => zoomBy(1.25)}><HugeiconsIcon icon={ZoomInIcon} /></Button>
             </div>
           </>
@@ -279,7 +441,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                 <div className="flex min-h-0 flex-1 overflow-hidden">
                   <div className="flex w-14 shrink-0 flex-col items-stretch gap-1 border-e p-1" role="tablist" aria-label="Design libraries" aria-orientation="vertical">
                     {tabs.map((tab) => (
-                      <button key={tab.id} type="button" role="tab" aria-selected={libraryTab === tab.id} aria-label={tab.label} title={tab.label} onClick={() => setLibraryTab(tab.id)}
+                      <button key={tab.id} type="button" role="tab" aria-selected={libraryTab === tab.id} aria-label={tab.label} onClick={() => setLibraryTab(tab.id)}
                         className="grid min-h-12 content-center justify-items-center gap-1 rounded-md px-0.5 py-1 text-[9px] font-medium leading-none text-muted-foreground transition-colors hover:bg-muted/60 aria-selected:bg-primary/10 aria-selected:text-primary">
                         {tab.icon}<span>{tab.label}</span>
                       </button>
@@ -292,14 +454,25 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
               ),
             };
           }
-          if (id === "chat") return { body: <EditorChat editor={editor} doc={doc} assetUrls={assetUrls} /> };
+          if (id === "chat") return {
+            body: (
+              <EditorChat
+                editor={editor}
+                doc={doc}
+                assetUrls={assetUrls}
+                annotations={chatAnnotations}
+                annotationMode={annotationMode}
+                onAnnotationModeChange={setAnnotationMode}
+                onRemoveAnnotation={(annotation) => setChatAnnotations((current) => current.filter((item) => item.slideId !== annotation.slideId || item.elementId !== annotation.elementId))}
+              />
+            ),
+          };
           return {
             header: (
               <>
                 <div className="flex min-w-0 items-center gap-0.5" role="tablist" aria-label="Pages panel">
                   {(["slides", "layers", "products"] as const).map((t) => (
                     <button key={t} type="button" role="tab" aria-selected={sidebar === t} onClick={() => setSidebar(t)}
-                      title={t === "layers" ? `Layers on this slide (${slide.elements.length})` : t === "products" ? `Products in this catalog (${doc.products.length})` : "Slides"}
                       className="rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground capitalize aria-selected:bg-muted aria-selected:text-foreground">
                       {t}
                     </button>
@@ -316,9 +489,18 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                   <LayersPanel editor={editor} slide={slide} selection={state.selection} actions={actions} />
                 </div>
               ) : (
-                <ol ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-                  {doc.slides.map((s, i) => (
-                    <li key={s.id} className="group" onContextMenu={(e) => { editor.setActiveSlide(s.id); openMenu(e, slideMenu(actions, s.id, i, doc.slides.length, () => setRenamingSlide(s.id))); }}>
+                <>
+                  <span className="sr-only" aria-live="polite">{slideReorderAnnouncement}</span>
+                  <ol ref={listRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+                  {slidesForList.map((s, i) => (
+                    <li
+                      key={s.id}
+                      data-slide-id={s.id}
+                      data-sortable-slide-id={s.id}
+                      data-dragging={draggingSlideId === s.id ? "true" : undefined}
+                      className="group relative rounded-lg transition-[background-color,box-shadow,opacity] duration-150 data-[dragging=true]:bg-primary/5 data-[dragging=true]:shadow-md"
+                      onContextMenu={(e) => { editor.setActiveSlide(s.id); openMenu(e, slideMenu(actions, s.id, i, slidesForList.length, () => setRenamingSlide(s.id))); }}
+                    >
                       <div className="mb-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                         <span className="tabular-nums">{i + 1}</span>
                         {renamingSlide === s.id ? (
@@ -328,12 +510,68 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                         ) : (
                           <span className="truncate" onDoubleClick={() => setRenamingSlide(s.id)}>{s.name}</span>
                         )}
-                        <span className="ml-auto hidden gap-0.5 group-hover:flex group-focus-within:flex">
-                          <button type="button" title="Move up" disabled={i === 0} onClick={() => actions.moveSlide(s.id, i - 1)} className="disabled:opacity-30"><HugeiconsIcon icon={ArrowUp01Icon} className="size-3.5" /></button>
-                          <button type="button" title="Move down" disabled={i === doc.slides.length - 1} onClick={() => actions.moveSlide(s.id, i + 1)} className="disabled:opacity-30"><HugeiconsIcon icon={ArrowDown01Icon} className="size-3.5" /></button>
-                          <button type="button" title="Duplicate slide" onClick={() => actions.duplicateSlide(s.id)}><HugeiconsIcon icon={Copy01Icon} className="size-3.5" /></button>
-                          <button type="button" title="Delete slide" disabled={doc.slides.length === 1} onClick={() => actions.deleteSlide(s.id)} className="disabled:opacity-30"><HugeiconsIcon icon={Delete02Icon} className="size-3.5" /></button>
-                        </span>
+                        <div className="ml-auto flex items-center gap-0.5 opacity-60 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                          <TooltipHint content="Drag to reorder. Press Space, then ↑/↓ to move with the keyboard.">
+                            <button
+                              type="button"
+                              aria-label={`Reorder slide ${i + 1}: ${s.name}`}
+                              aria-pressed={draggingSlideId === s.id}
+                              aria-keyshortcuts="Space ArrowUp ArrowDown Escape"
+                              onPointerDown={(e) => onSlideDragStart(e, s.id)}
+                              onPointerMove={(e) => onSlideDragMove(e, s.id)}
+                              onPointerUp={(e) => onSlideDragEnd(e, s.id)}
+                              onPointerCancel={(e) => onSlideDragCancel(e, s.id)}
+                              onLostPointerCapture={(e) => onSlideDragCancel(e, s.id)}
+                              onKeyDown={(e) => {
+                                const keyboardDragging = keyboardDraggingSlideId === s.id;
+                                if (!keyboardDragging && (e.key === " " || e.key === "Enter")) {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  setKeyboardDraggingSlideId(s.id);
+                                  startSlideReorder(s.id);
+                                  setSlideReorderAnnouncement(`Picked up slide ${i + 1} of ${slidesForList.length}. Use the arrow keys to move it, then press Space to drop or Escape to cancel.`);
+                                  return;
+                                }
+                                if (!keyboardDragging) return;
+                                if (e.key === "Tab") {
+                                  e.stopPropagation();
+                                  cancelSlideReorder();
+                                  setKeyboardDraggingSlideId(null);
+                                  setSlideReorderAnnouncement(`Canceled moving slide ${i + 1}.`);
+                                  return;
+                                }
+                                if (e.key === "ArrowUp" || e.key === "ArrowDown") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const nextIndex = movePreviewSlide(s.id, e.key === "ArrowUp" ? -1 : 1);
+                                  setSlideReorderAnnouncement(`Slide ${s.name}, position ${nextIndex + 1} of ${slidesForList.length}.`);
+                                  return;
+                                }
+                                if (e.key === "Escape") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  cancelSlideReorder();
+                                  setKeyboardDraggingSlideId(null);
+                                  setSlideReorderAnnouncement(`Canceled moving slide ${i + 1}.`);
+                                  return;
+                                }
+                                if (e.key === " " || e.key === "Enter") {
+                                  e.preventDefault();
+                                  e.stopPropagation();
+                                  const position = (previewSlideIdsRef.current ?? doc.slides.map((item) => item.id)).indexOf(s.id) + 1;
+                                  commitSlideReorder(s.id);
+                                  setKeyboardDraggingSlideId(null);
+                                  setSlideReorderAnnouncement(`Dropped slide ${s.name} at position ${position} of ${slidesForList.length}.`);
+                                }
+                              }}
+                              className="touch-none cursor-grab rounded p-1 hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring active:cursor-grabbing"
+                            >
+                              <HugeiconsIcon icon={DragDropVerticalIcon} className="size-3.5" />
+                            </button>
+                          </TooltipHint>
+                          <TooltipHint content="Duplicate slide"><button type="button" aria-label={`Duplicate slide ${i + 1}`} onClick={() => actions.duplicateSlide(s.id)}><HugeiconsIcon icon={Copy01Icon} className="size-3.5" /></button></TooltipHint>
+                          <TooltipHint content="Delete slide"><button type="button" aria-label={`Delete slide ${i + 1}`} disabled={slidesForList.length === 1} onClick={() => actions.deleteSlide(s.id)} className="disabled:opacity-30"><HugeiconsIcon icon={Delete02Icon} className="size-3.5" /></button></TooltipHint>
+                        </div>
                       </div>
                       <button
                         type="button"
@@ -346,7 +584,8 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                       </button>
                     </li>
                   ))}
-                </ol>
+                  </ol>
+                </>
               ),
           };
         }}

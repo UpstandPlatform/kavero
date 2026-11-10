@@ -7,8 +7,9 @@ import type { Editor } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
 import { Spinner } from "@Kavero/ui/components/spinner";
+import { TooltipHint } from "@Kavero/ui/components/tooltip";
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
 import { makeTRPCClient } from "@/utils/trpc";
@@ -46,11 +47,13 @@ export function EditorLibraryPanel({
   userId: string | null;
   uploadImage: (file: File) => Promise<{ assetId: string; width: number; height: number }>;
 }) {
-  if (tab === "design") return <PropertiesPanel editor={editor} doc={doc} slide={slide} selection={selection} addFont={addFont} assetUrls={assetUrls} productUi={productUi} />;
-  if (tab === "templates") return <TemplatesLibrary editor={editor} doc={doc} />;
-  if (tab === "blocks") return <BlocksLibrary editor={editor} doc={doc} />;
-  if (tab === "media") return <MediaLibrary editor={editor} doc={doc} slide={slide} assetUrls={assetUrls} uploadImage={uploadImage} userId={userId} />;
-  return <UploadsLibrary editor={editor} doc={doc} slide={slide} assetUrls={assetUrls} uploadImage={uploadImage} />;
+  let content: ReactNode;
+  if (tab === "design") content = <PropertiesPanel editor={editor} doc={doc} slide={slide} selection={selection} addFont={addFont} assetUrls={assetUrls} productUi={productUi} />;
+  else if (tab === "templates") content = <TemplatesLibrary editor={editor} doc={doc} />;
+  else if (tab === "blocks") content = <BlocksLibrary editor={editor} doc={doc} />;
+  else if (tab === "media") content = <MediaLibrary editor={editor} doc={doc} slide={slide} assetUrls={assetUrls} uploadImage={uploadImage} userId={userId} />;
+  else content = <UploadsLibrary editor={editor} doc={doc} slide={slide} assetUrls={assetUrls} uploadImage={uploadImage} />;
+  return <div className="h-full min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain">{content}</div>;
 }
 
 function TemplatesLibrary({ editor, doc }: { editor: Editor; doc: CatalogDocument }) {
@@ -80,7 +83,7 @@ function TemplatesLibrary({ editor, doc }: { editor: Editor; doc: CatalogDocumen
   }
 
   return (
-    <div className="grid min-w-0 content-start gap-4 overflow-y-auto p-3">
+    <div className="grid min-w-0 content-start gap-4 p-3">
       <div>
         <h2 className="text-sm font-semibold">Templates</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Add a complete, editable set of slides. Your current slides stay in place.</p>
@@ -203,7 +206,7 @@ function BlocksLibrary({ editor, doc }: { editor: Editor; doc: CatalogDocument }
   }
 
   return (
-    <div className="grid min-w-0 content-start gap-3 overflow-y-auto p-3">
+    <div className="grid min-w-0 content-start gap-3 p-3">
       <div>
         <h2 className="text-sm font-semibold">Building blocks</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Add a ready-made slide after the current one, then edit every text and shape.</p>
@@ -238,7 +241,7 @@ function AssetGrid({ doc, assetUrls, onInsert }: {
           {/* Local object URLs are created by this editor from the catalog's IndexedDB blobs. */}
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src={assetUrls[asset.id]} alt={asset.name} className="aspect-square w-full bg-muted object-contain p-1" />
-          <p className="truncate px-2 pt-1 text-[10px] font-medium" title={asset.name}>{asset.name}</p>
+          <TooltipHint content={asset.name}><p tabIndex={0} className="truncate px-2 pt-1 text-[10px] font-medium">{asset.name}</p></TooltipHint>
           <div className="flex items-center gap-1 p-1.5">
             <Button size="xs" variant="secondary" className="min-w-0 flex-1" onClick={() => onInsert(asset.id, asset.name)}><HugeiconsIcon icon={Add01Icon} data-icon="inline-start" /> Insert</Button>
           </div>
@@ -296,7 +299,7 @@ function MediaLibrary({ editor, doc, slide, assetUrls, uploadImage, userId }: {
   }
 
   return (
-    <div className="grid min-w-0 content-start gap-4 overflow-y-auto p-3">
+    <div className="grid min-w-0 content-start gap-4 p-3">
       <div>
         <h2 className="text-sm font-semibold">Media library</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Browse images already saved with this catalog or import an image you have permission to use.</p>
@@ -359,7 +362,7 @@ function UploadsLibrary({ editor, doc, slide, assetUrls, uploadImage }: {
   }
 
   return (
-    <div className="grid min-w-0 content-start gap-4 overflow-y-auto p-3">
+    <div className="grid min-w-0 content-start gap-4 p-3">
       <div>
         <h2 className="text-sm font-semibold">Uploads</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Images stay in this catalog’s local library and are included when the catalog is synced or exported.</p>

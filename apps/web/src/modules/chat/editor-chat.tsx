@@ -3,7 +3,7 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Loading02Icon, SparklesIcon, Tick01Icon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
-import type { CatalogDocument } from "@Kavero/catalog-engine";
+import type { CatalogDocument, CatalogElement } from "@Kavero/catalog-engine";
 import { applyCommand, type Editor, type EditorCommand } from "@Kavero/editor-core";
 import { SlideView } from "@Kavero/renderer";
 import { useEffect, useMemo, useState } from "react";
@@ -13,7 +13,7 @@ import { authClient } from "@/lib/auth-client";
 import { useRun } from "@/modules/editor/use-catalog-editor";
 import { makeTRPCClient } from "@/utils/trpc";
 
-import { ChatThread, ChatUnavailable, type ToolPart } from "./chat-thread";
+import { ChatThread, ChatUnavailable, type ChatAnnotationAttachment, type ToolPart } from "./chat-thread";
 
 let client: ReturnType<typeof makeTRPCClient> | null = null;
 const api = () => (client ??= makeTRPCClient());
@@ -21,12 +21,40 @@ const api = () => (client ??= makeTRPCClient());
 const STARTERS = ["Make this slide more minimal", "Write a stronger headline for this slide", "Add a slide comparing our three best sellers", "Suggest a color theme for a luxury brand"];
 
 type Proposal = { slideId: string; instruction: string; summary: string; commands: EditorCommand[] };
+export type EditorChatAnnotationRef = { slideId: string; elementId: string };
+
+function elementLabel(element: CatalogElement, doc: CatalogDocument) {
+  if (element.name?.trim()) return element.name.trim();
+  switch (element.type) {
+    case "text": return element.content.paragraphs.flatMap((paragraph) => paragraph.map((run) => run.text)).join(" ").trim() || "Text element";
+    case "image": return element.content.alt || "Image";
+    case "shape": return `${element.content.shape[0]!.toUpperCase()}${element.content.shape.slice(1)} shape`;
+    case "product": return doc.products.find((product) => product.id === element.content.productId)?.name || "Product card";
+    case "product-grid": return `Product grid · ${element.content.products.length} products`;
+    case "icon": return `${element.content.name} icon`;
+    case "video": return "Video";
+    case "button": return element.content.label || "Button";
+    case "html": return "HTML block";
+  }
+}
+
+function annotationKey(ref: EditorChatAnnotationRef) {
+  return JSON.stringify([ref.slideId, ref.elementId]);
+}
 
 /**
  * Chat in the editor: the assistant sees the catalog and the current slide, answers
  * questions, and proposes slide edits that the user previews and applies (one undo step each).
  */
-export function EditorChat({ editor, doc, assetUrls }: { editor: Editor; doc: CatalogDocument; assetUrls: Record<string, string> }) {
+export function EditorChat({ editor, doc, assetUrls, annotations = [], annotationMode = false, onAnnotationModeChange, onRemoveAnnotation }: {
+  editor: Editor;
+  doc: CatalogDocument;
+  assetUrls: Record<string, string>;
+  annotations?: EditorChatAnnotationRef[];
+  annotationMode?: boolean;
+  onAnnotationModeChange?: (active: boolean) => void;
+  onRemoveAnnotation?: (annotation: EditorChatAnnotationRef) => void;
+}) {
   const { data: session, isPending } = authClient.useSession();
   const [aiReady, setAiReady] = useState<boolean | null>(null);
   // Each catalog has its own conversation, remembered in this browser, plus which proposals were applied.
@@ -51,6 +79,18 @@ export function EditorChat({ editor, doc, assetUrls }: { editor: Editor; doc: Ca
     });
   const run = useRun(editor);
   const [sent, setSent] = useState<string | undefined>(undefined);
+  const annotationAttachments = useMemo(() => annotations.flatMap((ref): (ChatAnnotationAttachment & { ref: EditorChatAnnotationRef })[] => {
+    const slideIndex = doc.slides.findIndex((slide) => slide.id === ref.slideId);
+    const slide = doc.slides[slideIndex];
+    const element = slide?.elements.find((item) => item.id === ref.elementId);
+    if (!slide || !element) return [];
+    return [{
+      id: annotationKey(ref),
+      ref,
+      label: elementLabel(element, doc).slice(0, 72),
+      detail: `Slide ${slideIndex + 1} · ${slide.name} · ${element.type}`,
+    }];
+  }), [annotations, doc]);
 
   useEffect(() => {
     if (!session) return;
@@ -100,9 +140,16 @@ export function EditorChat({ editor, doc, assetUrls }: { editor: Editor; doc: Ca
       className="min-h-0 flex-1"
       placeholder="Ask about this catalog or describe a change…"
       initialPrompt={sent}
+      annotations={annotationAttachments}
+      onRemoveAnnotation={(id) => {
+        const attachment = annotationAttachments.find((item) => item.id === id);
+        if (attachment) onRemoveAnnotation?.(attachment.ref);
+      }}
+      annotationMode={annotationMode}
+      onToggleAnnotationMode={() => onAnnotationModeChange?.(!annotationMode)}
       context={() => {
         const s = editor.getState();
-        return { document: editor.getDocument(), slideId: s.activeSlideId, selection: s.selection };
+        return { document: editor.getDocument(), slideId: s.activeSlideId, selection: s.selection, annotations };
       }}
       renderTool={(part) => renderTool(part)}
       emptyState={

@@ -6,13 +6,19 @@ import { user } from "./auth";
 export const WORKSPACE_ROLES = ["owner", "admin", "editor", "viewer"] as const;
 export type WorkspaceRole = (typeof WORKSPACE_ROLES)[number];
 
-/** A shared space for a team's catalogs. Personal catalogs have no workspace. */
-export const workspace = pgTable("workspace", {
-  id: text("id").primaryKey(),
-  name: text("name").notNull(),
-  createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
-  createdAt: timestamp("created_at").defaultNow().notNull(),
-});
+/** A user's protected Personal workspace or a shared space for team catalogs. */
+export const workspace = pgTable(
+  "workspace",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    createdBy: text("created_by").references(() => user.id, { onDelete: "set null" }),
+    /** Set only for a user's protected, automatically created Personal workspace. */
+    personalOwnerId: text("personal_owner_id").references(() => user.id, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+  },
+  (t) => [uniqueIndex("workspace_personal_owner_idx").on(t.personalOwnerId)],
+);
 
 export const workspaceMember = pgTable(
   "workspace_member",
