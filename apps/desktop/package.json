@@ -1,6 +1,6 @@
 {
   "name": "@Kavero/desktop",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "productName": "Kavero",
   "description": "Kavero desktop app (Electron shell around the Kavero web app)",

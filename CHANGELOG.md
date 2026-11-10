@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.7.0](https://github.com/UpstandPlatform/kavero/compare/v0.6.0...v0.7.0) - 2026-11-10
+
+### Features
+
+- Add template preview component and integrate into editor library panel ([b4d8ac6](https://github.com/UpstandPlatform/kavero/commit/b4d8ac650db95b6f1ebd26fe5fae3cf382407a66))
+
 ## [0.6.0](https://github.com/UpstandPlatform/kavero/compare/v0.5.0...v0.6.0) - 2026-11-10
 
 ### Features
