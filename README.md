@@ -26,17 +26,14 @@ It's local-first: open it and start working, no account needed. Sign in to sync 
 
 ## Quick start
 
-Requirements: [Bun](https://bun.sh) 1.4+, Docker (for Postgres), Chrome or Chromium (for PDF/video export).
+Requirements: [Bun](https://bun.sh) 1.4.2+ and Docker with Compose (for Postgres). Chrome or Chromium is needed for PDF/video export.
 
 ```bash
-bun install
-cp apps/web/.env.example apps/web/.env   # or create it: see docs/deployment.md
-bun run db:start                          # Postgres on localhost:5436
-cd packages/db && bunx drizzle-kit migrate && cd ../..
-bun run dev:web                           # http://localhost:3001
+bun run setup  # install dependencies, create local config, start Postgres and apply migrations
+bun dev        # start the web app and API server at http://localhost:3001
 ```
 
-`apps/web/.env` needs `DATABASE_URL`, `BETTER_AUTH_SECRET` (32+ random characters) and `BETTER_AUTH_URL=http://localhost:3001`. Add `ANTHROPIC_API_KEY` to give everyone an AI model, or let each user add their own Claude/OpenRouter key in Settings → AI.
+The setup command creates `apps/web/.env` from the example and generates a local `BETTER_AUTH_SECRET` if it is blank. It keeps an existing `.env` and only fills in a blank secret. Add `ANTHROPIC_API_KEY` to give everyone an AI model, or let each user add their own Claude/OpenRouter key in Settings → AI. For desktop development, use `bun run dev:desktop`.
 
 Everything runs in one container too: `docker compose up -d --build` (see [deployment](docs/deployment.md)).
 
@@ -78,7 +75,8 @@ docs/             guides
 
 | Command | |
 | --- | --- |
-| `bun run dev:web` | Web app in development |
+| `bun run setup` | Prepare local environment and database |
+| `bun dev` | Web app and API server in development |
 | `bun run dev:desktop` | Desktop app against the dev server |
 | `bun run build` | Build everything |
 | `bun run check-types` | Typecheck all packages |

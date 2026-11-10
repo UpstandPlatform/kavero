@@ -10,17 +10,16 @@ By contributing you agree that your contribution is licensed under the [MIT Lice
 
 ## Development setup
 
-You need [Bun](https://bun.sh) 1.4+, Docker (for Postgres) and Chrome or Chromium (for PDF, JPG and video exports).
+You need [Bun](https://bun.sh) 1.4.2+, Docker with Compose (for Postgres) and Chrome or Chromium (for PDF, JPG and video exports).
 
 ```bash
 git clone https://github.com/UpstandPlatform/kavero.git
 cd kavero
-bun install
-cp apps/web/.env.example apps/web/.env   # set BETTER_AUTH_SECRET to 32+ random characters
-bun run db:start                          # Postgres on localhost:5436
-bun run db:migrate
-bun run dev:web                           # http://localhost:3001
+bun run setup  # install dependencies, configure local env, start Postgres and migrate
+bun dev        # web app and API server at http://localhost:3001
 ```
+
+The setup command creates `apps/web/.env` and generates `BETTER_AUTH_SECRET` if it is blank. Existing `.env` values are preserved. For desktop development, run `bun run dev:desktop`.
 
 The first account you sign up with becomes the server admin. See [docs/deployment.md](docs/deployment.md) for every environment variable and [docs/architecture.md](docs/architecture.md) for how the packages fit together.
 
