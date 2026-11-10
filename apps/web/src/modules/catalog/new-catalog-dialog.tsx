@@ -1,16 +1,17 @@
 "use client";
 
-import { HugeiconsIcon } from "@hugeicons/react";
-import { Cancel01Icon } from "@hugeicons/core-free-icons";
-import { PAGE_PRESETS, TEMPLATES, type PagePreset } from "@Kavero/catalog-engine";
+import { PAGE_PRESETS, TEMPLATES, type CatalogDocument, type PagePreset } from "@Kavero/catalog-engine";
 import { Button } from "@Kavero/ui/components/button";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@Kavero/ui/components/dialog";
+import { Field, FieldGroup, FieldLabel, FieldLegend, FieldSet } from "@Kavero/ui/components/field";
 import { Input } from "@Kavero/ui/components/input";
-import { Label } from "@Kavero/ui/components/label";
+import { RadioGroup, RadioGroupItem } from "@Kavero/ui/components/radio-group";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
+import { Spinner } from "@Kavero/ui/components/spinner";
 import { Textarea } from "@Kavero/ui/components/textarea";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { surface } from "@/components/surface";
+import { TemplatePreview, type TemplateLayout } from "./template-preview";
 
 const PRESET_LABELS: Record<PagePreset, string> = {
   "16:9": "Widescreen 16:9",
@@ -21,9 +22,21 @@ const PRESET_LABELS: Record<PagePreset, string> = {
   square: "Square",
 };
 
-const STARTS = [
-  { id: "blank", name: "Blank", description: "One empty cover slide.", swatch: ["#ffffff", "#111111"] },
-  ...TEMPLATES.map((t) => ({ id: t.id, name: t.name, description: t.description, swatch: [t.theme.colors.background!, t.theme.colors.primary!] })),
+const BLANK_THEME: CatalogDocument["theme"] = {
+  colors: {
+    background: "#ffffff",
+    text: "#171717",
+    muted: "#737373",
+    primary: "#171717",
+    "on-primary": "#ffffff",
+    accent: "#f3f4f6",
+  },
+  fonts: { heading: "Inter", body: "Inter" },
+};
+
+const STARTS: { id: string; name: string; description: string; layout: TemplateLayout; theme: CatalogDocument["theme"] }[] = [
+  { id: "blank", name: "Blank", description: "A clean canvas to shape your way.", layout: "blank", theme: BLANK_THEME },
+  ...TEMPLATES.map((template) => ({ ...template, layout: template.layout as TemplateLayout })),
 ];
 
 export interface NewCatalogValues {
@@ -35,29 +48,35 @@ export interface NewCatalogValues {
   templateId: string;
 }
 
-export function NewCatalogDialog({ open, onClose, onCreate }: { open: boolean; onClose: () => void; onCreate: (v: NewCatalogValues) => Promise<void> }) {
-  const ref = useRef<HTMLDialogElement>(null);
+export function NewCatalogDialog({
+  open,
+  onClose,
+  onCreate,
+  initialTemplateId = "minimal",
+}: {
+  open: boolean;
+  onClose: () => void;
+  onCreate: (values: NewCatalogValues) => Promise<void>;
+  initialTemplateId?: string;
+}) {
   const [busy, setBusy] = useState(false);
-  const [templateId, setTemplateId] = useState("minimal");
+  const [templateId, setTemplateId] = useState(initialTemplateId);
 
   useEffect(() => {
-    const d = ref.current;
-    if (!d) return;
-    if (open && !d.open) d.showModal();
-    if (!open && d.open) d.close();
-  }, [open]);
+    if (open) setTemplateId(initialTemplateId);
+  }, [open, initialTemplateId]);
 
-  async function submit(e: React.FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const f = new FormData(e.currentTarget);
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const form = new FormData(event.currentTarget);
     setBusy(true);
     try {
       await onCreate({
-        title: String(f.get("title")).trim() || "Untitled catalog",
-        description: String(f.get("description") ?? "").trim() || undefined,
-        page: f.get("page") as PagePreset,
-        language: String(f.get("language")),
-        currency: String(f.get("currency")),
+        title: String(form.get("title")).trim() || "Untitled catalog",
+        description: String(form.get("description") ?? "").trim() || undefined,
+        page: form.get("page") as PagePreset,
+        language: String(form.get("language")),
+        currency: String(form.get("currency")),
         templateId,
       });
     } finally {
@@ -66,67 +85,94 @@ export function NewCatalogDialog({ open, onClose, onCreate }: { open: boolean; o
   }
 
   return (
-    <dialog
-      ref={ref}
-      onClose={onClose}
-      className="m-auto w-[min(640px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50"
-    >
-      <form onSubmit={submit} className="flex max-h-[85vh] flex-col">
-        <div className="flex items-center justify-between border-b px-5 py-3">
-          <h2 className="text-sm font-semibold">New catalog</h2>
-          <Button type="button" variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close">
-            <HugeiconsIcon icon={Cancel01Icon} />
-          </Button>
-        </div>
-        <div className="grid gap-4 overflow-y-auto px-5 py-4">
-          <div className="grid gap-1.5">
-            <Label htmlFor="title">Title</Label>
-            <Input id="title" name="title" placeholder="Summer Collection 2027" autoFocus required />
-          </div>
-          <div className="grid gap-1.5">
-            <Label htmlFor="description">Description</Label>
-            <Textarea id="description" name="description" rows={2} placeholder="Optional" />
-          </div>
-          <div className="grid gap-3 sm:grid-cols-3">
-            <div className="grid gap-1.5">
-              <Label htmlFor="page">Page size</Label>
-              <SimpleSelect id="page" name="page" defaultValue="16:9" options={(Object.keys(PAGE_PRESETS) as PagePreset[]).map((p) => ({ value: p, label: PRESET_LABELS[p] }))} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="language">Language</Label>
-              <SimpleSelect id="language" name="language" defaultValue="en" options={[["en", "English"], ["de", "German"], ["fr", "French"], ["es", "Spanish"], ["it", "Italian"], ["fa", "Persian"], ["ar", "Arabic"]].map(([value, label]) => ({ value, label }))} />
-            </div>
-            <div className="grid gap-1.5">
-              <Label htmlFor="currency">Currency</Label>
-              <SimpleSelect id="currency" name="currency" defaultValue="USD" options={["USD", "EUR", "GBP", "CHF", "JPY", "AED", "IRR"].map((c) => ({ value: c, label: c }))} />
-            </div>
-          </div>
-          <fieldset className="grid gap-1.5">
-            <legend className="mb-1.5 text-xs font-medium">Start from</legend>
-            <div className="grid grid-cols-2 gap-2 sm:grid-cols-3">
-              {STARTS.map((s) => (
-                <button
-                  key={s.id}
-                  type="button"
-                  onClick={() => setTemplateId(s.id)}
-                  aria-pressed={templateId === s.id}
-                  className={`p-2 text-xs ${surface.option}`}
-                >
-                  <div className="mb-2 flex h-12 items-end gap-1 rounded-md p-1.5 ring-1 ring-foreground/10" style={{ background: s.swatch[0] }}>
-                    <div className="h-2 w-10 rounded-sm" style={{ background: s.swatch[1] }} />
+    <Dialog open={open} onOpenChange={(nextOpen) => !nextOpen && !busy && onClose()}>
+      <DialogContent className="flex h-[min(780px,calc(100dvh-1rem))] max-h-[calc(100dvh-1rem)] w-[min(960px,calc(100vw-1rem))] max-w-none flex-col gap-0 overflow-hidden rounded-2xl p-0 sm:h-[min(780px,calc(100dvh-2rem))] sm:max-h-[calc(100dvh-2rem)] sm:max-w-none">
+        <DialogHeader className="shrink-0 border-b px-5 py-4 pe-14 sm:px-6">
+          <DialogTitle className="text-base">New catalog</DialogTitle>
+          <DialogDescription>Give it a name, choose a format, and start with a look that fits.</DialogDescription>
+        </DialogHeader>
+
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
+          <div className="grid min-h-0 flex-1 overflow-y-auto lg:grid-cols-[300px_minmax(0,1fr)] lg:overflow-hidden">
+            <section aria-label="Catalog details" className="flex flex-col gap-5 border-b p-4 sm:p-6 lg:overflow-y-auto lg:border-b-0 lg:border-e">
+              <FieldGroup className="gap-4">
+                <Field>
+                  <FieldLabel htmlFor="catalog-title">Title</FieldLabel>
+                  <Input id="catalog-title" name="title" placeholder="Summer collection 2027" autoFocus required maxLength={160} />
+                </Field>
+                <Field>
+                  <FieldLabel htmlFor="catalog-description">Description <span className="font-normal text-muted-foreground">· optional</span></FieldLabel>
+                  <Textarea id="catalog-description" name="description" rows={3} maxLength={1000} placeholder="A short note to help you remember what this catalog is for." />
+                </Field>
+              </FieldGroup>
+
+              <FieldSet className="gap-3">
+                <FieldLegend variant="label">Format &amp; language</FieldLegend>
+                <FieldGroup className="gap-3">
+                  <Field>
+                    <FieldLabel htmlFor="catalog-page">Page size</FieldLabel>
+                    <SimpleSelect id="catalog-page" name="page" defaultValue="16:9" options={(Object.keys(PAGE_PRESETS) as PagePreset[]).map((preset) => ({ value: preset, label: PRESET_LABELS[preset] }))} />
+                  </Field>
+                  <div className="grid grid-cols-2 gap-3">
+                    <Field>
+                      <FieldLabel htmlFor="catalog-language">Language</FieldLabel>
+                      <SimpleSelect id="catalog-language" name="language" defaultValue="en" options={[["en", "English"], ["de", "German"], ["fr", "French"], ["es", "Spanish"], ["it", "Italian"], ["fa", "Persian"], ["ar", "Arabic"]].map(([value, label]) => ({ value: value!, label: label! }))} />
+                    </Field>
+                    <Field>
+                      <FieldLabel htmlFor="catalog-currency">Currency</FieldLabel>
+                      <SimpleSelect id="catalog-currency" name="currency" defaultValue="USD" options={["USD", "EUR", "GBP", "CHF", "JPY", "AED", "IRR"].map((currency) => ({ value: currency, label: currency }))} />
+                    </Field>
                   </div>
-                  <div className="font-medium">{s.name}</div>
-                  <div className="text-muted-foreground">{s.description}</div>
-                </button>
-              ))}
+                </FieldGroup>
+              </FieldSet>
+
+              <p className="text-xs leading-relaxed text-muted-foreground">You can update the format, language, currency, and visual theme later.</p>
+            </section>
+
+            <section aria-label="Choose a starting design" className="min-h-0 p-4 sm:p-6 lg:overflow-y-auto">
+              <FieldSet className="gap-3">
+                <div className="flex items-end justify-between gap-3">
+                  <div>
+                    <FieldLegend variant="label" className="mb-1">Start with a design</FieldLegend>
+                    <p className="text-xs text-muted-foreground">Choose a starting point. Every slide stays editable.</p>
+                  </div>
+                  <span className="shrink-0 text-xs text-muted-foreground">{STARTS.length} designs</span>
+                </div>
+                <RadioGroup
+                  value={templateId}
+                  onValueChange={(value) => setTemplateId(String(value))}
+                  aria-label="Starting design"
+                  className="grid grid-cols-2 gap-3 xl:grid-cols-3"
+                >
+                  {STARTS.map((design) => (
+                    <label
+                      key={design.id}
+                      htmlFor={`start-${design.id}`}
+                      className="group relative flex min-w-0 cursor-pointer flex-col gap-2 rounded-xl border bg-card p-2 text-start transition-colors hover:bg-muted/50 has-[:checked]:border-primary has-[:checked]:ring-2 has-[:checked]:ring-primary/15"
+                    >
+                      <RadioGroupItem id={`start-${design.id}`} value={design.id} aria-label={design.name} className="absolute top-3 end-3 z-10 bg-background/90" />
+                      <TemplatePreview theme={design.theme} layout={design.layout} title={design.name} />
+                      <span className="block truncate text-xs font-medium">{design.name}</span>
+                      <span className="line-clamp-2 min-h-8 text-[11px] leading-snug text-muted-foreground">{design.description}</span>
+                    </label>
+                  ))}
+                </RadioGroup>
+              </FieldSet>
+            </section>
+          </div>
+
+          <DialogFooter className="shrink-0 flex-row items-center justify-between gap-3 border-t px-4 py-3 sm:px-6">
+            <p className="hidden text-xs text-muted-foreground sm:block">Your catalog is saved in this browser automatically.</p>
+            <div className="flex justify-end gap-2">
+              <Button type="button" variant="outline" onClick={onClose} disabled={busy}>Cancel</Button>
+              <Button type="submit" disabled={busy}>
+                {busy && <Spinner data-icon="inline-start" />}
+                {busy ? "Creating…" : "Create catalog"}
+              </Button>
             </div>
-          </fieldset>
-        </div>
-        <div className="flex justify-end gap-2 border-t px-5 py-3">
-          <Button type="button" variant="outline" onClick={onClose}>Cancel</Button>
-          <Button type="submit" disabled={busy}>{busy ? "Creating…" : "Create catalog"}</Button>
-        </div>
-      </form>
-    </dialog>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }

@@ -18,10 +18,10 @@ import { makeTRPCClient } from "@/utils/trpc";
 import { ChatThread, type ToolPart } from "./chat-thread";
 
 const SUGGESTIONS = [
-  "A spring lookbook for our linen clothing, for wholesale buyers",
-  "A price list of 12 coffee machines with specs, print-ready A4",
-  "A pitch deck for our handmade jewelry brand, warm and elegant",
-  "A product catalog in Persian for a home appliance store",
+  "A spring linen lookbook",
+  "A coffee machine price list",
+  "A warm, elegant jewelry pitch deck",
+  "A Persian home appliance catalog",
 ];
 
 let client: ReturnType<typeof makeTRPCClient> | null = null;
@@ -71,7 +71,7 @@ export function LandingPrompt() {
         start(prompt);
       }}
     >
-      <InputGroup className="rounded-xl bg-background shadow-sm">
+      <InputGroup className="rounded-xl border bg-background shadow-sm">
         <InputGroupTextarea
           value={prompt}
           onChange={(e) => setPrompt(e.target.value)}

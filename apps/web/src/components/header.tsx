@@ -10,19 +10,8 @@ import { useEffect, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
 
-import { ModeToggle } from "./mode-toggle";
+import { KaveroLogo } from "./kavero-logo";
 import UserMenu from "./user-menu";
-
-/** The Kavero mark: two stacked slides. */
-export function KaveroLogo({ className }: { className?: string }) {
-  return (
-    <svg viewBox="0 0 24 24" className={cn("size-6", className)} aria-hidden>
-      <rect x="2" y="6" width="15" height="12" rx="3" className="fill-primary/30" />
-      <rect x="7" y="3" width="15" height="12" rx="3" className="fill-primary" />
-      <path d="M12 6.5v5M12 9l3.2-2.5M12 9l3.2 2.5" className="stroke-primary-foreground" strokeWidth="1.6" strokeLinecap="round" fill="none" />
-    </svg>
-  );
-}
 
 const LINKS = [
   { to: "/dashboard", label: "Catalogs", icon: LayoutGridIcon },
@@ -46,13 +35,14 @@ export default function Header() {
   // The editor, public catalogs and the render page are full-screen.
   if (pathname.startsWith("/editor/") || pathname.startsWith("/c/") || pathname === "/render") return null;
 
-  /** On the dashboard the buttons open its dialogs directly; elsewhere they deep-link. */
-  const dashboardAction = (action: "new" | "generate") => (e: React.MouseEvent) => {
+  /** On the dashboard the button opens its dialog directly; elsewhere it deep-links. */
+  const dashboardAction = () => (e: React.MouseEvent) => {
     if (pathname !== "/dashboard") return;
     e.preventDefault();
-    window.dispatchEvent(new CustomEvent("kavero:dashboard", { detail: action }));
+    window.dispatchEvent(new CustomEvent("kavero:dashboard", { detail: "new" }));
   };
   const onDashboard = pathname === "/dashboard";
+  const showCreateAction = !onDashboard && pathname !== "/login";
   const active = (to: string) => pathname === to || pathname.startsWith(`${to}/`);
   const navLink = (to: Route, label: string, Icon: typeof LayoutGridIcon, mobile = false) => (
     <Link
@@ -83,16 +73,12 @@ export default function Header() {
         </nav>
 
         <div className="ml-auto flex items-center gap-2">
-          {/* Shortcuts to create; the dashboard has its own buttons, so they'd repeat there. */}
-          {!onDashboard && <div className="hidden items-center gap-2 md:flex">
-            <Link href="/dashboard?generate=1" onClick={dashboardAction("generate")}>
-              <Button variant="outline" size="sm"><HugeiconsIcon icon={SparklesIcon} /> Generate</Button>
-            </Link>
-            <Link href="/dashboard?new=1" onClick={dashboardAction("new")}>
+          {/* The dashboard has its own create controls; keep this action out of the auth flow. */}
+          {showCreateAction && <div className="hidden items-center gap-2 md:flex">
+            <Link href="/dashboard?new=1" onClick={dashboardAction()}>
               <Button size="sm"><HugeiconsIcon icon={Add01Icon} /> New catalog</Button>
             </Link>
           </div>}
-          <ModeToggle />
           <UserMenu />
           <Button variant="ghost" size="icon" className="sm:hidden" aria-label={open ? "Close menu" : "Open menu"} aria-expanded={open} onClick={() => setOpen((v) => !v)}>
             {open ? <HugeiconsIcon icon={Cancel01Icon} /> : <HugeiconsIcon icon={Menu01Icon} />}
@@ -105,9 +91,8 @@ export default function Header() {
           {navLink("/", "Home", SparklesIcon, true)}
           {LINKS.map((l) => navLink(l.to, l.label, l.icon, true))}
           {isAdmin && navLink("/admin" as Route, "Admin", Shield01Icon, true)}
-          {!onDashboard && <div className="mt-2 grid grid-cols-2 gap-2">
-            <Link href="/dashboard?generate=1" onClick={dashboardAction("generate")}><Button variant="outline" className="w-full"><HugeiconsIcon icon={SparklesIcon} /> Generate</Button></Link>
-            <Link href="/dashboard?new=1" onClick={dashboardAction("new")}><Button className="w-full"><HugeiconsIcon icon={Add01Icon} /> New catalog</Button></Link>
+          {showCreateAction && <div className="mt-2">
+            <Link href="/dashboard?new=1" onClick={dashboardAction()}><Button className="w-full"><HugeiconsIcon icon={Add01Icon} /> New catalog</Button></Link>
           </div>}
           {!session && <p className="mt-2 text-xs text-muted-foreground">Catalogs are saved on this device. Sign in to sync them and publish.</p>}
         </nav>

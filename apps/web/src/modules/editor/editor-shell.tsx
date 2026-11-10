@@ -1,7 +1,7 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, ArrowDown01Icon, ArrowLeft01Icon, ArrowUp01Icon, CircleIcon, CodeIcon, Copy01Icon, Delete02Icon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PackageAddIcon, PlayIcon, Redo02Icon, SquareIcon, Tag01Icon, TextIcon, Undo02Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
+import { Add01Icon, ArrowDown01Icon, ArrowLeft01Icon, ArrowUp01Icon, CircleIcon, CodeIcon, Copy01Icon, Delete02Icon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PackageAddIcon, PlayIcon, Presentation01Icon, Redo02Icon, SquareIcon, Tag01Icon, TextIcon, Undo02Icon, Upload01Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
 import { createBlankSlide, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { CatalogFonts, SlideView } from "@Kavero/renderer";
@@ -25,7 +25,7 @@ import { ProductPickerDialog, type PickOptions, type ProductUi } from "./product
 import { ProductsPanel } from "./products-panel";
 import { PublishDialog } from "./publish-dialog";
 import { PreviewPlayer } from "./preview-player";
-import { PropertiesPanel } from "./properties-panel";
+import { EditorLibraryPanel, type EditorLibraryTab } from "./editor-library-panel";
 import { RailButton, ToolRail } from "./tool-rail";
 import { Workspace, WorkspaceMenu, useWorkspace } from "./workspace";
 import { EditorChat } from "@/modules/chat/editor-chat";
@@ -85,18 +85,19 @@ function LoadedEditor({ catalogId, userId }: { catalogId: string; userId: string
   if (!editor) return <p className="p-8 text-sm text-muted-foreground">Opening catalog…</p>;
   return (
     <ContextMenuProvider>
-      <EditorShell editor={editor} assetUrls={assetUrls} saveStatus={saveStatus} cloudLabel={CLOUD_LABEL[cloudStatus]} uploadImage={uploadImage} uploadFont={uploadFont} onReload={reloadFromStorage} onKeepMine={keepMine} />
+      <EditorShell editor={editor} userId={userId} assetUrls={assetUrls} saveStatus={saveStatus} cloudLabel={CLOUD_LABEL[cloudStatus]} uploadImage={uploadImage} uploadFont={uploadFont} onReload={reloadFromStorage} onKeepMine={keepMine} />
     </ContextMenuProvider>
   );
 }
 
 const SAVE_LABEL: Record<SaveStatus, string> = { saved: "Saved", saving: "Saving…", unsaved: "Unsaved changes", error: "Save failed", conflict: "Not saved: changed elsewhere" };
 
-function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, uploadFont, onReload, onKeepMine }: {
+function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, uploadImage, uploadFont, onReload, onKeepMine }: {
   onReload: () => void;
   onKeepMine: () => void;
   cloudLabel: string | null;
   editor: Editor;
+  userId: string | null;
   assetUrls: Record<string, string>;
   saveStatus: SaveStatus;
   uploadImage: (f: File) => Promise<{ assetId: string; width: number; height: number }>;
@@ -152,6 +153,7 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
   const actions = useMemo(() => createActions({ editor, run, uploadImage }), [editor, run, uploadImage]);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [sidebar, setSidebar] = useState<"slides" | "layers" | "products">("slides");
+  const [libraryTab, setLibraryTab] = useState<EditorLibraryTab>("design");
   const workspace = useWorkspace();
 
   const productUi = useMemo<ProductUi>(() => ({
@@ -264,7 +266,31 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
         }
         renderPanel={(id) => {
           if (id === "properties") {
-            return { body: <div className="min-h-0 flex-1 overflow-y-auto"><PropertiesPanel editor={editor} doc={doc} slide={slide} selection={state.selection} addFont={uploadFont} assetUrls={assetUrls} productUi={productUi} /></div> };
+            const tabs: { id: EditorLibraryTab; label: string; icon: React.ReactNode }[] = [
+              { id: "design", label: "Design", icon: <HugeiconsIcon icon={Heading01Icon} /> },
+              { id: "templates", label: "Templates", icon: <HugeiconsIcon icon={Presentation01Icon} /> },
+              { id: "blocks", label: "Blocks", icon: <HugeiconsIcon icon={LayoutGridIcon} /> },
+              { id: "media", label: "Media", icon: <HugeiconsIcon icon={ImageAdd01Icon} /> },
+              { id: "uploads", label: "Uploads", icon: <HugeiconsIcon icon={Upload01Icon} /> },
+            ];
+            return {
+              header: <span className="truncate text-xs font-medium">{tabs.find((tab) => tab.id === libraryTab)?.label}</span>,
+              body: (
+                <div className="flex min-h-0 flex-1 overflow-hidden">
+                  <div className="flex w-14 shrink-0 flex-col items-stretch gap-1 border-e p-1" role="tablist" aria-label="Design libraries" aria-orientation="vertical">
+                    {tabs.map((tab) => (
+                      <button key={tab.id} type="button" role="tab" aria-selected={libraryTab === tab.id} aria-label={tab.label} title={tab.label} onClick={() => setLibraryTab(tab.id)}
+                        className="grid min-h-12 content-center justify-items-center gap-1 rounded-md px-0.5 py-1 text-[9px] font-medium leading-none text-muted-foreground transition-colors hover:bg-muted/60 aria-selected:bg-primary/10 aria-selected:text-primary">
+                        {tab.icon}<span>{tab.label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
+                    <EditorLibraryPanel tab={libraryTab} editor={editor} doc={doc} slide={slide} selection={state.selection} assetUrls={assetUrls} addFont={uploadFont} productUi={productUi} userId={userId} uploadImage={uploadImage} />
+                  </div>
+                </div>
+              ),
+            };
           }
           if (id === "chat") return { body: <EditorChat editor={editor} doc={doc} assetUrls={assetUrls} /> };
           return {

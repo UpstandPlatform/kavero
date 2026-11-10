@@ -1,6 +1,9 @@
+"use client";
+
 import { Button } from "@Kavero/ui/components/button";
+import { Field, FieldError, FieldGroup, FieldLabel } from "@Kavero/ui/components/field";
 import { Input } from "@Kavero/ui/components/input";
-import { Label } from "@Kavero/ui/components/label";
+import { Spinner } from "@Kavero/ui/components/spinner";
 import { useForm } from "@tanstack/react-form";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -10,121 +13,100 @@ import { authClient } from "@/lib/auth-client";
 
 import Loader from "./loader";
 
-export default function SignInForm({ onSwitchToSignUp }: { onSwitchToSignUp: () => void }) {
+export default function SignInForm() {
   const router = useRouter();
   const { isPending } = authClient.useSession();
 
   const form = useForm({
-    defaultValues: {
-      email: "",
-      password: "",
-    },
+    defaultValues: { email: "", password: "" },
     onSubmit: async ({ value }) => {
-      await authClient.signIn.email(
-        {
-          email: value.email,
-          password: value.password,
+      await authClient.signIn.email(value, {
+        onSuccess: () => {
+          router.push("/dashboard");
+          toast.success("Sign in successful");
         },
-        {
-          onSuccess: () => {
-            router.push("/dashboard");
-            toast.success("Sign in successful");
-          },
-          onError: (error) => {
-            toast.error(error.error.message || error.error.statusText);
-          },
-        },
-      );
+        onError: (error) => { toast.error(error.error.message || error.error.statusText); },
+      });
     },
     validators: {
       onSubmit: z.object({
-        email: z.email("Invalid email address"),
+        email: z.email("Enter a valid email address"),
         password: z.string().min(8, "Password must be at least 8 characters"),
       }),
     },
   });
 
-  if (isPending) {
-    return <Loader />;
-  }
+  if (isPending) return <Loader />;
 
   return (
-    <div className="mx-auto mt-10 w-full max-w-md rounded-xl border bg-card p-6">
-      <h1 className="mb-6 text-center text-2xl font-semibold tracking-tight">Welcome Back</h1>
-
-      <form
-        onSubmit={(e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          form.handleSubmit();
-        }}
-        className="space-y-4"
-      >
-        <div>
-          <form.Field name="email">
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor={field.name}>Email</Label>
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        void form.handleSubmit();
+      }}
+      className="grid gap-5"
+    >
+      <FieldGroup className="gap-4">
+        <form.Field name="email">
+          {(field) => {
+            const invalid = field.state.meta.errors.length > 0;
+            return (
+              <Field data-invalid={invalid}>
+                <FieldLabel htmlFor={field.name}>Email</FieldLabel>
                 <Input
                   id={field.name}
                   name={field.name}
                   type="email"
+                  autoComplete="email"
+                  autoCapitalize="none"
+                  spellCheck={false}
+                  required
                   value={field.state.value}
                   onBlur={field.handleBlur}
-                  onChange={(e) => field.handleChange(e.target.value)}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  aria-invalid={invalid}
+                  placeholder="you@example.com"
                 />
-                {field.state.meta.errors.map((error) => (
-                  <p key={error?.message} className="text-xs text-destructive">
-                    {error?.message}
-                  </p>
-                ))}
-              </div>
-            )}
-          </form.Field>
-        </div>
+                <FieldError errors={field.state.meta.errors} />
+              </Field>
+            );
+          }}
+        </form.Field>
 
-        <div>
-          <form.Field name="password">
-            {(field) => (
-              <div className="space-y-2">
-                <Label htmlFor={field.name}>Password</Label>
+        <form.Field name="password">
+          {(field) => {
+            const invalid = field.state.meta.errors.length > 0;
+            return (
+              <Field data-invalid={invalid}>
+                <FieldLabel htmlFor={field.name}>Password</FieldLabel>
                 <Input
                   id={field.name}
                   name={field.name}
                   type="password"
+                  autoComplete="current-password"
+                  required
                   value={field.state.value}
                   onBlur={field.handleBlur}
-                  onChange={(e) => field.handleChange(e.target.value)}
+                  onChange={(event) => field.handleChange(event.target.value)}
+                  aria-invalid={invalid}
+                  placeholder="Your password"
                 />
-                {field.state.meta.errors.map((error) => (
-                  <p key={error?.message} className="text-xs text-destructive">
-                    {error?.message}
-                  </p>
-                ))}
-              </div>
-            )}
-          </form.Field>
-        </div>
+                <FieldError errors={field.state.meta.errors} />
+              </Field>
+            );
+          }}
+        </form.Field>
+      </FieldGroup>
 
-        <form.Subscribe
-          selector={(state) => ({ canSubmit: state.canSubmit, isSubmitting: state.isSubmitting })}
-        >
-          {({ canSubmit, isSubmitting }) => (
-            <Button type="submit" className="w-full" disabled={!canSubmit || isSubmitting}>
-              {isSubmitting ? "Submitting..." : "Sign In"}
-            </Button>
-          )}
-        </form.Subscribe>
-      </form>
-
-      <div className="mt-4 text-center">
-        <Button
-          variant="link"
-          onClick={onSwitchToSignUp}
-        >
-          Need an account? Sign Up
-        </Button>
-      </div>
-    </div>
+      <form.Subscribe selector={(state) => ({ canSubmit: state.canSubmit, isSubmitting: state.isSubmitting })}>
+        {({ canSubmit, isSubmitting }) => (
+          <Button type="submit" size="lg" className="w-full" disabled={!canSubmit || isSubmitting}>
+            {isSubmitting && <Spinner data-icon="inline-start" />}
+            {isSubmitting ? "Signing in…" : "Sign in"}
+          </Button>
+        )}
+      </form.Subscribe>
+    </form>
   );
 }

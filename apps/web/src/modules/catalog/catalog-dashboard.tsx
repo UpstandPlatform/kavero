@@ -1,7 +1,8 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, CloudIcon, CloudLoadingIcon, CloudUploadIcon, Copy01Icon, Delete02Icon, Download01Icon, HardDriveIcon, MoreHorizontalIcon, PencilIcon, Presentation01Icon, Refresh01Icon, Search01Icon, SparklesIcon, Upload01Icon } from "@hugeicons/core-free-icons";
+import { Add01Icon, CloudIcon, CloudLoadingIcon, CloudUploadIcon, Copy01Icon, Delete02Icon, Download01Icon, HardDriveIcon, LayoutGridIcon, ListIcon, MoreHorizontalIcon, PencilIcon, Presentation01Icon, Refresh01Icon, Search01Icon, SparklesIcon, Upload01Icon } from "@hugeicons/core-free-icons";
+import { TEMPLATES } from "@Kavero/catalog-engine";
 import { hasUnsyncedChanges, type CatalogSummary } from "@Kavero/local-storage";
 import { Badge } from "@Kavero/ui/components/badge";
 import { Button } from "@Kavero/ui/components/button";
@@ -38,6 +39,7 @@ import { SyncConflictError, deleteCloudCopy, listCloudCatalogs, listWorkspaces, 
 import { CloudOnlyList, ConflictDialog } from "./cloud-ui";
 import { AiGenerateDialog } from "./ai-generate-dialog";
 import { NewCatalogDialog } from "./new-catalog-dialog";
+import { TemplatePreview, type TemplateLayout } from "./template-preview";
 
 type Sort = "updated" | "created" | "title";
 
@@ -59,14 +61,22 @@ export function CatalogDashboard() {
   const [creating, setCreating] = useState(false);
   const [generating, setGenerating] = useState(false);
   const [initialBrief, setInitialBrief] = useState("");
+  const [initialTemplateId, setInitialTemplateId] = useState("minimal");
+  const [showAllTemplates, setShowAllTemplates] = useState(false);
+  const [viewMode, setViewMode] = useState<"grid" | "list">("grid");
   // Deep link from the landing page: /dashboard?generate=1&brief=… opens "Generate with AI" with the prompt filled in.
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
+    if (params.get("templates") === "all") setShowAllTemplates(true);
     if (params.get("generate") === "1") {
       setInitialBrief(params.get("brief")?.slice(0, 2000) ?? "");
       setGenerating(true);
     }
-    if (params.get("new") === "1") setCreating(true);
+    if (params.get("new") === "1") {
+      const requestedTemplate = params.get("template");
+      if (requestedTemplate === "blank" || (requestedTemplate && TEMPLATES.some((template) => template.id === requestedTemplate))) setInitialTemplateId(requestedTemplate);
+      setCreating(true);
+    }
     // The app header's "New catalog" / "Generate" buttons while already on this page.
     const onAction = (e: Event) => ((e as CustomEvent).detail === "new" ? setCreating(true) : setGenerating(true));
     window.addEventListener("kavero:dashboard", onAction);
@@ -131,11 +141,52 @@ export function CatalogDashboard() {
     }
   }
 
+  function startFrom(templateId: string) {
+    setInitialTemplateId(templateId);
+    setCreating(true);
+  }
+
+  function closeCreateDialog() {
+    setCreating(false);
+    if (new URLSearchParams(window.location.search).has("new")) router.replace("/dashboard");
+  }
+
+  const popularTemplates = ["minimal", "dark-luxury", "studio", "tech"]
+    .map((id) => TEMPLATES.find((template) => template.id === id))
+    .filter((template) => template !== undefined);
+  const galleryTemplates = showAllTemplates ? TEMPLATES : popularTemplates;
+
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-8">
-      <div className="mb-6 flex flex-wrap items-end justify-between gap-4">
+    <div className="mx-auto w-full max-w-7xl px-4 pb-12 sm:px-6">
+      <section aria-labelledby="start-title" className="-mx-4 mb-8 border-b bg-muted/30 px-4 py-7 sm:-mx-6 sm:px-6 sm:py-8">
+        <div className="mx-auto w-full max-w-7xl">
+          <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
+            <div>
+              <p className="text-xs font-medium uppercase tracking-wider text-muted-foreground">Start a new presentation</p>
+              <h1 id="start-title" className="mt-1 text-2xl font-semibold tracking-tight">What would you like to create?</h1>
+            </div>
+            <Button variant="ghost" size="sm" onClick={() => setShowAllTemplates((value) => !value)} aria-expanded={showAllTemplates}>
+              {showAllTemplates ? "Show featured" : "Browse all templates"}
+            </Button>
+          </div>
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
+            <button type="button" onClick={() => startFrom("blank")} className="group grid min-w-0 gap-2 text-start">
+              <TemplatePreview theme={{ colors: { background: "#ffffff", text: "#171717", primary: "#171717", accent: "#f3f4f6" }, fonts: { heading: "Inter", body: "Inter" } }} layout="blank" title="Blank presentation" className="w-full transition-shadow group-hover:shadow-md" />
+              <span className="truncate text-sm font-medium">Blank presentation</span>
+            </button>
+            {galleryTemplates.map((template) => (
+              <button key={template.id} type="button" onClick={() => startFrom(template.id)} className="group grid min-w-0 gap-2 text-start">
+                <TemplatePreview theme={template.theme} layout={template.layout as TemplateLayout} title={template.name} className="w-full transition-shadow group-hover:shadow-md" />
+                <span className="truncate text-sm font-medium">{template.name}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Your catalogs</h1>
+          <h2 className="text-xl font-semibold tracking-tight">Recent presentations</h2>
           <p className="mt-1 flex items-center gap-1.5 text-sm text-muted-foreground">
             <HugeiconsIcon icon={HardDriveIcon} className="size-3.5" />
             Saved in this browser.{" "}
@@ -173,6 +224,10 @@ export function CatalogDashboard() {
             aria-label="Sort catalogs"
             options={[{ value: "updated", label: "Last edited" }, { value: "created", label: "Newest" }, { value: "title", label: "Name" }]}
           />
+          <div role="group" aria-label="Presentation view" className="flex rounded-md border p-0.5">
+            <Button variant={viewMode === "grid" ? "secondary" : "ghost"} size="icon-xs" aria-label="Grid view" aria-pressed={viewMode === "grid"} title="Grid view" onClick={() => setViewMode("grid")}><HugeiconsIcon icon={LayoutGridIcon} /></Button>
+            <Button variant={viewMode === "list" ? "secondary" : "ghost"} size="icon-xs" aria-label="List view" aria-pressed={viewMode === "list"} title="List view" onClick={() => setViewMode("list")}><HugeiconsIcon icon={ListIcon} /></Button>
+          </div>
         </div>
       )}
 
@@ -180,7 +235,7 @@ export function CatalogDashboard() {
 
       {!catalogs && !error && (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {[0, 1, 2].map((i) => <Skeleton key={i} className="aspect-[4/3] rounded-xl" />)}
+          {[0, 1, 2].map((i) => <Skeleton key={i} className="aspect-video rounded-xl" />)}
         </div>
       )}
 
@@ -201,8 +256,8 @@ export function CatalogDashboard() {
         <p className="py-12 text-center text-sm text-muted-foreground">No catalogs match “{query}”.</p>
       )}
 
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        {visible.map((c) => <CatalogCard key={c.id} catalog={c} userId={session?.user.id ?? null} cloudConflict={conflicts.has(c.id)} workspaces={workspaces} cloud={c.cloud ? cloudInfo.get(c.cloud.id) : undefined} />)}
+      <div className={viewMode === "grid" ? "grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" : "grid grid-cols-1 gap-2"}>
+        {visible.map((c) => <CatalogCard key={c.id} catalog={c} userId={session?.user.id ?? null} cloudConflict={conflicts.has(c.id)} workspaces={workspaces} cloud={c.cloud ? cloudInfo.get(c.cloud.id) : undefined} viewMode={viewMode} />)}
       </div>
 
       {session && catalogs && (
@@ -213,7 +268,8 @@ export function CatalogDashboard() {
 
       <NewCatalogDialog
         open={creating}
-        onClose={() => setCreating(false)}
+        onClose={closeCreateDialog}
+        initialTemplateId={initialTemplateId}
         onCreate={async (v) => {
           try {
             const doc = await createLocalCatalog(v);
@@ -228,12 +284,13 @@ export function CatalogDashboard() {
   );
 }
 
-function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [], cloud }: {
+function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [], cloud, viewMode = "grid" }: {
   catalog: CatalogSummary;
   userId: string | null;
   cloudConflict?: boolean;
   workspaces?: { id: string; name: string; role: string }[];
   cloud?: { workspaceName: string | null; role: string };
+  viewMode?: "grid" | "list";
 }) {
   const [renaming, setRenaming] = useState(false);
   const [conflict, setConflict] = useState(false);
@@ -273,8 +330,8 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
         : { icon: <HugeiconsIcon icon={CloudIcon} className="size-2.5" />, label: "Synced", title: "Matches your cloud copy" };
 
   return (
-    <div className="group relative flex flex-col overflow-hidden rounded-xl border bg-card transition-shadow hover:shadow-md">
-      <Link href={`/editor/${c.id}`} className="block aspect-[4/3] overflow-hidden bg-muted p-4" aria-label={`Open ${c.title}`}>
+    <div className={`group relative flex overflow-hidden border bg-card transition-shadow hover:shadow-md ${viewMode === "grid" ? "flex-col rounded-xl" : "min-h-24 flex-row items-center rounded-lg"}`}>
+      <Link href={`/editor/${c.id}`} className={`block shrink-0 overflow-hidden bg-muted p-3 ${viewMode === "grid" ? "aspect-video w-full" : "h-24 w-40 sm:w-52"}`} aria-label={`Open ${c.title}`}>
         {c.thumbnail ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img src={c.thumbnail} alt="" className="mx-auto h-full w-auto max-w-full object-contain shadow-sm" />
@@ -282,7 +339,7 @@ function CatalogCard({ catalog: c, userId, cloudConflict = false, workspaces = [
           <div className="h-full w-full bg-background" />
         )}
       </Link>
-      <div className="flex items-start gap-2 p-3">
+      <div className={`flex min-w-0 flex-1 items-start gap-2 p-3 ${viewMode === "list" ? "items-center" : ""}`}>
         <div className="min-w-0 flex-1">
           {renaming ? (
             <form
