@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.4.0](https://github.com/UpstandPlatform/kavero/compare/v0.3.0...v0.4.0) - 2026-11-10
+
+### Features
+
+- Native AI chat, customizable editor workspace and UI consistency ([3d6a19c](https://github.com/UpstandPlatform/kavero/commit/3d6a19cc8566a016f91cc3a67d06a228a1f7a4a1))
+
 ## [0.3.0](https://github.com/UpstandPlatform/kavero/compare/v0.2.0...v0.3.0) - 2026-11-10
 
 ### Features
