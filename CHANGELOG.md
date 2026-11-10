@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.2.0](https://github.com/UpstandPlatform/kavero/compare/v0.1.0...v0.2.0) - 2026-11-10
+
+### Features
+
+- **mcp:** Add font tools for catalogs ([a05726b](https://github.com/UpstandPlatform/kavero/commit/a05726bee0240d09522219b0f9119b35349214c4))
+
 ## [0.1.0](https://github.com/UpstandPlatform/kavero/commits/v0.1.0) - 2026-11-10
 
 ### Features
