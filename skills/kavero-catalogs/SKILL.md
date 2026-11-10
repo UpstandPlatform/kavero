@@ -1,6 +1,6 @@
 ---
 name: kavero-catalogs
-description: Build professional product catalogs and presentations in Kavero through its MCP server (catalog_create, catalog_generate, slide_add_element, catalog_import_products, asset_import, catalog_preview, catalog_publish…). Use when the user asks to create, design, fill, restyle or fix a Kavero catalog, lookbook, price list, product presentation or brochure — including right-to-left (Persian, Arabic, Hebrew) catalogs.
+description: Build professional product catalogs and presentations in Kavero through its MCP server (catalog_create, catalog_generate, slide_add_element, catalog_import_products, asset_import, font_add_google, font_upload, catalog_preview, catalog_publish…). Use when the user asks to create, design, fill, restyle or fix a Kavero catalog, lookbook, price list, product presentation or brochure — including right-to-left (Persian, Arabic, Hebrew) catalogs.
 ---
 
 # Building catalogs with Kavero
@@ -53,7 +53,8 @@ Repeat 3–5 per category. Keep 8–24 slides; split anything denser.
 | Body | 24–28 | 12–14 | 400 |
 | Caption / small print | 18–20 | 9–10 | 400 |
 
-- Use `token:heading` / `token:body` fonts and set them once with `catalog_apply_theme`.
+- Use `token:heading` / `token:body` fonts and set them once for the whole catalog.
+- **Fonts:** add them with `font_add_google` (`{"family":"Playfair Display","weights":[400,700],"applyTo":"heading"}`) or `font_upload` for a brand font file, then `font_list` to check. Keep the default `embed: true` so previews, PDF and video use the exact font; embed every weight you use. Use `font_apply` with `elementIds` for one-off text (a script logo, a price in a display face). Two families at most: one for headings, one for body.
 - Line height 1.1–1.2 for headings, 1.4–1.5 for body. Keep body lines under ~70 characters.
 - Make text boxes tall enough for their text; long copy belongs on its own slide, not squeezed into small type.
 
@@ -69,7 +70,7 @@ Repeat 3–5 per category. Keep 8–24 slides; split anything denser.
 - Keep `direction: "auto"` (default) so each paragraph follows its first letter; `شیر توپی (UPVC)` renders correctly.
 - Phone numbers, codes, URLs and email addresses go in their **own** text element with `direction: "ltr"`.
 - **Never** insert Unicode bidi control characters (U+202A–U+202E, U+2066–U+2069). They break editing.
-- Pick a font that covers the script: Vazirmatn (Persian), Noto Naskh Arabic / Cairo (Arabic), Rubik / Heebo (Hebrew).
+- Pick a font that covers the script and embed it with `font_add_google` (`applyTo: "both"`): Vazirmatn (Persian), Noto Naskh Arabic / Cairo (Arabic), Rubik / Heebo (Hebrew). Embedded files include every script, so mixed Persian/Latin text renders correctly.
 - Persian digits (۰۱۲۳) are fine in text; keep prices numeric in product data (`price: 120000`, `currency: "IRR"`).
 
 ## Templates

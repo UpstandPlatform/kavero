@@ -93,7 +93,7 @@ const token = (await trpc(editor.cookie, "integrations.tokens.create", { name: "
 const mcp = new Client({ name: "e2e", version: "1" });
 await mcp.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
 const tools = (await mcp.listTools()).tools.map((t) => t.name);
-check("MCP exposes 24 tools", tools.length === 24 && tools.includes("catalog_generate") && tools.includes("catalog_export_pptx"), String(tools.length));
+check("MCP exposes 29 tools", tools.length === 29 && tools.includes("catalog_generate") && tools.includes("catalog_export_pptx"), String(tools.length));
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const text = (r: any) => JSON.parse(r.content[0].text);
 const g = text(await mcp.callTool({ name: "catalog_generate", arguments: { brief: "Industrial power tools catalog for distributors", workspaceId: ws.id, products: [

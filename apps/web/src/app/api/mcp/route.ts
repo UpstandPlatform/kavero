@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { AiCredentialService } from "@Kavero/api/services/ai-credential-service";
 import { CatalogService } from "@Kavero/api/services/catalog-service";
+import { MAX_FONT_BYTES, downloadFont, googleFontFaces, sniffFont } from "@Kavero/api/services/font-files";
 import { SecretBox } from "@Kavero/api/services/secret-box";
 import { imageSize } from "@Kavero/api/services/image-size";
 import { fetchImageAsDataUrl } from "@Kavero/api/services/safe-fetch";
@@ -53,7 +54,7 @@ export async function POST(request: Request) {
 
   const origin = new URL(request.url).origin;
   const catalogs = new CatalogService(db);
-  /** Store image bytes for a cloud catalog; same bytes → same asset id (no duplicates). */
+  /** Store image or font bytes for a cloud catalog; same bytes → same asset id (no duplicates). */
   const storeImage = async (catalogRowId: string, bytes: Uint8Array, mimeType: string) => {
     const hash = createHash("sha256").update(bytes).digest("hex");
     const assetId = `ast_${hash.slice(0, 16)}`;
@@ -89,6 +90,15 @@ export async function POST(request: Request) {
         if (!imageSize(bytes)) throw new Error("That data isn't a PNG, JPEG, GIF or WebP image");
         return storeImage(catalogRowId, bytes, mimeType);
       },
+      importFont: async (catalogRowId, source) => {
+        if ("url" in source) {
+          const { bytes, mimeType } = await downloadFont(source.url, { allowLocal: process.env.NODE_ENV !== "production" });
+          return storeImage(catalogRowId, bytes, mimeType);
+        }
+        if (source.bytes.byteLength > MAX_FONT_BYTES) throw new Error("Font files must be under 15 MB");
+        return storeImage(catalogRowId, source.bytes, sniffFont(source.bytes));
+      },
+      googleFontFaces,
       loadAssets,
       renderPreview: async (doc, slideIndex) => renderSlideImage({ doc, assets: await loadAssets(doc), baseUrl: renderOrigin(request), slideIndex, width: 1280 }),
       renderPdf: async (doc) => renderPdf({ doc, assets: await loadAssets(doc), baseUrl: renderOrigin(request) }),

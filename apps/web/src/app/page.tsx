@@ -16,7 +16,7 @@ const FEATURES = [
   { icon: MousePointerClick, title: "Visual slide editor", text: "Drag, resize and rotate text, images, shapes, product cards and grids. Snapping, layers, undo/redo and autosave." },
   { icon: Sparkles, title: "AI generation", text: "Describe the catalog, add products, and get an editable, designed catalog. Ask AI to restyle a slide and approve the change." },
   { icon: PackageSearch, title: "Products over MCP", text: "Connect your store or inventory as an MCP server and import products with photos, prices and specs." },
-  { icon: Bot, title: "An MCP server for agents", text: "Claude and other agents can create, edit, preview, export and publish catalogs with 24 tools and scoped tokens." },
+  { icon: Bot, title: "An MCP server for agents", text: "Claude and other agents can create, edit, preview, export and publish catalogs with 29 tools and scoped tokens." },
   { icon: Film, title: "Motion built in", text: "Entrance, emphasis and exit animations and slide transitions, rendered identically in preview, websites and MP4 video." },
   { icon: Globe, title: "Animated websites", text: "Publish to a link: public, unlisted, password-protected or private, with SEO, social previews and view counts." },
   { icon: FileDown, title: "PDF and PowerPoint", text: "Print-ready PDFs with selectable text and PowerPoint files where text, shapes and images stay editable." },

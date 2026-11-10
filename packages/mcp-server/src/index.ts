@@ -44,6 +44,13 @@ export interface McpHost {
   loadAssets?: (doc: CatalogDocument) => Promise<Record<string, string>>;
   /** Remove stored files (storage keys) of a deleted catalog. Optional. */
   deleteObjects?: (storageKeys: string[]) => Promise<void>;
+  /**
+   * Store a font file in a cloud catalog, from a public https URL (SSRF-protected,
+   * <= 15 MB) or raw bytes. The file type is checked from its contents. Optional.
+   */
+  importFont?: (catalogRowId: string, source: { url: string } | { bytes: Uint8Array }) => Promise<{ id: string; mimeType: string; bytes: number; hash: string }>;
+  /** Faces of a Google Fonts family (complete TTF files on fonts.gstatic.com). Optional. */
+  googleFontFaces?: (family: string, weights: number[], italic: boolean) => Promise<{ faces: { weight: number; style: "normal" | "italic"; url: string }[]; missingWeights: number[] }>;
 }
 
 const MAX_EXPORT_BYTES = 25 * 1024 * 1024;
@@ -86,10 +93,46 @@ export function outline(doc: CatalogDocument) {
     page: { width: doc.settings.width, height: doc.settings.height },
     theme: doc.theme,
     products: doc.products.map((p) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency })),
-    assets: doc.assets.map((a) => ({ id: a.id, kind: a.kind, name: a.name })),
+    assets: doc.assets.map((a) => ({ id: a.id, kind: a.kind, name: a.name, ...(a.kind === "font" ? { family: a.family, weight: a.fontWeight ?? 400, style: a.fontStyle ?? "normal" } : {}) })),
     slides: doc.slides.map((s, i) => ({
       index: i, id: s.id, name: s.name, transition: s.transition?.type,
       elements: s.elements.map((e) => ({ id: e.id, type: e.type, position: e.position, text: text(e), animations: e.animations.length || undefined })),
+    })),
+  };
+}
+
+const GENERIC_FONTS = new Set(["system-ui", "sans-serif", "serif", "monospace", "cursive", "fantasy"]);
+
+/** Every font family a catalog uses or stores, where it's used, and where it loads from. */
+export function fontSummary(doc: CatalogDocument) {
+  type Entry = { family: string; themeRoles: string[]; textElements: number; slides: Set<number>; files: { assetId: string; weight: number; style: string; source?: string; bytes?: number }[] };
+  const families = new Map<string, Entry>();
+  const entry = (family: string) => {
+    let e = families.get(family);
+    if (!e) families.set(family, (e = { family, themeRoles: [], textElements: 0, slides: new Set(), files: [] }));
+    return e;
+  };
+  for (const [role, family] of Object.entries(doc.theme.fonts)) if (family) entry(family).themeRoles.push(role);
+  doc.slides.forEach((s, i) => {
+    for (const el of s.elements) {
+      if (el.type !== "text") continue;
+      const f = el.style.fontFamily.startsWith("token:") ? doc.theme.fonts[el.style.fontFamily.slice(6)] : el.style.fontFamily;
+      if (!f) continue;
+      const e = entry(f);
+      e.textElements++;
+      e.slides.add(i);
+    }
+  });
+  for (const a of doc.assets) if (a.kind === "font" && a.family) entry(a.family).files.push({ assetId: a.id, weight: a.fontWeight ?? 400, style: a.fontStyle ?? "normal", source: a.fontSource, bytes: a.bytes });
+  return {
+    theme: doc.theme.fonts,
+    families: [...families.values()].map((f) => ({
+      family: f.family,
+      loadedFrom: f.files.length ? "catalog files" : GENERIC_FONTS.has(f.family) ? "system" : "Google Fonts (by name)",
+      themeRoles: f.themeRoles,
+      textElements: f.textElements,
+      slides: [...f.slides].map((i) => i + 1),
+      files: f.files.sort((a, b) => a.weight - b.weight || a.style.localeCompare(b.style)),
     })),
   };
 }
@@ -359,6 +402,162 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     if (commands.length) await edit(catalogId, commands);
     return ok({ assetId: asset.id, width: asset.width, height: asset.height, mimeType: asset.mimeType, alreadyPresent: !commands.length });
   }));
+
+  // ---------- Fonts ----------
+
+  const weightsSchema = z.array(z.number().int().min(100).max(900).refine((w) => w % 100 === 0, "Weights are 100, 200 … 900")).min(1).max(9);
+  const applyToSchema = z.enum(["heading", "body", "both"]).optional().describe("Also make this the theme's heading font, body font, or both");
+  const badFamily = (family: string) => /["\\<>{};]/.test(family) ? "The family name can't contain quotes, backslashes, angle brackets, braces or semicolons." : null;
+  const cleanFamily = (family: string) => family.trim().replace(/\s+/g, " ");
+  const themeFonts = (family: string, roles?: "heading" | "body" | "both"): EditorCommand[] =>
+    roles ? [{ type: "catalog.updateTheme", theme: { fonts: { ...(roles !== "body" ? { heading: family } : {}), ...(roles !== "heading" ? { body: family } : {}) } } }] : [];
+  const fontAsset = (stored: { id: string; mimeType: string; bytes: number; hash: string }, face: { family: string; weight: number; style: "normal" | "italic"; source: "upload" | "google"; name: string }): EditorCommand => ({
+    type: "asset.add",
+    asset: { id: stored.id, kind: "font", mimeType: stored.mimeType, name: face.name, uri: `cloud://${stored.id}`, bytes: stored.bytes, hash: stored.hash, family: face.family, fontWeight: face.weight, fontStyle: face.style, fontSource: face.source },
+  });
+  const faceName = (family: string, weight: number, style: string) => `${family} ${weight}${style === "italic" ? " Italic" : ""}`;
+
+  server.registerTool("font_list", {
+    title: "List fonts",
+    description: "Fonts of a catalog: the theme's heading/body fonts, font files stored in the catalog (family, weight, style, assetId), families loaded from Google Fonts by name, and how many text elements use each family.",
+    inputSchema: { catalogId: id },
+    annotations: { readOnlyHint: true },
+  }, guard("font_list", "catalogs:read", async ({ catalogId }) => {
+    const { document: doc } = await catalogs.get(uid, catalogId);
+    return ok(fontSummary(doc));
+  }));
+
+  server.registerTool("font_add_google", {
+    title: "Add Google font",
+    description: "Add a Google Fonts family (exact name from fonts.google.com, e.g. \"Playfair Display\", \"Vazirmatn\", \"Noto Sans Arabic\"). With embed=true (default) the complete font files are stored in the catalog, so PDF, video, image and offline HTML exports never depend on Google and every script (Latin, Persian, Arabic…) is covered. Set applyTo to make it the heading and/or body font; use font_apply for single text elements.",
+    inputSchema: {
+      catalogId: id,
+      family: z.string().min(1).max(80),
+      weights: weightsSchema.optional().describe("Default [400, 600, 700]. Weights the family doesn't have are skipped."),
+      italic: z.boolean().optional().describe("Also add italic faces (default false)"),
+      embed: z.boolean().optional().describe("Store the font files in the catalog (default true). false = load from Google Fonts by name when the catalog is shown."),
+      applyTo: applyToSchema,
+    },
+  }, guard("font_add_google", "catalogs:write", async ({ catalogId, family, weights = [400, 600, 700], italic = false, embed = true, applyTo }) => {
+    if (!host.googleFontFaces) return fail("Google Fonts aren't available on this server.");
+    if (embed && !host.importFont) return fail("Storing font files isn't available on this server. Use embed=false.");
+    await catalogs.access(uid, catalogId, "write");
+    const { id: rowId, document } = await catalogs.get(uid, catalogId);
+    const name = cleanFamily(family);
+    const { faces, missingWeights } = await host.googleFontFaces(name, [...new Set(weights)].sort((a, b) => a - b), italic);
+    const commands: EditorCommand[] = [];
+    const added: { assetId: string; weight: number; style: string }[] = [];
+    if (embed) {
+      for (const face of faces) {
+        const stored = await host.importFont!(rowId, { url: face.url });
+        if (document.assets.some((a) => a.id === stored.id) || added.some((a) => a.assetId === stored.id)) continue;
+        commands.push(fontAsset(stored, { family: name, weight: face.weight, style: face.style, source: "google", name: faceName(name, face.weight, face.style) }));
+        added.push({ assetId: stored.id, weight: face.weight, style: face.style });
+      }
+    }
+    commands.push(...themeFonts(name, applyTo));
+    const r = commands.length ? await edit(catalogId, commands) : null;
+    return ok({
+      ...(r ?? { catalogId }),
+      family: name,
+      embedded: embed,
+      faces: faces.map((f) => ({ weight: f.weight, style: f.style })),
+      added,
+      missingWeights: missingWeights.length ? missingWeights : undefined,
+      theme: applyTo ? { ...document.theme.fonts, ...(applyTo !== "body" ? { heading: name } : {}), ...(applyTo !== "heading" ? { body: name } : {}) } : document.theme.fonts,
+      note: embed
+        ? `Stored in the catalog. Use "${name}" as fontFamily on text elements (font_apply), or applyTo for the theme.`
+        : `Loaded from Google Fonts by name when the catalog is shown. Use "${name}" as fontFamily (font_apply).`,
+    });
+  }));
+
+  server.registerTool("font_upload", {
+    title: "Upload font file",
+    description: "Store a font file (TTF, OTF, WOFF or WOFF2, up to 15 MB) in a catalog from a public https URL or base64 data, for brand or licensed fonts that aren't on Google Fonts. Each call adds one face: give the family name text should use and the weight/style this file provides. Only upload fonts whose license allows embedding.",
+    inputSchema: {
+      catalogId: id,
+      family: z.string().min(1).max(80).describe("Family name text elements will use, e.g. \"Acme Sans\""),
+      url: z.string().url().optional().describe("Public https URL of the font file"),
+      data: z.string().max(21_000_000).optional().describe("Base64 font bytes, for agents without a public URL"),
+      weight: z.number().int().min(100).max(900).optional().describe("Weight this file provides (default 400)"),
+      style: z.enum(["normal", "italic"]).optional(),
+      name: z.string().max(120).optional().describe("Label shown in the editor (default \"<family> <weight>\")"),
+      applyTo: applyToSchema,
+    },
+  }, guard("font_upload", "catalogs:write", async ({ catalogId, family, url, data, weight = 400, style = "normal", name, applyTo }) => {
+    if (!!url === !!data) return fail("Pass either url or data (base64), not both.");
+    const bad = badFamily(family);
+    if (bad) return fail(bad);
+    if (!host.importFont) return fail("Storing font files isn't available on this server.");
+    await catalogs.access(uid, catalogId, "write");
+    const { id: rowId, document } = await catalogs.get(uid, catalogId);
+    const fam = cleanFamily(family);
+    let stored;
+    if (url) stored = await host.importFont(rowId, { url });
+    else {
+      const bytes = Uint8Array.from(Buffer.from(data!.replace(/^data:[^,]*,/, ""), "base64"));
+      if (!bytes.byteLength) return fail("The data is empty or not valid base64.");
+      stored = await host.importFont(rowId, { bytes });
+    }
+    const existing = document.assets.find((a) => a.id === stored.id);
+    const commands: EditorCommand[] = existing ? [] : [fontAsset(stored, { family: fam, weight, style, source: "upload", name: name?.trim() || faceName(fam, weight, style) })];
+    commands.push(...themeFonts(existing?.family ?? fam, applyTo));
+    const r = commands.length ? await edit(catalogId, commands) : null;
+    return ok({ ...(r ?? { catalogId }), assetId: stored.id, family: existing?.family ?? fam, weight: existing?.fontWeight ?? weight, style: existing?.fontStyle ?? style, mimeType: stored.mimeType, bytes: stored.bytes, alreadyPresent: !!existing });
+  }));
+
+  server.registerTool("font_apply", {
+    title: "Apply font",
+    description: "Use a font family as the theme's heading and/or body font (every element using token:heading / token:body follows), and/or on specific text elements, optionally with a weight. Works with fonts added by font_add_google / font_upload and with any Google Fonts family name.",
+    inputSchema: {
+      catalogId: id,
+      family: z.string().min(1).max(80),
+      theme: z.enum(["heading", "body", "both"]).optional().describe("Theme role(s) to set"),
+      elementIds: z.array(id).max(200).optional().describe("Text elements to change"),
+      weight: z.number().int().min(100).max(900).optional().describe("Font weight for those elements"),
+    },
+  }, guard("font_apply", "catalogs:write", async ({ catalogId, family, theme, elementIds = [], weight }) => {
+    if (!theme && !elementIds.length) return fail("Pass theme and/or elementIds.");
+    const bad = badFamily(family);
+    if (bad) return fail(bad);
+    const fam = cleanFamily(family);
+    const { document } = await catalogs.get(uid, catalogId);
+    const elements = new Map(document.slides.flatMap((s) => s.elements).map((e) => [e.id, e]));
+    const notText = elementIds.filter((eid) => elements.get(eid)?.type !== "text");
+    if (notText.length) return fail(`These aren't text elements of this catalog: ${notText.join(", ")}`);
+    const commands: EditorCommand[] = [
+      ...themeFonts(fam, theme),
+      ...elementIds.map((elementId): EditorCommand => ({ type: "element.update", elementId, changes: { style: { fontFamily: fam, ...(weight ? { fontWeight: weight } : {}) } } })),
+    ];
+    const r = await edit(catalogId, commands);
+    const stored = document.assets.some((a) => a.kind === "font" && a.family === fam);
+    return ok({
+      ...r, family: fam, theme: theme ?? null, elements: elementIds.length,
+      ...(stored ? {} : { note: "No font file for this family is stored in the catalog, so it loads from Google Fonts by name (or a system font is used). Use font_add_google or font_upload to embed it." }),
+    });
+  }));
+
+  server.registerTool("font_remove", {
+    title: "Remove font",
+    description: "Remove font files from a catalog: every face of a family, or one face by assetId. Text keeps its fontFamily and then loads it from Google Fonts by name if the family exists there, otherwise a system font is used. The response says where the family is still used.",
+    inputSchema: { catalogId: id, family: z.string().max(80).optional(), assetId: id.optional() },
+  }, guard("font_remove", "catalogs:write", async ({ catalogId, family, assetId }) => {
+    if (!!family === !!assetId) return fail("Pass either family or assetId.");
+    const { document } = await catalogs.get(uid, catalogId);
+    const targets = document.assets.filter((a) => a.kind === "font" && (assetId ? a.id === assetId : a.family === cleanFamily(family!)));
+    if (!targets.length) return fail(assetId ? `No font file "${assetId}" in this catalog.` : `No font files for "${family}" in this catalog. font_list shows what's stored.`);
+    const r = await edit(catalogId, targets.map((a): EditorCommand => ({ type: "asset.remove", assetId: a.id })));
+    const fam = targets[0]!.family!;
+    const remaining = document.assets.filter((a) => a.kind === "font" && a.family === fam && !targets.includes(a)).length;
+    const usage = fontSummary(document).families.find((f) => f.family === fam);
+    return ok({
+      ...r,
+      removed: targets.map((a) => ({ assetId: a.id, weight: a.fontWeight ?? 400, style: a.fontStyle ?? "normal" })),
+      remainingFiles: remaining,
+      stillUsedBy: usage && (usage.themeRoles.length || usage.textElements) ? { themeRoles: usage.themeRoles, textElements: usage.textElements } : undefined,
+    });
+  }));
+
 
   // ---------- AI generation ----------
 

@@ -132,7 +132,19 @@ Colors: hex or theme tokens `token:background`, `token:text`, `token:muted`, `to
 | `catalog_import_products` | write | `catalogId`, `products[]` (`name`, `price?`, `currency?`, `description?`, `sku?`, `category?`, `url?`, `attributes?`, `imageUrl?`, `id?`), `addSlides?` (`none`/`single`/`per-category`), `columns?`, `source?` | Upserts by `id`; downloads `imageUrl`s; can add product-grid slides (6 per slide) |
 | `asset_import` | write | `catalogId`, `name`, and `url` **or** `data` (base64) + `mimeType` | For cover photos, backgrounds, logos. Returns `assetId`, `width`, `height` |
 
-Image downloads accept public http(s) URLs only (private network and cloud-metadata addresses are refused) and PNG, JPEG, GIF or WebP up to 15 MB.
+Image downloads accept public **https** URLs only (private network and cloud-metadata addresses are refused) and PNG, JPEG, GIF or WebP up to 8 MB; base64 `data` can be up to 15 MB. `catalog_import_products` downloads at most 60 `imageUrl`s per call — import large lists in batches.
+
+### Fonts
+
+| Tool | Permission | Input | Notes |
+| --- | --- | --- | --- |
+| `font_list` | read | `catalogId` | Theme heading/body fonts, font files stored in the catalog (family, weight, style, `assetId`), families loaded from Google Fonts by name, and how many text elements use each |
+| `font_add_google` | write | `catalogId`, `family` (exact name from fonts.google.com), `weights?` (default `[400,600,700]`), `italic?`, `embed?` (default `true`), `applyTo?` (`heading`/`body`/`both`) | With `embed` the complete font files (every script) are stored in the catalog, so PDF, JPG, video and offline HTML exports don't depend on Google. Missing weights are skipped and reported |
+| `font_upload` | write | `catalogId`, `family`, `url` (https) **or** `data` (base64), `weight?`, `style?` (`normal`/`italic`), `name?`, `applyTo?` | One face per call: TTF, OTF, WOFF or WOFF2 up to 15 MB, checked from the file's contents. For brand or licensed fonts — only upload fonts whose license allows embedding |
+| `font_apply` | write | `catalogId`, `family`, `theme?` (`heading`/`body`/`both`), `elementIds?`, `weight?` | Sets theme roles (everything using `token:heading` / `token:body` follows) and/or specific text elements |
+| `font_remove` | write | `catalogId`, `family` **or** `assetId` | Removes stored files; text keeps its family name and falls back to Google Fonts by name or a system font. Reports where the family is still used |
+
+A family stored in the catalog is used instead of Google Fonts for that name, so embed every weight you use (the browser synthesises missing bold or italic faces, which looks worse).
 
 ### Motion
 
@@ -162,9 +174,10 @@ Password-protected publishing is set in the app.
 1. Read products from the store's MCP server (your client calls its tools).
 2. `catalog_generate` with a brief and the products (include `imageUrl`s) — or `catalog_create` with a template, then `catalog_import_products` with `addSlides: "per-category"`.
 3. `catalog_get` to see slide and element ids; refine copy with `slide_update_element`.
-4. `asset_import` a cover photo, then `slide_update` the cover with `background: {"kind":"image","assetId":…}` (add a semi-transparent shape above it for legible text).
-5. `catalog_preview` each changed slide and fix overlaps.
-6. Give the user the `editorUrl`; export or publish when they're happy.
+4. Set the brand fonts: `font_add_google` (or `font_upload` for a brand font file) with `applyTo: "both"`.
+5. `asset_import` a cover photo, then `slide_update` the cover with `background: {"kind":"image","assetId":…}` (add a semi-transparent shape above it for legible text).
+6. `catalog_preview` each changed slide and fix overlaps.
+7. Give the user the `editorUrl`; export or publish when they're happy.
 
 ### Right-to-left catalogs (Persian, Arabic, Hebrew)
 
@@ -172,7 +185,7 @@ Password-protected publishing is set in the app.
 - Leave `direction` on `auto`; paragraphs that start with Persian are RTL even if they contain `(UPVC)`.
 - Put phone numbers, codes and URLs in their own text element with `direction: "ltr"`.
 - Never insert bidi control characters (U+202A–U+202E, U+2066–U+2069).
-- Choose a font with the script, e.g. `fonts: {"heading":"Vazirmatn","body":"Vazirmatn"}` via `catalog_apply_theme`.
+- Choose a font with the script and embed it: `font_add_google` with `{"family":"Vazirmatn","weights":[400,700,800],"applyTo":"both"}` (or `Noto Naskh Arabic`, `Noto Sans Hebrew`). Embedded fonts render the same in previews, PDF and video.
 
 ### Hand the result to the user
 

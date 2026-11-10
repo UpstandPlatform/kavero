@@ -8,7 +8,7 @@
 | --- | --- |
 | **[Using Kavero](user-guide.md)** | Create a catalog, edit slides and layers, products, right-to-left text, animations and Morph, exports, cloud sync, publishing, workspaces, shortcuts and troubleshooting. |
 | **[Administering a server](user-guide.md#administering-a-server)** | The first account is the admin: users and roles, suspensions, sign-up policy, site moderation, activity log. |
-| **[Kavero and MCP](mcp.md)** | Connect Claude or any MCP client, permissions, all 24 tools, element JSON, recipes (store → catalog, RTL), and product sources. |
+| **[Kavero and MCP](mcp.md)** | Connect Claude or any MCP client, permissions, all 29 tools (including fonts), element JSON, recipes (store → catalog, RTL), and product sources. |
 | **[Agent skills](../skills/README.md)** | Drop-in skills for agents: connect (`kavero-quickstart`), build catalogs (`kavero-catalogs`), animate (`kavero-animations`, `kavero-morph`), bring in products (`kavero-product-sources`) and deliver (`kavero-publish-export`). |
 
 ## Run and operate
