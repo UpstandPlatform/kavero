@@ -56,8 +56,12 @@ Limits: 120 requests per minute per token; exported files up to 25 MB.
 
 - [`kavero-catalogs`](../skills/kavero-catalogs/SKILL.md) — standard catalog structures, layouts, typography, products, RTL, QA.
 - [`kavero-animations`](../skills/kavero-animations/SKILL.md) — tasteful animations and transitions.
+- [`kavero-quickstart`](../skills/kavero-quickstart/SKILL.md) — connecting an agent (token, scopes, client config), choosing a template and page size, the end-to-end flow.
+- [`kavero-morph`](../skills/kavero-morph/SKILL.md) — Morph ("magic move") sequences: matching elements with `morphKey`/`name`, timing, worked recipes.
+- [`kavero-product-sources`](../skills/kavero-product-sources/SKILL.md) — importing products and images, field mapping from stores and spreadsheets, large catalogs.
+- [`kavero-publish-export`](../skills/kavero-publish-export/SKILL.md) — previews, PDF and PowerPoint exports, publishing websites, and what's editor-only (MP4, HTML file, JPG zip).
 
-For Claude Code, copy them into `~/.claude/skills/` (all projects) or `.claude/skills/` in a project.
+For Claude Code, copy them into `~/.claude/skills/` (all projects) or `.claude/skills/` in a project. See [`skills/README.md`](../skills/README.md) for other agents.
 
 ---
 

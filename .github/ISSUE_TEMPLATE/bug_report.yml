@@ -1,0 +1,88 @@
+name: Bug report
+description: Something in Kavero doesn't work as expected.
+title: "[Bug]: "
+labels: ["bug", "triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting! Please search [existing issues](https://github.com/UpstandPlatform/kavero/issues) first.
+        **Security problems:** don't file them here — report them privately via [security advisories](https://github.com/UpstandPlatform/kavero/security/advisories/new).
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. Include the error message if there is one.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a catalog made from the "Minimal" template
+        2. Duplicate the cover slide
+        3. Export → PDF
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Editor
+        - Dashboard / local catalogs
+        - Cloud sync / workspaces
+        - Export (PDF, PowerPoint, JPG, HTML, video)
+        - Published websites
+        - AI generation / editing
+        - MCP server / agents
+        - Admin / accounts
+        - Desktop app
+        - Self-hosting / Docker
+        - Other
+    validations:
+      required: true
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where are you running Kavero?
+      options:
+        - Web app (local dev server)
+        - Web app (self-hosted / Docker)
+        - Desktop app (Windows)
+        - Desktop app (macOS)
+        - Desktop app (Linux)
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Kavero version or commit
+      placeholder: v0.3.0 or f16a971
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome 140 on Windows 11
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs, screenshots or a sample catalog
+      description: Browser console or server output, screenshots, or a `.kavero` file that shows the problem. Remove anything private (API keys, customer data).
+      render: shell
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I searched existing issues and this hasn't been reported.
+          required: true
+        - label: I removed passwords, API keys and private data from what I attached.
+          required: true

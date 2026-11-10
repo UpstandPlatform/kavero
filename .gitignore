@@ -56,3 +56,6 @@ coverage
 .cache
 tmp
 temp
+
+# Written by scripts/release.ts for the GitHub release
+release-notes.md

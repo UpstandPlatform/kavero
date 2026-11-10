@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/UpstandPlatform/kavero/security/advisories/new
+    about: Please report security problems privately, not as a public issue.
+  - name: Documentation
+    url: https://github.com/UpstandPlatform/kavero/tree/master/docs
+    about: User guide, MCP tools, deployment and architecture.
+  - name: Support Kavero
+    url: https://github.com/UpstandPlatform/kavero/blob/master/DONATIONS.md
+    about: Kavero is free and open source. Donations help its development.

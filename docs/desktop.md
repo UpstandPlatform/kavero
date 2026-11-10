@@ -95,8 +95,39 @@ PDF, video and slide-preview exports drive headless Chrome against the app's own
 | Workflow | Trigger | What it does |
 | --- | --- | --- |
 | `ci.yml` | push to `main`/`master`, PRs | `bun install --frozen-lockfile`, `bun run check-types` (turbo), `bun run test` (`bun test packages`), `bun run --filter web build` with placeholder env |
-| `desktop.yml` | tags `v*`, manual | Matrix of Windows, macOS and Linux: web build, then `prepare-web`, then `scripts/dist.mjs`, then uploads installers as artifacts. On `v*` tags, a release job (the only job with `contents: write`) creates or updates the GitHub Release with all installers. Tags containing `-` are marked as prereleases. |
+| `desktop.yml` | tags `v*`, manual | Matrix of Windows, macOS and Linux: web build, then `prepare-web`, then `scripts/dist.mjs`, then uploads installers as artifacts. On `v*` tags, a release job (the only job with `contents: write`) creates or updates the GitHub Release with all installers, using the tag's `CHANGELOG.md` section as notes when there is one. Tags containing `-` are marked as prereleases. |
+| `release.yml` | push to `master`, manual | Automatic Windows releases with versioning and changelog — see [Releases](#releases) below. |
 | `docker.yml` | push to `main`/`master`, tags, PRs touching the Dockerfile | Builds `apps/web/Dockerfile` with a placeholder `web_env` secret. On `v*` tags it pushes `ghcr.io/<owner>/kavero-web`. |
+
+### Releases
+
+`release.yml` turns every push to `master` that contains a feature or a fix into a Windows release:
+
+1. **Checks, version and changelog.** Type checks and unit tests run first; then `scripts/release.ts` reads the commits since the last `v*` tag and picks the next version from their [Conventional Commits](https://www.conventionalcommits.org/) prefixes:
+
+   | Commits since the last tag | Next version |
+   | --- | --- |
+   | `feat:` (or an older-style "Add …" subject) | minor — `0.3.0` → `0.4.0` |
+   | `fix:`, `perf:` (or "Fix …") | patch — `0.3.0` → `0.3.1` |
+   | `feat!:` / `BREAKING CHANGE:` | major — but minor while the version is `0.x` |
+   | only `docs`, `chore`, `ci`, `test`, `style`, `build`, `refactor` | no release |
+
+   It prepends the version's section to [`CHANGELOG.md`](../CHANGELOG.md) (features, fixes, performance, other changes, each linked to its commit), sets the version in `apps/desktop/package.json` and `apps/web/package.json`, commits `chore(release): vX.Y.Z [skip ci]`, tags it and pushes. The very first release uses the version already in `apps/desktop/package.json`.
+2. **Windows build.** The tagged commit is built on `windows-latest`: web build, `prepare-web`, `scripts/dist.mjs` → `Kavero-X.Y.Z-win-x64.exe` (NSIS installer), its `.blockmap` and `latest.yml`.
+3. **Publish.** A GitHub release `Kavero vX.Y.Z` is created with the changelog section as notes and the installer attached, and marked as the latest release.
+
+Pushes that only change Markdown, `docs/`, `skills/` or issue templates don't start it at all.
+
+**Run it by hand** (Actions → Release (Windows) → Run workflow) to force a `patch`, `minor` or `major` bump, or to publish a prerelease: a label such as `beta` gives `0.4.0-beta.1`, then `0.4.0-beta.2`; prereleases aren't marked as latest.
+
+**Preview locally** what the next release would be — nothing is changed without `--write`:
+
+```bash
+bun scripts/release.ts
+bun scripts/release.ts --bump minor --pre beta
+```
+
+**Branch protection.** The workflow pushes the release commit and tag with `GITHUB_TOKEN`. If `master` is protected, add a `RELEASE_TOKEN` secret (a fine-grained personal access token with *Contents: read and write* on this repository) or allow GitHub Actions to bypass the rule. With `RELEASE_TOKEN`, the pushed tag also starts `desktop.yml`, which adds macOS and Linux installers to the same release.
 
 ### Signing secrets (all optional)
 

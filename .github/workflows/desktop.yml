@@ -113,6 +113,22 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: CHANGELOG.md
+          sparse-checkout-cone-mode: false
+
+      # Use this version's CHANGELOG.md section (written by release.yml) when there is one.
+      - name: Release notes
+        id: notes
+        shell: bash
+        run: |
+          v="${GITHUB_REF_NAME#v}"
+          if [ -f CHANGELOG.md ]; then
+            awk -v v="$v" 'index($0, "## [" v "]") == 1 {f=1; next} /^## \[/ {f=0} f' CHANGELOG.md > notes.md
+          fi
+          if [ -s notes.md ]; then echo "file=notes.md" >> "$GITHUB_OUTPUT"; fi
+
       - uses: actions/download-artifact@v4
         with:
           path: installers
@@ -124,6 +140,7 @@ jobs:
         with:
           name: Kavero ${{ github.ref_name }}
           prerelease: ${{ contains(github.ref_name, '-') }}
-          generate_release_notes: true
+          body_path: ${{ steps.notes.outputs.file }}
+          generate_release_notes: ${{ steps.notes.outputs.file == '' }}
           fail_on_unmatched_files: true
           files: installers/*

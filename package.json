@@ -1,5 +1,10 @@
 {
   "name": "Kavero",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/UpstandPlatform/kavero.git"
+  },
   "private": true,
   "workspaces": {
     "packages": [

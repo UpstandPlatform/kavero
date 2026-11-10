@@ -2,9 +2,13 @@
 
 **From product data to beautiful experiences.**
 
-Kavero is an AI-native catalog and presentation builder. Bring your products — pasted, imported from any MCP server, or generated with AI — design them in a visual slide editor, animate them, and publish the same catalog as a **PDF**, an editable **PowerPoint**, an **MP4 video** or an **animated website**.
+[![CI](https://github.com/UpstandPlatform/kavero/actions/workflows/ci.yml/badge.svg)](https://github.com/UpstandPlatform/kavero/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+Kavero is an AI-native catalog and presentation builder. Bring your products — pasted, imported from any MCP server, or generated with AI — design them in a visual slide editor, animate them, and publish the same catalog as a **PDF**, an editable **PowerPoint**, **JPG images**, an **MP4 video**, a **single HTML file** or an **animated website**.
 
 It's local-first: open it and start working, no account needed. Sign in to sync across devices, collaborate in workspaces, publish, and let AI agents build catalogs for you over MCP.
+
+![The Kavero editor: slide thumbnails on the left, a jewelry catalog cover on the canvas, and the properties panel with text styling and animation settings](docs/images/editor.png)
 
 ## Highlights
 
@@ -38,12 +42,12 @@ Everything runs in one container too: `docker compose up -d --build` (see [deplo
 
 | Guide | |
 | --- | --- |
-| [Using Kavero](docs/user-guide.md) | Dashboard, editor, products, RTL, animations, exports, sync, publishing, shortcuts |
+| [Using Kavero](docs/user-guide.md) | Dashboard, editor, layers, products, RTL, animations and Morph, exports, sync, publishing, admin, shortcuts |
 | [MCP](docs/mcp.md) | Connecting agents, tool reference, element JSON, recipes, product sources |
-| [Deployment](docs/deployment.md) | Environment, Docker, migrations, storage, hosting, backups, CI |
-| [Desktop app](docs/desktop.md) | The Electron app and its release workflow |
+| [Deployment](docs/deployment.md) | Environment, Docker, migrations, admin accounts, storage, hosting, backups, CI |
+| [Desktop app](docs/desktop.md) | The Electron app, installers, and automatic releases with changelog |
 | [Architecture](docs/architecture.md) | Packages, document model, sync, rendering, exports |
-| [Agent skills](skills/) | `kavero-catalogs` and `kavero-animations` skills for AI agents |
+| [Agent skills](skills/README.md) | Skills that teach AI agents to use Kavero over MCP: quick start, catalogs, animations, Morph, products, publishing and exports |
 
 ## Repository
 
@@ -78,5 +82,33 @@ docs/             guides
 | `bun run check-types` | Typecheck all packages |
 | `bun run db:start` / `db:stop` | Start/stop Postgres (Docker) |
 | `bun run db:generate` / `db:migrate` | Create/apply migrations |
+| `bun run test` | Unit tests |
+| `bun run make-admin <email>` | Make an account a server admin (recovery) |
+| `bun scripts/release.ts` | Preview the next release version and changelog |
 
-End-to-end suites live in `packages/mcp-server/e2e/` and run against a dev server.
+End-to-end suites live in `packages/mcp-server/e2e/` and `packages/auth/e2e/` and run against a local dev server and database.
+
+## Releases
+
+Windows installers are published on [GitHub Releases](https://github.com/UpstandPlatform/kavero/releases). Versions and the [changelog](CHANGELOG.md) are generated automatically from commit messages when changes land on `master` — see [Desktop app → Releases](docs/desktop.md#releases).
+
+## Contributing
+
+Bug reports, ideas and pull requests are welcome. Read [CONTRIBUTING.md](CONTRIBUTING.md) for the setup, checks and commit style, and use the [issue templates](https://github.com/UpstandPlatform/kavero/issues/new/choose). Please report security problems privately through [security advisories](https://github.com/UpstandPlatform/kavero/security/advisories/new).
+
+## Donations
+
+Kavero is free and open source. If it saves you time, you can support its development:
+
+| Network | Address |
+| --- | --- |
+| TON | `UQBglMTG79v4lv6j0CyhJSKaB8vNr704qUgcyA0CkUtGEZ7q` |
+| ETH, Base, BSC, Arbitrum | `0x39aAf891Ed40995dC5BAC792BC607630C2ecB09d` |
+| Bitcoin | `bc1qq0qyu27f3qvzfeued6qmhr635ffe6zcvk6v4gh` |
+| TRON | `TRkn78pomDFzB2LDYMwHLZrSiuJ4aZQxJF` |
+
+Thank you! Stars, bug reports and pull requests help too. See [DONATIONS.md](DONATIONS.md) for details.
+
+## License
+
+[MIT](LICENSE) © 2026 Morteza Bagheri and Kavero contributors.

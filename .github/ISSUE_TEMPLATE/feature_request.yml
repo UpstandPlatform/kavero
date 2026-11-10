@@ -1,0 +1,49 @@
+name: Feature request
+description: Suggest an idea or improvement for Kavero.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: Thanks for the idea! Describe the problem first — that helps us find the best solution.
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem would this solve?
+      description: What are you trying to do, and what gets in the way today?
+      placeholder: When I import 300 products, I have to place each product card by hand…
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like to happen?
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds you've tried
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Editor
+        - Templates
+        - Export
+        - Published websites
+        - AI
+        - MCP / agents
+        - Collaboration / workspaces
+        - Admin / self-hosting
+        - Desktop app
+        - Other
+    validations:
+      required: true
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd like to help build this (see CONTRIBUTING.md).
