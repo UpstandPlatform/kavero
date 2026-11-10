@@ -5,6 +5,7 @@ import { Cancel01Icon, Copy01Icon, GlobeIcon, LinkSquare01Icon, Loading02Icon, T
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
+import { RadioGroup, RadioGroupItem } from "@Kavero/ui/components/radio-group";
 import { Textarea } from "@Kavero/ui/components/textarea";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
@@ -199,12 +200,14 @@ export function PublishDialog({ doc, onClose }: { doc: CatalogDocument; onClose:
 
           <fieldset className="grid gap-1.5 text-xs">
             <legend className="mb-1 font-medium">Who can see it</legend>
+            <RadioGroup value={visibility} onValueChange={(value) => setVisibility(value as Visibility)} className="gap-1.5">
             {VISIBILITY.map((v) => (
               <label key={v.value} className="flex items-start gap-2">
-                <input type="radio" className="mt-0.5 accent-primary" name="visibility" checked={visibility === v.value} onChange={() => setVisibility(v.value)} />
+                <RadioGroupItem value={v.value} />
                 <span><span className="font-medium">{v.label}</span> <span className="text-muted-foreground">— {v.hint}</span></span>
               </label>
             ))}
+            </RadioGroup>
           </fieldset>
 
           {visibility === "password" && (

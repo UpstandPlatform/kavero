@@ -5,6 +5,7 @@ import { Add01Icon, AddSquareIcon, Copy01Icon, Delete02Icon, PackageAddIcon, Pen
 import { matchesProduct, productUsage, type CatalogDocument } from "@Kavero/catalog-engine";
 import type { Editor } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
+import { Input } from "@Kavero/ui/components/input";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -45,8 +46,7 @@ export function ProductsPanel({ editor, doc, assetUrls, ui, onInsert }: {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div className="grid gap-1 px-2 pb-2">
-        <input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products" aria-label="Search products"
-          className="h-7 w-full min-w-0 rounded-[min(var(--radius-md),10px)] border border-input bg-transparent px-2 text-xs transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30" />
+        <Input type="search" value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search products" aria-label="Search products" />
         <div className="flex gap-1">
           <Button size="xs" className="flex-1" onClick={() => ui.edit()}><HugeiconsIcon icon={Add01Icon} /> New</Button>
           <Button size="xs" variant="outline" className="flex-1" title="Import products from MCP" onClick={ui.import}><HugeiconsIcon icon={PackageAddIcon} /> Import</Button>

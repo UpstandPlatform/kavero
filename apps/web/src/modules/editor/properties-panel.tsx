@@ -6,10 +6,13 @@ import { cardDisplay, documentDirection, resolveToken, type CatalogDocument, typ
 import type { Editor, EditorCommand } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
 import { Checkbox } from "@Kavero/ui/components/checkbox";
+import { Input } from "@Kavero/ui/components/input";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@Kavero/ui/components/input-group";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@Kavero/ui/components/select";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { ColorPicker } from "@Kavero/ui/components/color-picker";
 import { TooltipHint } from "@Kavero/ui/components/tooltip";
+import { Textarea } from "@Kavero/ui/components/textarea";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { matchMorph, slideDurationMs } from "@Kavero/animation-engine";
@@ -20,9 +23,6 @@ import { ProductThumb, productPrice, type ProductUi } from "./product-picker";
 import { useRun } from "./use-catalog-editor";
 
 const FONTS = ["Inter", "Playfair Display", "Space Grotesk", "DM Serif Display", "Montserrat", "Lora", "Poppins", "Roboto", "Georgia", "Arial"];
-
-// Compact (h-7) control used throughout the inspector; same radius/focus ring as Button size="sm" and SimpleSelect size="sm".
-const inputCls = "h-7 w-full min-w-0 rounded-[min(var(--radius-md),10px)] border border-input bg-transparent px-2 text-xs tabular-nums transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30";
 
 /** Font family picker: theme tokens, catalog fonts, web fonts, then "From this computer…". */
 function FontSelect({ doc, catalogFonts, value, onChange }: { doc: CatalogDocument; catalogFonts: string[]; value: string; onChange: (v: string) => void }) {
@@ -97,14 +97,14 @@ function NumberInput({ value, onCommit, min, max, step = 1, suffix }: { value: n
     else setDraft(String(value));
   };
   return (
-    <div className="relative">
-      <input
-        type="number" className={`${inputCls} ${suffix ? "pr-4" : ""} [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none`} value={draft} step={step} min={min} max={max}
+    <InputGroup>
+      <InputGroupInput
+        type="number" className="tabular-nums" value={draft} step={step} min={min} max={max}
         onChange={(e) => setDraft(e.target.value)} onBlur={commit}
         onKeyDown={(e) => e.key === "Enter" && (e.currentTarget as HTMLInputElement).blur()}
       />
-      {suffix && <span className="pointer-events-none absolute top-1/2 right-1 -translate-y-1/2 text-[10px] text-muted-foreground">{suffix}</span>}
-    </div>
+      {suffix && <InputGroupAddon align="inline-end">{suffix}</InputGroupAddon>}
+    </InputGroup>
   );
 }
 
@@ -243,7 +243,7 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
           </Field>
           <Field label="Radius"><NumberInput value={el.style.borderRadius} min={0} onCommit={(borderRadius) => update({ style: { borderRadius } })} /></Field>
           <Field label="Alt text">
-            <input className={inputCls} defaultValue={el.content.alt} key={el.id} onBlur={(e) => e.target.value !== el.content.alt && update({ content: { alt: e.target.value } })} placeholder="Describe the image" />
+            <Input defaultValue={el.content.alt} key={el.id} onBlur={(e) => e.target.value !== el.content.alt && update({ content: { alt: e.target.value } })} placeholder="Describe the image" />
           </Field>
           <Field label="Grayscale"><NumberInput value={Math.round((el.style.filters?.grayscale ?? 0) * 100)} min={0} max={100} suffix="%" onCommit={(v) => update({ style: { filters: { brightness: 1, contrast: 1, saturate: 1, ...el.style.filters, grayscale: v / 100 } } })} /></Field>
         </Section>
@@ -468,7 +468,7 @@ function SlideProperties({ doc, slide, run }: { doc: CatalogDocument; slide: Cat
     <div>
       <Section title="Slide">
         <Field label="Name">
-          <input key={slide.id} className={inputCls} defaultValue={slide.name} onBlur={(e) => e.target.value.trim() && e.target.value !== slide.name && run({ type: "slide.update", slideId: slide.id, changes: { name: e.target.value.trim() } })} />
+          <Input key={slide.id} defaultValue={slide.name} onBlur={(e) => e.target.value.trim() && e.target.value !== slide.name && run({ type: "slide.update", slideId: slide.id, changes: { name: e.target.value.trim() } })} />
         </Field>
         <Field label="Background">
           <ColorInput doc={doc} value={bg.kind === "color" ? bg.color : "#ffffff"} label="Slide background" onChange={(color) => run({ type: "slide.update", slideId: slide.id, changes: { background: { kind: "color", color } } })} />
@@ -525,12 +525,12 @@ function CodeField({ label, value, rows, onCommit }: { label: string; value: str
   return (
     <label className="grid gap-1 text-xs">
       <span className="text-muted-foreground">{label}</span>
-      <textarea
+      <Textarea
         defaultValue={value}
         rows={rows}
         spellCheck={false}
         onBlur={(e) => e.target.value !== value && onCommit(e.target.value)}
-        className="w-full resize-y rounded-lg border border-input bg-transparent p-2 font-mono text-[11px] leading-snug transition-colors outline-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30"
+        className="field-sizing-fixed min-h-16 resize-y font-mono text-xs leading-snug"
       />
     </label>
   );

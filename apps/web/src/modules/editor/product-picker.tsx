@@ -4,6 +4,9 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, ArrowDown01Icon, ArrowUp01Icon, Cancel01Icon, PackageAddIcon, PackageIcon, Search01Icon } from "@hugeicons/core-free-icons";
 import { formatMoney, matchesProduct, type CatalogDocument, type Product } from "@Kavero/catalog-engine";
 import { Button } from "@Kavero/ui/components/button";
+import { Checkbox } from "@Kavero/ui/components/checkbox";
+import { InputGroup, InputGroupAddon, InputGroupInput } from "@Kavero/ui/components/input-group";
+import { RadioGroup, RadioGroupItem } from "@Kavero/ui/components/radio-group";
 import { useEffect, useId, useMemo, useRef, useState } from "react";
 
 /** Opens the shared product picker and product form; implemented by the editor shell. */
@@ -89,6 +92,34 @@ export function ProductPickerDialog({ doc, assetUrls, options, ui, onClose }: {
     return next;
   });
   const newProduct = () => ui.edit(undefined, (id) => (multiple ? setSelected((s) => [...s, id]) : completeSelection([id])));
+  const productList = (
+    <ul className="min-h-40 flex-1 divide-y overflow-y-auto" role="list" aria-label="Products">
+      {shown.length === 0 && <li className="p-5 text-xs text-muted-foreground">No products match “{query}”.</li>}
+      {shown.map((p) => {
+        const on = selected.includes(p.id);
+        const price = productPrice(doc, p);
+        return (
+          <li key={p.id}>
+            <label className={`flex cursor-pointer items-center gap-3 px-5 py-2 text-xs hover:bg-muted/60 ${on ? "bg-muted" : ""}`}
+              onDoubleClick={() => !multiple && completeSelection([p.id])}>
+              {multiple ? (
+                <Checkbox checked={on} onCheckedChange={() => toggle(p.id)} />
+              ) : (
+                <RadioGroupItem value={p.id} />
+              )}
+              <ProductThumb product={p} assetUrls={assetUrls} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate font-medium">{p.name}</span>
+                <span className="block truncate text-muted-foreground">{[p.brand, p.sku, p.category].filter(Boolean).join(" · ") || " "}</span>
+              </span>
+              {multiple && on && <span className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground tabular-nums">{selected.indexOf(p.id) + 1}</span>}
+              {price && <span className="shrink-0 text-muted-foreground tabular-nums">{price}</span>}
+            </label>
+          </li>
+        );
+      })}
+    </ul>
+  );
 
   return (
     <dialog ref={ref} onClose={onClose} aria-labelledby={`${uid}-t`} className="m-auto w-[min(760px,calc(100vw-32px))] overflow-hidden rounded-xl border bg-background p-0 text-foreground shadow-xl backdrop:bg-black/50">
@@ -104,37 +135,21 @@ export function ProductPickerDialog({ doc, assetUrls, options, ui, onClose }: {
           <div className={`grid min-h-0 flex-1 ${multiple ? "md:grid-cols-[minmax(0,1fr)_240px]" : ""}`}>
             <div className="flex min-h-0 flex-col">
               <div className="flex items-center gap-2 border-b px-5 py-2">
-                <HugeiconsIcon icon={Search01Icon} className="size-3.5 shrink-0 text-muted-foreground" aria-hidden />
-                <input
-                  autoFocus type="search" value={query} onChange={(e) => setQuery(e.target.value)}
-                  placeholder="Search by name, SKU, brand or category" aria-label="Search products"
-                  className="h-8 min-w-0 flex-1 bg-transparent text-xs outline-none"
-                  onKeyDown={(e) => { if (e.key === "Enter" && !multiple && shown.length === 1) { e.preventDefault(); completeSelection([shown[0]!.id]); } }}
-                />
+                <InputGroup className="min-w-0 flex-1">
+                  <InputGroupAddon><HugeiconsIcon icon={Search01Icon} aria-hidden /></InputGroupAddon>
+                  <InputGroupInput
+                    autoFocus type="search" value={query} onChange={(e) => setQuery(e.target.value)}
+                    placeholder="Search by name, SKU, brand or category" aria-label="Search products"
+                    onKeyDown={(e) => { if (e.key === "Enter" && !multiple && shown.length === 1) { e.preventDefault(); completeSelection([shown[0]!.id]); } }}
+                  />
+                </InputGroup>
                 <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">{shown.length} of {doc.products.length}</span>
               </div>
-              <ul className="min-h-40 flex-1 divide-y overflow-y-auto" role="list" aria-label="Products">
-                {shown.length === 0 && <li className="p-5 text-xs text-muted-foreground">No products match “{query}”.</li>}
-                {shown.map((p) => {
-                  const on = selected.includes(p.id);
-                  const price = productPrice(doc, p);
-                  return (
-                    <li key={p.id}>
-                      <label className={`flex cursor-pointer items-center gap-3 px-5 py-2 text-xs hover:bg-muted/60 ${on ? "bg-muted" : ""}`}
-                        onDoubleClick={() => !multiple && completeSelection([p.id])}>
-                        <input type={multiple ? "checkbox" : "radio"} name={`${uid}-pick`} checked={on} onChange={() => toggle(p.id)} className="shrink-0" />
-                        <ProductThumb product={p} assetUrls={assetUrls} />
-                        <span className="min-w-0 flex-1">
-                          <span className="block truncate font-medium">{p.name}</span>
-                          <span className="block truncate text-muted-foreground">{[p.brand, p.sku, p.category].filter(Boolean).join(" · ") || " "}</span>
-                        </span>
-                        {multiple && on && <span className="shrink-0 rounded-full bg-primary px-1.5 text-[10px] text-primary-foreground tabular-nums">{selected.indexOf(p.id) + 1}</span>}
-                        {price && <span className="shrink-0 text-muted-foreground tabular-nums">{price}</span>}
-                      </label>
-                    </li>
-                  );
-                })}
-              </ul>
+              {multiple ? productList : (
+                <RadioGroup value={selected[0] ?? ""} onValueChange={(value) => toggle(value)} aria-label="Products" className="min-h-0 min-w-0 flex-1 gap-0">
+                  {productList}
+                </RadioGroup>
+              )}
             </div>
             {multiple && (
               <div className="flex min-h-0 flex-col border-t md:border-t-0 md:border-s">

@@ -46,13 +46,15 @@ function annotationKey(ref: EditorChatAnnotationRef) {
  * Chat in the editor: the assistant sees the catalog and the current slide, answers
  * questions, and proposes slide edits that the user previews and applies (one undo step each).
  */
-export function EditorChat({ editor, doc, assetUrls, annotations = [], annotationMode = false, onAnnotationModeChange, onRemoveAnnotation }: {
+export function EditorChat({ editor, doc, assetUrls, annotations = [], annotationMode = false, hoveredAnnotation = null, onAnnotationModeChange, onHoveredAnnotationChange, onRemoveAnnotation }: {
   editor: Editor;
   doc: CatalogDocument;
   assetUrls: Record<string, string>;
   annotations?: EditorChatAnnotationRef[];
   annotationMode?: boolean;
+  hoveredAnnotation?: EditorChatAnnotationRef | null;
   onAnnotationModeChange?: (active: boolean) => void;
+  onHoveredAnnotationChange?: (annotation: EditorChatAnnotationRef | null) => void;
   onRemoveAnnotation?: (annotation: EditorChatAnnotationRef) => void;
 }) {
   const { data: session, isPending } = authClient.useSession();
@@ -141,6 +143,11 @@ export function EditorChat({ editor, doc, assetUrls, annotations = [], annotatio
       placeholder="Ask about this catalog or describe a change…"
       initialPrompt={sent}
       annotations={annotationAttachments}
+      hoveredAnnotationId={hoveredAnnotation ? annotationKey(hoveredAnnotation) : null}
+      onHoverAnnotation={(id) => {
+        const attachment = id ? annotationAttachments.find((item) => item.id === id) : undefined;
+        onHoveredAnnotationChange?.(attachment?.ref ?? null);
+      }}
       onRemoveAnnotation={(id) => {
         const attachment = annotationAttachments.find((item) => item.id === id);
         if (attachment) onRemoveAnnotation?.(attachment.ref);

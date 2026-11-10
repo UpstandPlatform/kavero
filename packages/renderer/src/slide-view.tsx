@@ -49,6 +49,8 @@ export interface SlideViewProps {
   timeMs?: number;
   /** Elements shown at rest without their animations, e.g. ones that just arrived by Morph. */
   settledIds?: Set<string>;
+  /** Temporarily emphasize an element while it is referenced elsewhere in the editor UI. */
+  highlightedElementId?: string;
   className?: string;
   children?: ReactNode;
 }
@@ -67,6 +69,7 @@ export const SlideView = memo(function SlideView({
   hiddenIds,
   timeMs,
   settledIds,
+  highlightedElementId,
   className,
   children,
 }: SlideViewProps) {
@@ -98,7 +101,7 @@ export const SlideView = memo(function SlideView({
         >
           {elements.map((el) =>
             el.hidden || hiddenIds?.has(el.id) ? null : (
-              <ElementFrame key={el.id} element={el} position={{ ...el.position, ...overrides?.[el.id] }} schedule={settledIds?.has(el.id) ? null : schedule} timeMs={timeMs} />
+              <ElementFrame key={el.id} element={el} position={{ ...el.position, ...overrides?.[el.id] }} schedule={settledIds?.has(el.id) ? null : schedule} timeMs={timeMs} highlighted={highlightedElementId === el.id} />
             ),
           )}
           {children}
@@ -164,21 +167,28 @@ export function MorphView({ doc, from, to, progress, scale = 1, resolveAsset = (
   );
 }
 
-function ElementFrame({ element, position: p, schedule, timeMs }: {
+function ElementFrame({ element, position: p, schedule, timeMs, highlighted = false }: {
   element: CatalogElement;
   position: ElementPosition;
   schedule: ScheduledAnimation[] | null;
   timeMs?: number;
+  highlighted?: boolean;
 }) {
   // Animation transforms sit on an inner layer so they compose with the element's own rotation.
   const anim = schedule && timeMs !== undefined && element.animations.length ? stateToCss(elementStateAt(schedule, element.id, timeMs)) : null;
   return (
     <div
       data-element-id={element.id}
+      data-annotation-highlight={highlighted ? "true" : undefined}
       style={{
         position: "absolute", left: p.x, top: p.y, width: p.width, height: p.height,
         transform: p.rotation ? `rotate(${p.rotation}deg)` : undefined,
         opacity: element.opacity, boxSizing: "border-box",
+        ...(highlighted ? {
+          outline: "2px solid var(--primary)", outlineOffset: 2,
+          boxShadow: "0 0 0 4px color-mix(in srgb, var(--primary) 20%, transparent)",
+          zIndex: 1, transition: "outline-color 120ms ease, box-shadow 120ms ease",
+        } : {}),
       }}
     >
       {anim ? (

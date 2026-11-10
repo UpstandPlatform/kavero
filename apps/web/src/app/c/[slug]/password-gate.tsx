@@ -1,3 +1,5 @@
+import { Input } from "@Kavero/ui/components/input";
+
 /** Shown for password-protected catalogs. Plain form post, works without JavaScript. */
 export function PasswordGate({ slug, error }: { slug: string; error?: string }) {
   return (
@@ -5,14 +7,13 @@ export function PasswordGate({ slug, error }: { slug: string; error?: string }) 
       <form method="post" action={`/c/${encodeURIComponent(slug)}/unlock`} className="grid w-full max-w-xs gap-3 rounded-xl border bg-card p-6">
         <h1 className="text-base font-semibold">This catalog is protected</h1>
         <p className="text-xs text-muted-foreground">Enter the password you were given to view it.</p>
-        <input
+        <Input
           type="password"
           name="password"
           required
           autoFocus
           autoComplete="current-password"
           aria-label="Password"
-          className="h-9 rounded-lg border border-input bg-transparent px-2 text-sm outline-none focus-visible:border-ring"
         />
         {error && (
           <p className="text-xs text-destructive" role="alert">

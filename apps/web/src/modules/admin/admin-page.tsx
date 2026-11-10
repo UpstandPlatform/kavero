@@ -13,6 +13,7 @@ import {
   DropdownMenuTrigger,
 } from "@Kavero/ui/components/dropdown-menu";
 import { Input } from "@Kavero/ui/components/input";
+import { RadioGroup, RadioGroupItem } from "@Kavero/ui/components/radio-group";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -417,32 +418,31 @@ function SignupsTab() {
   const [saving, setSaving] = useState(false);
   useEffect(() => { api().admin.overview.query().then((o) => setPolicy(o.signupPolicy)).catch((e) => toast.error(errMsg(e))); }, []);
   if (!policy) return <p className="text-sm text-muted-foreground">Loading…</p>;
+  const changePolicy = async (value: string) => {
+    const selected = POLICIES.find((candidate) => candidate.id === value);
+    if (!selected) return;
+    setSaving(true);
+    try {
+      const r = await api().admin.settings.setSignupPolicy.mutate({ policy: selected.id });
+      setPolicy(r.signupPolicy);
+      toast.success(`Sign-ups: ${selected.title.toLowerCase()}`);
+    } catch (e) {
+      toast.error(errMsg(e));
+    } finally {
+      setSaving(false);
+    }
+  };
   return (
-    <fieldset className="grid max-w-2xl gap-2 text-sm" disabled={saving}>
+    <fieldset className="max-w-2xl text-sm" disabled={saving}>
       <legend className="mb-2 text-muted-foreground">Who can create an account on this server</legend>
-      {POLICIES.map((p) => (
-        <label key={p.id} className={`flex cursor-pointer gap-3 rounded-xl border bg-card p-4 transition-colors hover:bg-muted/50 ${policy === p.id ? "border-primary ring-1 ring-primary" : ""}`}>
-          <input
-            type="radio"
-            name="signup-policy"
-            className="mt-0.5 size-4 accent-primary"
-            checked={policy === p.id}
-            onChange={async () => {
-              setSaving(true);
-              try {
-                const r = await api().admin.settings.setSignupPolicy.mutate({ policy: p.id });
-                setPolicy(r.signupPolicy);
-                toast.success(`Sign-ups: ${p.title.toLowerCase()}`);
-              } catch (e) {
-                toast.error(errMsg(e));
-              } finally {
-                setSaving(false);
-              }
-            }}
-          />
-          <span><span className="font-medium">{p.title}</span><br /><span className="text-muted-foreground">{p.text}</span></span>
-        </label>
-      ))}
+      <RadioGroup value={policy} disabled={saving} onValueChange={changePolicy} className="gap-2">
+        {POLICIES.map((p) => (
+          <label key={p.id} className={`flex cursor-pointer gap-3 rounded-xl border bg-card p-4 transition-colors hover:bg-muted/50 ${policy === p.id ? "border-primary ring-1 ring-primary" : ""}`}>
+            <RadioGroupItem value={p.id} />
+            <span><span className="font-medium">{p.title}</span><br /><span className="text-muted-foreground">{p.text}</span></span>
+          </label>
+        ))}
+      </RadioGroup>
     </fieldset>
   );
 }

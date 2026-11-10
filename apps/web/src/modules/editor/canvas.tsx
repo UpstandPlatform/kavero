@@ -3,6 +3,7 @@
 import type { CatalogElement, CatalogSlide, ElementPosition } from "@Kavero/catalog-engine";
 import type { Editor, EditorState } from "@Kavero/editor-core";
 import { SlideView } from "@Kavero/renderer";
+import { Textarea } from "@Kavero/ui/components/textarea";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 
 import { useContextMenu } from "./context-menu";
@@ -36,10 +37,12 @@ export interface CanvasProps {
   actions: EditorActions;
   annotationMode?: boolean;
   onAnnotateElement?: (slideId: string, elementId: string) => void;
+  onAddElementsToChat?: (slideId: string, elementIds: string[]) => void;
   onCancelAnnotation?: () => void;
+  highlightedAnnotation?: { slideId: string; elementId: string } | null;
 }
 
-export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, actions, annotationMode = false, onAnnotateElement, onCancelAnnotation }: CanvasProps) {
+export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, actions, annotationMode = false, onAnnotateElement, onAddElementsToChat, onCancelAnnotation, highlightedAnnotation }: CanvasProps) {
   const openMenu = useContextMenu();
   const run = useRun(editor);
   const doc = state.document;
@@ -293,6 +296,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
             mode="edit"
             overrides={overrides}
             hiddenIds={editingId ? new Set([editingId]) : undefined}
+            highlightedElementId={highlightedAnnotation?.slideId === slide.id ? highlightedAnnotation.elementId : undefined}
             resolveAsset={(id) => assetUrls[id]}
           />
 
@@ -302,6 +306,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
               if (el.hidden) return null;
               const p = pos(el);
               const isSel = selected.has(el.id);
+              const isAnnotationHighlighted = highlightedAnnotation?.slideId === slide.id && highlightedAnnotation.elementId === el.id;
               return (
                 <div
                   key={el.id}
@@ -309,15 +314,21 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
                   onContextMenu={(e) => {
                     e.stopPropagation();
                     // Right-click selects what's under the pointer (its whole group) unless it's already selected.
-                    if (!selected.has(el.id)) editor.select(el.groupId ? slide.elements.filter((x) => x.groupId === el.groupId).map((x) => x.id) : [el.id]);
+                    const contextElementIds = selected.has(el.id)
+                      ? state.selection
+                      : el.groupId ? slide.elements.filter((x) => x.groupId === el.groupId).map((x) => x.id) : [el.id];
+                    if (!selected.has(el.id)) editor.select(contextElementIds);
                     const p = toDoc(e);
-                    openMenu(e, elementMenu(actions, { at: { x: Math.round(p.x), y: Math.round(p.y) } }));
+                    openMenu(e, elementMenu(actions, {
+                      at: { x: Math.round(p.x), y: Math.round(p.y) },
+                      onAddToChat: () => onAddElementsToChat?.(slide.id, contextElementIds),
+                    }));
                   }}
-                  className={annotationMode ? "outline-2 outline-primary/40 hover:outline-primary" : isSel ? "outline-2 outline-sky-500" : "hover:outline-1 hover:outline-sky-400"}
+                  className={annotationMode ? "outline-2 outline-primary/40 hover:outline-primary" : isAnnotationHighlighted ? "outline-2 outline-primary" : isSel ? "outline-2 outline-sky-500" : "hover:outline-1 hover:outline-sky-400"}
                   style={{
                     position: "absolute", left: p.x * scale, top: p.y * scale, width: p.width * scale, height: p.height * scale,
                     transform: p.rotation ? `rotate(${p.rotation}deg)` : undefined,
-                    cursor: annotationMode ? "crosshair" : el.locked ? "default" : "move", outlineStyle: annotationMode || isSel ? "solid" : undefined,
+                    cursor: annotationMode ? "crosshair" : el.locked ? "default" : "move", outlineStyle: annotationMode || isSel || isAnnotationHighlighted ? "solid" : undefined,
                   }}
                 />
               );
@@ -418,7 +429,7 @@ function InlineTextEditor({
   const s = el.style;
   const p = el.position;
   return (
-    <textarea
+    <Textarea
       ref={ref}
       dir={el.style.direction === "auto" ? "auto" : el.style.direction}
       defaultValue={initial}
@@ -428,7 +439,7 @@ function InlineTextEditor({
         e.stopPropagation();
         if (e.key === "Escape" || (e.key === "Enter" && (e.metaKey || e.ctrlKey))) e.currentTarget.blur();
       }}
-      className="absolute resize-none overflow-hidden border-0 bg-transparent p-0 outline-2 outline-sky-500"
+      className="absolute h-full min-h-0 resize-none overflow-hidden rounded-none border-0 bg-transparent p-0 shadow-none outline-2 outline-sky-500 focus-visible:border-0 focus-visible:ring-0"
       style={{
         left: p.x * scale, top: p.y * scale, width: p.width * scale, height: Math.max(p.height * scale, s.fontSize * s.lineHeight * scale),
         transform: p.rotation ? `rotate(${p.rotation}deg)` : undefined,

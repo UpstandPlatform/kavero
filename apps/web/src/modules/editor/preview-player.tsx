@@ -6,6 +6,7 @@ import { buildTimeline } from "@Kavero/animation-engine";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { FrameView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
+import { Slider } from "@Kavero/ui/components/slider";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { VideoExportButton } from "./video-export";
@@ -86,10 +87,9 @@ export function PreviewPlayer({ doc, startSlide, assetUrls, onClose, openExport 
         <Button variant="ghost" size="icon-sm" className="text-white hover:bg-white/10" title={playing ? "Pause (Space)" : "Play (Space)"} onClick={() => { if (time >= timeline.totalMs - 1) setTime(0); setPlaying(!playing); }}>{playing ? <HugeiconsIcon icon={PauseIcon} /> : <HugeiconsIcon icon={PlayIcon} />}</Button>
         <span className="w-20 tabular-nums">{fmt(time)} / {fmt(timeline.totalMs)}</span>
         <div className="relative flex-1">
-          <input
-            type="range" min={0} max={timeline.totalMs - 1} value={Math.round(time)} aria-label="Timeline"
-            onChange={(e) => { setPlaying(false); setTime(Number(e.target.value)); }}
-            className="w-full accent-sky-500"
+          <Slider
+            min={0} max={timeline.totalMs - 1} value={[Math.round(time)]} aria-label="Timeline"
+            onValueChange={(value) => { setPlaying(false); setTime(typeof value === "number" ? value : value[0] ?? 0); }}
           />
           {/* Slide boundaries */}
           {timeline.segments.slice(1).map((s) => (

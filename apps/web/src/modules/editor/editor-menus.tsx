@@ -1,19 +1,21 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, AlignEndHorizontalIcon, AlignEndVerticalIcon, AlignHorizontalCenterIcon, AlignStartHorizontalIcon, AlignStartVerticalIcon, AlignVerticalCenterIcon, ArrowDown01Icon, ArrowDownToLineIcon, ArrowUp01Icon, ArrowUpToLineIcon, Copy01Icon, Delete02Icon, FilePasteIcon, GroupItemsIcon, Layers01Icon, LockIcon, Maximize01Icon, PaintBrush01Icon, PencilIcon, RotateLeft01Icon, ScissorsIcon, SquareIcon, SquareUnlock01Icon, UngroupItemsIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
+import { Add01Icon, AlignEndHorizontalIcon, AlignEndVerticalIcon, AlignHorizontalCenterIcon, AlignStartHorizontalIcon, AlignStartVerticalIcon, AlignVerticalCenterIcon, ArrowDown01Icon, ArrowDownToLineIcon, ArrowUp01Icon, ArrowUpToLineIcon, Copy01Icon, Delete02Icon, FilePasteIcon, GroupItemsIcon, Layers01Icon, LockIcon, Maximize01Icon, MessageMultiple01Icon, PaintBrush01Icon, PencilIcon, RotateLeft01Icon, ScissorsIcon, SquareIcon, SquareUnlock01Icon, UngroupItemsIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
 
 import type { MenuItem } from "./context-menu";
 import { hasClipboard, kbd, type EditorActions } from "./editor-actions";
 
 /** Right-click on one or more selected elements. */
-export function elementMenu(a: EditorActions, opts: { onRename?: () => void; at?: { x: number; y: number } } = {}): MenuItem[] {
+export function elementMenu(a: EditorActions, opts: { onRename?: () => void; onAddToChat?: () => void; at?: { x: number; y: number } } = {}): MenuItem[] {
   const els = a.selected();
   const many = els.length > 1;
   const allLocked = els.every((e) => e.locked);
   const grouped = els.some((e) => e.groupId);
   return [
     { label: many ? `${els.length} elements` : els[0]?.name || labelOf(els[0]?.type), type: "label" },
+    ...(opts.onAddToChat ? [{ label: many ? "Add selection to chat" : "Add to chat", icon: <HugeiconsIcon icon={MessageMultiple01Icon} />, onSelect: opts.onAddToChat } as MenuItem] : []),
+    ...(opts.onAddToChat ? [{ type: "separator" } as MenuItem] : []),
     { label: "Cut", icon: <HugeiconsIcon icon={ScissorsIcon} />, shortcut: kbd("Ctrl+X"), onSelect: () => a.cut() },
     { label: "Copy", icon: <HugeiconsIcon icon={Copy01Icon} />, shortcut: kbd("Ctrl+C"), onSelect: () => a.copy() },
     { label: "Paste", icon: <HugeiconsIcon icon={FilePasteIcon} />, shortcut: kbd("Ctrl+V"), disabled: !hasClipboard(), onSelect: () => void a.paste(undefined, opts.at) },

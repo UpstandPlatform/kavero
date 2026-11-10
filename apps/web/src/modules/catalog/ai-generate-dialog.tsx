@@ -6,6 +6,7 @@ import { buildCatalog, heuristicPlan } from "@Kavero/ai/browser";
 import { PAGE_PRESETS, TEMPLATES, createId, type CatalogDocument, type PagePreset, type Product } from "@Kavero/catalog-engine";
 import { SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
+import { RadioGroup, RadioGroupItem } from "@Kavero/ui/components/radio-group";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { Textarea } from "@Kavero/ui/components/textarea";
 import { useRouter } from "next/navigation";
@@ -178,11 +179,11 @@ export function AiGenerateDialog({ onClose, initialBrief = "" }: { onClose: () =
 
             <fieldset className="grid gap-2">
               <legend className="mb-1 font-medium">Products</legend>
-              <div className="flex flex-wrap gap-4">
-                <label className="flex items-center gap-2"><input type="radio" className="accent-primary" checked={source === "none"} onChange={() => setSource("none")} /> None (add later)</label>
-                <label className="flex items-center gap-2"><input type="radio" className="accent-primary" checked={source === "paste"} onChange={() => setSource("paste")} /> Paste a list</label>
-                <label className="flex items-center gap-2"><input type="radio" className="accent-primary" checked={source === "mcp"} disabled={!session || !conns.length} onChange={() => setSource("mcp")} /> From a connected source {!session ? "(sign in)" : !conns.length ? "(none connected)" : ""}</label>
-              </div>
+              <RadioGroup value={source} onValueChange={(value) => setSource(value as "none" | "paste" | "mcp")} className="flex flex-wrap gap-4">
+                <label className="flex items-center gap-2"><RadioGroupItem value="none" /> None (add later)</label>
+                <label className="flex items-center gap-2"><RadioGroupItem value="paste" /> Paste a list</label>
+                <label className="flex items-center gap-2"><RadioGroupItem value="mcp" disabled={!session || !conns.length} /> From a connected source {!session ? "(sign in)" : !conns.length ? "(none connected)" : ""}</label>
+              </RadioGroup>
               {source === "paste" && (
                 <>
                   <Textarea className="h-28 field-sizing-fixed font-mono text-xs md:text-xs" value={pasted} onChange={(e) => setPasted(e.target.value)}

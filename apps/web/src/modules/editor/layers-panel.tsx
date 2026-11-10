@@ -4,6 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { CodeIcon, Delete02Icon, Film01Icon, Image01Icon, LayoutGridIcon, Link02Icon, LockIcon, SquareIcon, SquareUnlock01Icon, StarIcon, Tag01Icon, TextIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
 import type { CatalogElement, CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor } from "@Kavero/editor-core";
+import { Input } from "@Kavero/ui/components/input";
 import { useRef, useState, type ReactNode } from "react";
 
 import { useContextMenu } from "./context-menu";
@@ -96,12 +97,12 @@ export function LayersPanel({ editor, slide, selection, actions }: { editor: Edi
             {el.groupId && <TooltipHint content="In a group"><span className="h-4 w-0.5 rounded bg-sky-500/60" /></TooltipHint>}
             <span className="text-muted-foreground">{ICONS[el.type]}</span>
             {renaming === el.id ? (
-              <input
+              <Input
                 autoFocus
                 defaultValue={el.name ?? ""}
                 placeholder={layerName(el)}
                 aria-label="Layer name"
-                className="h-6 min-w-0 flex-1 rounded-md border border-input bg-background px-1.5 outline-none focus-visible:border-ring focus-visible:ring-2 focus-visible:ring-ring/50 dark:bg-input/30"
+                className="h-8 min-w-0 flex-1"
                 onClick={(e) => e.stopPropagation()}
                 onBlur={(e) => { actions.rename(el.id, e.target.value); setRenaming(null); }}
                 onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenaming(null); }}

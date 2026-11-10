@@ -6,6 +6,7 @@ import { createBlankSlide, type CatalogElement, type CatalogSlide } from "@Kaver
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { CatalogFonts, SlideView } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
+import { Input } from "@Kavero/ui/components/input";
 import { TooltipHint } from "@Kavero/ui/components/tooltip";
 import Link from "next/link";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -155,10 +156,28 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
   const [annotationMode, setAnnotationMode] = useState(false);
   const [chatAnnotations, setChatAnnotations] = useState<EditorChatAnnotationRef[]>([]);
+  const [hoveredChatAnnotation, setHoveredChatAnnotation] = useState<EditorChatAnnotationRef | null>(null);
   const cancelAnnotationMode = useCallback(() => setAnnotationMode(false), []);
   const [sidebar, setSidebar] = useState<"slides" | "layers" | "products">("slides");
   const [libraryTab, setLibraryTab] = useState<EditorLibraryTab>("design");
   const workspace = useWorkspace();
+
+  function addElementsToChat(slideId: string, elementIds: string[], openChat = false) {
+    const alreadyAttached = new Set(chatAnnotations.map((item) => `${item.slideId}\u0000${item.elementId}`));
+    const pending = [...new Set(elementIds)].filter((elementId) => !alreadyAttached.has(`${slideId}\u0000${elementId}`));
+    const additions = pending.slice(0, Math.max(0, 8 - chatAnnotations.length));
+    if (pending.length > additions.length) toast.info("You can attach up to 8 slide elements to chat at a time.");
+    if (additions.length) {
+      setChatAnnotations((current) => {
+        const keys = new Set(current.map((item) => `${item.slideId}\u0000${item.elementId}`));
+        return [...current, ...additions.filter((elementId) => !keys.has(`${slideId}\u0000${elementId}`)).map((elementId) => ({ slideId, elementId }))].slice(0, 8);
+      });
+    }
+    if (openChat) {
+      setAnnotationMode(false);
+      if (!workspace.isOpen("chat")) workspace.toggle("chat");
+    }
+  }
 
   const productUi = useMemo<ProductUi>(() => ({
     pick: setPicking,
@@ -201,6 +220,13 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   const slidesForList = previewSlideIds
     ? previewSlideIds.map((id) => doc.slides.find((s) => s.id === id)).filter((s): s is CatalogSlide => !!s)
     : doc.slides;
+
+  useEffect(() => {
+    if (!hoveredChatAnnotation || hoveredChatAnnotation.slideId === slide?.id) return;
+    const slideNode = [...(slideListElement.current?.querySelectorAll<HTMLElement>("[data-sortable-slide-id]") ?? [])]
+      .find((node) => node.dataset.sortableSlideId === hoveredChatAnnotation.slideId);
+    slideNode?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+  }, [hoveredChatAnnotation, slide?.id]);
 
   function snapshotSlideTops() {
     const positions = new Map<string, number>();
@@ -333,11 +359,11 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
       {/* Top bar */}
       <header className="flex min-w-0 items-center gap-2 border-b px-3 py-1.5">
         <Link href="/dashboard" className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"><HugeiconsIcon icon={ArrowLeft01Icon} className="size-3.5" /> Catalogs</Link>
-        <input
+        <Input
           key={doc.metadata.title}
           defaultValue={doc.metadata.title}
           aria-label="Catalog name"
-          className="ml-2 min-w-0 flex-1 truncate bg-transparent text-sm font-medium outline-none focus:underline"
+          className="ml-2 h-6 min-w-0 flex-1 truncate rounded-none border-transparent bg-transparent px-0 py-0 text-sm leading-6 font-medium shadow-none focus-visible:border-transparent focus-visible:bg-transparent focus-visible:ring-0 focus-visible:underline"
           onBlur={(e) => { const v = e.target.value.trim(); if (v && v !== doc.metadata.title) run({ type: "catalog.updateMetadata", changes: { title: v } }); else e.target.value = doc.metadata.title; }}
           onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
         />
@@ -406,16 +432,9 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
               onFitScale={onFitScale}
               actions={actions}
               annotationMode={annotationMode}
-              onAnnotateElement={(slideId, elementId) => {
-                setChatAnnotations((current) => {
-                  if (current.some((item) => item.slideId === slideId && item.elementId === elementId)) return current;
-                  if (current.length >= 8) {
-                    toast.info("You can attach up to 8 slide elements to chat at a time.");
-                    return current;
-                  }
-                  return [...current, { slideId, elementId }];
-                });
-              }}
+              highlightedAnnotation={hoveredChatAnnotation}
+              onAnnotateElement={(slideId, elementId) => addElementsToChat(slideId, [elementId])}
+              onAddElementsToChat={(slideId, elementIds) => addElementsToChat(slideId, elementIds, true)}
               onCancelAnnotation={cancelAnnotationMode}
             />
             {/* Zoom */}
@@ -462,8 +481,13 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                 assetUrls={assetUrls}
                 annotations={chatAnnotations}
                 annotationMode={annotationMode}
+                hoveredAnnotation={hoveredChatAnnotation}
                 onAnnotationModeChange={setAnnotationMode}
-                onRemoveAnnotation={(annotation) => setChatAnnotations((current) => current.filter((item) => item.slideId !== annotation.slideId || item.elementId !== annotation.elementId))}
+                onHoveredAnnotationChange={setHoveredChatAnnotation}
+                onRemoveAnnotation={(annotation) => {
+                  setChatAnnotations((current) => current.filter((item) => item.slideId !== annotation.slideId || item.elementId !== annotation.elementId));
+                  setHoveredChatAnnotation((current) => current?.slideId === annotation.slideId && current.elementId === annotation.elementId ? null : current);
+                }}
               />
             ),
           };
@@ -504,7 +528,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                       <div className="mb-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                         <span className="tabular-nums">{i + 1}</span>
                         {renamingSlide === s.id ? (
-                          <input autoFocus defaultValue={s.name} aria-label="Slide name" className="h-5 min-w-0 flex-1 rounded border border-input bg-background px-1 text-[11px] text-foreground outline-none"
+                          <Input autoFocus defaultValue={s.name} aria-label="Slide name" className="h-8 min-w-0 flex-1"
                             onBlur={(e) => { actions.renameSlide(s.id, e.target.value); setRenamingSlide(null); }}
                             onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenamingSlide(null); }} />
                         ) : (
@@ -580,7 +604,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                         aria-label={`Slide ${i + 1}: ${s.name}`}
                         className="block w-full overflow-hidden rounded-md ring-1 ring-border aria-current:ring-2 aria-current:ring-sky-500"
                       >
-                        <SlideView doc={doc} slide={s} scale={thumbScale} mode="edit" resolveAsset={(id) => assetUrls[id]} />
+                        <SlideView doc={doc} slide={s} scale={thumbScale} mode="edit" highlightedElementId={hoveredChatAnnotation?.slideId === s.id ? hoveredChatAnnotation.elementId : undefined} resolveAsset={(id) => assetUrls[id]} />
                       </button>
                     </li>
                   ))}

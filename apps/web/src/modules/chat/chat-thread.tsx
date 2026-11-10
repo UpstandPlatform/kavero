@@ -119,6 +119,8 @@ export function ChatThread({
   footer,
   annotations = [],
   onRemoveAnnotation,
+  hoveredAnnotationId = null,
+  onHoverAnnotation,
   annotationMode = false,
   onToggleAnnotationMode,
   storageKey,
@@ -140,6 +142,8 @@ export function ChatThread({
   footer?: ReactNode;
   annotations?: ChatAnnotationAttachment[];
   onRemoveAnnotation?: (id: string) => void;
+  hoveredAnnotationId?: string | null;
+  onHoverAnnotation?: (id: string | null) => void;
   annotationMode?: boolean;
   onToggleAnnotationMode?: () => void;
 }) {
@@ -190,10 +194,11 @@ export function ChatThread({
 
   const submit = () => {
     const text = input.trim();
-    if (!text || busy) return;
+    if ((!text && !annotations.length) || busy) return;
     clearError();
     setInput("");
-    void sendMessage({ text });
+    const message = text || `Use the attached slide element${annotations.length === 1 ? "" : "s"} as context for this conversation.`;
+    void sendMessage({ text: message });
   };
 
   return (
@@ -245,20 +250,32 @@ export function ChatThread({
         }}
       >
         {annotations.length > 0 && (
-          <div role="group" className="mb-2 grid gap-1.5" aria-label="Prompt context attachments">
-            <p className="px-1 text-[11px] font-medium text-muted-foreground">Attached slide context</p>
-            {annotations.map((annotation) => (
-              <div key={annotation.id} className="flex min-w-0 items-center gap-2 rounded-xl border border-border/80 bg-muted/35 px-2.5 py-2">
-                <span className="grid size-7 shrink-0 place-items-center rounded-lg bg-primary/10 text-[10px] font-semibold text-primary">{annotation.label.slice(0, 1).toUpperCase()}</span>
-                <span className="grid min-w-0 flex-1 gap-0.5">
-                  <span className="truncate text-xs font-medium">{annotation.label}</span>
-                  <span className="truncate text-[10px] text-muted-foreground">{annotation.detail}</span>
-                </span>
-                <Button type="button" variant="ghost" size="icon-xs" aria-label={`Remove ${annotation.label} from prompt context`} onClick={() => onRemoveAnnotation?.(annotation.id)}>
-                  <HugeiconsIcon icon={Cancel01Icon} />
-                </Button>
-              </div>
-            ))}
+          <div role="group" className="mb-2 min-w-0" aria-label="Prompt context attachments">
+            <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto overflow-y-hidden pb-1">
+              {annotations.map((annotation) => (
+                <TooltipHint key={annotation.id} content={`${annotation.label} · ${annotation.detail}`}>
+                  <div
+                    role="group"
+                    tabIndex={0}
+                    aria-label={`${annotation.label}, ${annotation.detail}`}
+                    data-hovered={hoveredAnnotationId === annotation.id ? "true" : undefined}
+                    onPointerEnter={() => onHoverAnnotation?.(annotation.id)}
+                    onPointerLeave={() => onHoverAnnotation?.(null)}
+                    onFocus={() => onHoverAnnotation?.(annotation.id)}
+                    onBlur={(event) => {
+                      if (!event.currentTarget.contains(event.relatedTarget as Node | null)) onHoverAnnotation?.(null);
+                    }}
+                    className="group/chip flex h-7 max-w-48 shrink-0 items-center gap-1 rounded-full border border-border/80 bg-muted/35 py-0.5 ps-2 pe-1 text-[11px] text-foreground transition-colors hover:border-primary/50 hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring data-[hovered=true]:border-primary data-[hovered=true]:bg-primary/10"
+                  >
+                    <span className="size-1.5 shrink-0 rounded-full bg-primary/70" aria-hidden="true" />
+                    <span className="max-w-32 truncate">{annotation.label}</span>
+                    <Button type="button" variant="ghost" size="icon-xs" className="size-5 shrink-0 rounded-full p-0" aria-label={`Remove ${annotation.label} from prompt context`} onClick={() => onRemoveAnnotation?.(annotation.id)}>
+                      <HugeiconsIcon icon={Cancel01Icon} />
+                    </Button>
+                  </div>
+                </TooltipHint>
+              ))}
+            </div>
           </div>
         )}
         <InputGroup className="rounded-2xl border border-border/80 bg-background shadow-sm transition-[border-color,box-shadow] focus-within:border-ring focus-within:ring-2 focus-within:ring-ring/20">
@@ -297,7 +314,7 @@ export function ChatThread({
             {busy ? (
               <InputGroupButton type="button" size="icon-sm" variant="secondary" aria-label="Stop" onClick={() => void stop()}><HugeiconsIcon icon={SquareIcon} /></InputGroupButton>
             ) : (
-              <InputGroupButton type="submit" size="icon-sm" variant="default" aria-label="Send" disabled={!input.trim()}><HugeiconsIcon icon={ArrowUp01Icon} /></InputGroupButton>
+              <InputGroupButton type="submit" size="icon-sm" variant="default" aria-label="Send" disabled={!input.trim() && !annotations.length}><HugeiconsIcon icon={ArrowUp01Icon} /></InputGroupButton>
             )}
           </InputGroupAddon>
         </InputGroup>
