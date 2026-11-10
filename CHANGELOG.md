@@ -7,6 +7,7 @@ This file is updated automatically by the release workflow from [Conventional Co
 
 ### Features
 
+- Add releases, changelog, license, contributing guide and agent skills ([5b48774](https://github.com/UpstandPlatform/kavero/commit/5b487747d002b773e26c21ae04c6de4a943a9fd9))
 - Add JPG zip export, server admin, and fixes from a full audit ([f16a971](https://github.com/UpstandPlatform/kavero/commit/f16a971e917aba4db2c003605133cbafd527b760))
 - Add Morph slide transition and single-file HTML export ([c0af7b2](https://github.com/UpstandPlatform/kavero/commit/c0af7b2808065cd7ae0c97550ab2abe8ca8b5dc0))
 - Add editor layers, context menus, shortcuts, personal AI keys and desktop app ([629cebd](https://github.com/UpstandPlatform/kavero/commit/629cebd4f437f15cc48754dbac9495216ff68216))
