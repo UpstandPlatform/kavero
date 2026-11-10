@@ -9,7 +9,7 @@ function slideWith(anims: unknown[][]): CatalogSlide {
   anims.forEach((a, i) => s.elements.push({
     id: `e${i}`, type: "shape", zIndex: i, locked: false, hidden: false, opacity: 1,
     position: { x: 0, y: 0, width: 10, height: 10, rotation: 0 }, content: { shape: "rect" },
-    style: { fill: "#000", strokeWidth: 0, borderRadius: 0 }, animations: a as never,
+    style: { fill: "#000", strokeWidth: 0, borderRadius: 0 }, animations: a as never, effects: [],
   }));
   return s;
 }

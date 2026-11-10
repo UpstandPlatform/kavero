@@ -12,6 +12,7 @@ import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 import { useRun } from "@/modules/editor/use-catalog-editor";
 import { builtInExtensionRenderers } from "@/modules/editor/extensions/built-in-renderers";
+import { builtInExtensionEffects } from "@/modules/editor/extensions/built-in-effects";
 import { makeTRPCClient } from "@/utils/trpc";
 
 import { ChatThread, ChatUnavailable, type ChatAnnotationAttachment, type ToolPart } from "./chat-thread";
@@ -130,6 +131,7 @@ export function EditorChat({ editor, doc, assetUrls, annotations = [], annotatio
   return (
     <ChatThread
       mode="editor"
+      scopeId={doc.id}
       key={chatKey}
       storageKey={chatKey}
       onClear={() => {
@@ -204,9 +206,9 @@ function ProposalCard({ proposal, doc, assetUrls, decision, onApply, onDismiss }
       {!decision && after && preview && (
         <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
           {doc.slides.find((s) => s.id === proposal.slideId) && (
-            <figure className="grid gap-1"><figcaption>Before</figcaption><div className="overflow-hidden rounded-md border"><SlideView doc={doc} slide={doc.slides.find((s) => s.id === proposal.slideId)!} scale={width / doc.settings.width} mode="edit" resolveAsset={(id) => assetUrls[id]} extensionRenderers={builtInExtensionRenderers} /></div></figure>
+            <figure className="grid gap-1"><figcaption>Before</figcaption><div className="overflow-hidden rounded-md border"><SlideView doc={doc} slide={doc.slides.find((s) => s.id === proposal.slideId)!} scale={width / doc.settings.width} mode="edit" resolveAsset={(id) => assetUrls[id]} extensionRenderers={builtInExtensionRenderers} extensionEffects={builtInExtensionEffects} /></div></figure>
           )}
-          <figure className="grid gap-1"><figcaption>After</figcaption><div className="overflow-hidden rounded-md ring-2 ring-primary/60"><SlideView doc={preview} slide={after} scale={width / doc.settings.width} mode="edit" resolveAsset={(id) => assetUrls[id]} extensionRenderers={builtInExtensionRenderers} /></div></figure>
+          <figure className="grid gap-1"><figcaption>After</figcaption><div className="overflow-hidden rounded-md ring-2 ring-primary/60"><SlideView doc={preview} slide={after} scale={width / doc.settings.width} mode="edit" resolveAsset={(id) => assetUrls[id]} extensionRenderers={builtInExtensionRenderers} extensionEffects={builtInExtensionEffects} /></div></figure>
         </div>
       )}
       {decision ? (

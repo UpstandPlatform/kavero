@@ -2,10 +2,10 @@
 
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, ArrowLeft01Icon, CircleIcon, CodeIcon, Copy01Icon, Delete02Icon, DragDropVerticalIcon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PlayIcon, Presentation01Icon, PuzzleIcon, Redo02Icon, SquareIcon, TextIcon, Undo02Icon, Upload01Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
-import { createBlankSlide, parseCatalogDocument, productCardStyleSchema, productGridStyleSchema, PRODUCTS_EXTENSION_ID, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
+import { createBlankSlide, createId, parseCatalogDocument, productCardStyleSchema, productGridStyleSchema, PRODUCTS_EXTENSION_ID, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import type { ExtensionInstalledState, JsonValue } from "@Kavero/extensions";
-import { CatalogFonts, SlideView } from "@Kavero/renderer";
+import { CatalogFonts, SlideView, type ExtensionEffectRegistry } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
 import { TooltipHint } from "@Kavero/ui/components/tooltip";
@@ -32,12 +32,13 @@ import { RailButton, ToolRail } from "./tool-rail";
 import { Workspace, WorkspaceMenu, useWorkspace } from "./workspace";
 import { EditorChat, type EditorChatAnnotationRef } from "@/modules/chat/editor-chat";
 import { authClient } from "@/lib/auth-client";
+import { makeTRPCClient } from "@/utils/trpc";
 import { pullCatalog, refreshFromCloud } from "@/modules/catalog/cloud-sync";
 import { localCatalogs } from "@/modules/catalog/local-catalogs";
 
 import { FALLBACK_IMAGE_SIZE, useCatalogEditor, useEditorState, useRun, type SaveStatus } from "./use-catalog-editor";
 import { CLOUD_LABEL, useCloudAutoSync } from "./use-cloud-autosync";
-import { builtInExtensionRenderers, createEditorExtensionHost } from "./extensions/registry";
+import { builtInExtensionEffects, builtInExtensionRenderers, createEditorExtensionHost } from "./extensions/registry";
 import { ExtensionStoreDialog } from "./extensions/extension-store-dialog";
 import { describeCapability } from "./extensions/extension-store-dialog";
 import { scopeEditorExtensionContext, type EditorExportFormat, type EditorExtensionHostContext } from "./extensions/types";
@@ -99,6 +100,8 @@ function LoadedEditor({ catalogId, userId }: { catalogId: string; userId: string
 }
 
 const SAVE_LABEL: Record<SaveStatus, string> = { saved: "Saved", saving: "Saving…", unsaved: "Unsaved changes", error: "Save failed", conflict: "Not saved: changed elsewhere" };
+let extensionApiClient: ReturnType<typeof makeTRPCClient> | null = null;
+const extensionApi = () => (extensionApiClient ??= makeTRPCClient());
 
 function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, uploadImage, uploadFont, onReload, onKeepMine }: {
   onReload: () => void;
@@ -206,11 +209,24 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   };
   const extensionHostContext: EditorExtensionHostContext = {
     editor,
+    activeSlideId: state.activeSlideId,
     assetUrls,
     products: productUi,
     insertProduct,
     insertGrid,
     importProducts: () => setImporting(true),
+    integrations: {
+      listConnections: async () => {
+        const connections = await extensionApi().integrations.connections.list.query();
+        return connections.map(({ id, name, status, tools }) => ({
+          id,
+          name,
+          status: status as "unknown" | "ok" | "error",
+          tools: tools.map(({ name: toolName, title, description }) => ({ name: toolName, title, description })),
+        }));
+      },
+      callTool: (connectionId, tool, args) => extensionApi().integrations.connections.invokeTool.mutate({ id: connectionId, tool, args }),
+    },
   };
   const extensionContributions = editorExtensions.contribute(extensionHostContext, doc.extensions, (definition, context) =>
     scopeEditorExtensionContext(
@@ -245,6 +261,13 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
     }))),
   );
   const extensionRenderers = Object.assign({}, builtInExtensionRenderers, ...extensionContributions.map(({ contribution }) => contribution.renderers ?? {}));
+  const extensionEffects: ExtensionEffectRegistry = Object.assign(
+    {},
+    builtInExtensionEffects,
+    ...extensionContributions.map(({ definition, contribution }) => Object.fromEntries(
+      (contribution.effects ?? []).map((effect) => [`${definition.manifest.id}/${effect.id}`, effect.render]),
+    )),
+  );
   const extensionPptxRenderers = Object.assign({}, ...extensionContributions.map(({ contribution }) => contribution.pptxRenderers ?? {}));
   const prepareDocumentForExport = useCallback(async (format: EditorExportFormat, source: CatalogDocument) => {
     const prepared = await editorExtensions.runHook("catalog.export.prepare", { document: structuredClone(source), format });
@@ -300,14 +323,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
         const grantedCapabilities = new Set(editor.getDocument().extensions[extensionId]?.grantedCapabilities ?? definition.manifest.capabilities);
         const approvedCapabilities = definition.manifest.capabilities.filter((capability) => grantedCapabilities.has(capability));
         try {
-          const extensionContext = scopeEditorExtensionContext({
-            editor,
-            assetUrls,
-            products: productUi,
-            insertProduct,
-            insertGrid,
-            importProducts: () => setImporting(true),
-          }, definition.manifest, approvedCapabilities);
+          const extensionContext = scopeEditorExtensionContext(extensionHostContext, definition.manifest, approvedCapabilities);
           const dispose = await editorExtensions.activate(extensionId, {
             ...extensionContext,
           }, { storage }, editor.getDocument().extensions[extensionId]);
@@ -365,6 +381,75 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
       toast.success(action === "install" ? `${definition.manifest.name} installed.` : action === "uninstall" ? `${definition.manifest.name} uninstalled.` : action === "update" ? `${definition.manifest.name} updated.` : `${definition.manifest.name} ${action === "enable" ? "enabled" : "disabled"}.`);
     } catch (error) {
       toast.error((error as Error).message || `Could not ${action} ${definition.manifest.name}.`);
+    }
+  }
+  function runExtension(extensionId: string) {
+    const panel = extensionPanels.find((item) => item.id.startsWith(`${extensionId}/`));
+    if (panel) {
+      setSidebar(panel.id);
+      setExtensionStoreOpen(false);
+      return;
+    }
+    const extension = extensionContributions.find((item) => item.definition.manifest.id === extensionId);
+    const tool = extension?.contribution.toolGroups?.flat().find(Boolean);
+    if (!tool) {
+      toast.info("This extension has no panel or run action yet.");
+      return;
+    }
+    setExtensionStoreOpen(false);
+    try {
+      const result = (tool.onClick as () => unknown)();
+      if (result && typeof (result as PromiseLike<unknown>).then === "function") {
+        void Promise.resolve(result).catch((error) => {
+          console.error(`[extension-run:${extensionId}]`, error);
+          toast.error("The extension could not run.");
+        });
+      }
+    } catch (error) {
+      console.error(`[extension-run:${extensionId}]`, error);
+      toast.error("The extension could not run.");
+    }
+  }
+  function applyExtensionEffect(extensionId: string) {
+    const extension = extensionContributions.find((item) => item.definition.manifest.id === extensionId);
+    const effect = extension?.contribution.effects?.[0];
+    if (!effect) {
+      toast.error("This extension has no effect to apply.");
+      return;
+    }
+    const selectedIds = new Set(state.selection);
+    const selectedElements = doc.slides.flatMap((candidate) => candidate.elements).filter((element) => selectedIds.has(element.id));
+    const targets = selectedElements.filter((element) => !element.locked);
+    if (!targets.length) {
+      toast.info(selectedElements.length ? "Unlock a selected layer before applying this effect." : "Select a layer on the canvas first.");
+      return;
+    }
+    const commands = targets.flatMap((element) => {
+      const remaining = (element.effects ?? []).filter((item) => item.extensionId !== extensionId || item.effectId !== effect.id);
+      if (remaining.length >= 8) return [];
+      return [{
+        type: "element.update" as const,
+        elementId: element.id,
+        changes: {
+          effects: [...remaining, {
+            id: createId("fx"),
+            extensionId,
+            effectId: effect.id,
+            type: effect.type,
+            parameters: structuredClone(effect.defaultParameters ?? {}),
+          }],
+        },
+      }];
+    });
+    if (!commands.length) {
+      toast.info("Selected layers already have the maximum of 8 effects.");
+      return;
+    }
+    try {
+      editor.execute({ type: "batch", commands });
+      toast.success(`${effect.name} applied to ${commands.length} ${commands.length === 1 ? "layer" : "layers"}.`);
+    } catch (error) {
+      toast.error((error as Error).message || `Could not apply ${effect.name}.`);
     }
   }
   const [renamingSlide, setRenamingSlide] = useState<string | null>(null);
@@ -614,6 +699,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
               onAddElementsToChat={(slideId, elementIds) => addElementsToChat(slideId, elementIds, true)}
               onCancelAnnotation={cancelAnnotationMode}
               extensionRenderers={extensionRenderers}
+              extensionEffects={extensionEffects}
             />
             {/* Zoom */}
             <div className="absolute right-3 bottom-3 z-10 flex items-center gap-0.5 rounded-lg border bg-background/90 p-0.5 text-xs shadow-sm backdrop-blur">
@@ -784,7 +870,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                         aria-label={`Slide ${i + 1}: ${s.name}`}
                         className="block w-full overflow-hidden rounded-md ring-1 ring-border aria-current:ring-2 aria-current:ring-sky-500"
                       >
-                        <SlideView doc={doc} slide={s} scale={thumbScale} mode="edit" highlightedElementId={hoveredChatAnnotation?.slideId === s.id ? hoveredChatAnnotation.elementId : undefined} resolveAsset={(id) => assetUrls[id]} extensionRenderers={extensionRenderers} />
+                        <SlideView doc={doc} slide={s} scale={thumbScale} mode="edit" highlightedElementId={hoveredChatAnnotation?.slideId === s.id ? hoveredChatAnnotation.elementId : undefined} resolveAsset={(id) => assetUrls[id]} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} />
                       </button>
                     </li>
                   ))}
@@ -814,8 +900,8 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
         />
       )}
       {publishing && <PublishDialog doc={doc} onClose={() => setPublishing(false)} />}
-      {previewing && <PreviewPlayer doc={doc} startSlide={previewing === "export" ? 0 : slideIndex} openExport={previewing === "export"} assetUrls={assetUrls} extensionRenderers={extensionRenderers} prepareDocument={(format, document) => prepareDocumentForExport(format, document)} onClose={() => setPreviewing(false)} />}
-      {extensionStoreOpen && <ExtensionStoreDialog extensions={extensionStoreEntries} onAction={actOnExtension} onClose={() => setExtensionStoreOpen(false)} />}
+      {previewing && <PreviewPlayer doc={doc} startSlide={previewing === "export" ? 0 : slideIndex} openExport={previewing === "export"} assetUrls={assetUrls} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} prepareDocument={(format, document) => prepareDocumentForExport(format, document)} onClose={() => setPreviewing(false)} />}
+      {extensionStoreOpen && <ExtensionStoreDialog extensions={extensionStoreEntries} selectedElementCount={state.selection.length} onAction={actOnExtension} onRun={runExtension} onApply={applyExtensionEffect} onClose={() => setExtensionStoreOpen(false)} />}
     </div>
   );
 }

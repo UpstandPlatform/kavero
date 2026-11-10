@@ -1,3 +1,4 @@
+import type { Auth } from "@Kavero/auth";
 import type { Session } from "@Kavero/auth";
 import type { LlmProvider } from "@Kavero/ai";
 import type { Database } from "@Kavero/db";
@@ -7,6 +8,9 @@ import type { SecretBox } from "./services/secret-box";
 export type Context = {
   session: Session | null;
   db: Database;
+  /** Better Auth instance and request headers for protected server-side plugin APIs. */
+  auth?: Auth;
+  headers?: Headers;
   /** Removes stored asset files; provided by the host app's object storage. */
   deleteObjects?: (keys: string[]) => Promise<void>;
   /** Encrypts third-party credentials (MCP connections). */

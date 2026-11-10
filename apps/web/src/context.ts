@@ -19,6 +19,8 @@ export async function createContext(req: NextRequest): Promise<ApiContext> {
   return {
     db,
     session,
+    auth,
+    headers: req.headers,
     secretBox,
     ai,
     appUrl: ENV.BETTER_AUTH_URL,

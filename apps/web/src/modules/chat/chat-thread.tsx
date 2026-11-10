@@ -110,6 +110,7 @@ function saveMessages(key: string, messages: UIMessage[]) {
  */
 export function ChatThread({
   mode,
+  scopeId,
   context,
   renderTool,
   emptyState,
@@ -127,6 +128,8 @@ export function ChatThread({
   onClear,
 }: {
   mode: ChatMode;
+  /** Account-level server scope: `landing` or the open catalog id. */
+  scopeId?: string;
   /** Keeps the conversation in this browser under this key (e.g. one per catalog), so it's remembered across visits. */
   storageKey?: string;
   /** Called after the user clears the conversation. */
@@ -147,32 +150,152 @@ export function ChatThread({
   annotationMode?: boolean;
   onToggleAnnotationMode?: () => void;
 }) {
+  const resolvedScopeId = scopeId ?? (mode === "landing" ? "landing" : undefined);
   const contextRef = useRef(context);
   contextRef.current = context;
+  const serverRevision = useRef<number | null>(null);
+  const conversationGeneration = useRef(0);
+  const clearingConversation = useRef(false);
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
         api: "/api/chat",
-        prepareSendMessagesRequest: ({ messages }) => ({ body: { messages: messages.slice(-SEND_LIMIT), mode, context: contextRef.current?.() } }),
+        prepareSendMessagesRequest: ({ messages }) => ({
+          body: {
+            messages: messages.slice(-KEEP_LIMIT),
+            mode,
+            scopeId: resolvedScopeId,
+            expectedRevision: serverRevision.current,
+            context: contextRef.current?.(),
+          },
+        }),
       }),
-    [mode],
+    [mode, resolvedScopeId],
   );
   // Restore this conversation (read once, before the first render of the thread).
   const [saved] = useState(() => (typeof window === "undefined" ? [] : loadMessages(storageKey)));
-  const { messages, setMessages, sendMessage, status, stop, error, clearError } = useChat({ id: storageKey, messages: saved, transport });
+  const [threadReady, setThreadReady] = useState(!resolvedScopeId);
+  const [resyncGeneration, setResyncGeneration] = useState(0);
+  const [persistenceStatus, setPersistenceStatus] = useState<"loading" | "account" | "device" | "saving" | "clearing" | "error">(resolvedScopeId ? "loading" : "device");
+  const { messages, setMessages, sendMessage, status, stop, error, clearError } = useChat({
+    id: storageKey ?? (resolvedScopeId ? `${mode}:${resolvedScopeId}` : undefined),
+    messages: saved,
+    transport,
+    onFinish: async () => {
+      if (!resolvedScopeId) return setPersistenceStatus("device");
+      const generation = conversationGeneration.current;
+      const query = new URLSearchParams({ mode, scopeId: resolvedScopeId });
+      try {
+        const response = await fetch(`/api/chat?${query}`, { cache: "no-store" });
+        if (!response.ok) throw new Error("Could not refresh conversation revision");
+        const data = await response.json() as { revision?: number | null };
+        if (generation !== conversationGeneration.current || clearingConversation.current) return;
+        serverRevision.current = data.revision ?? null;
+        setPersistenceStatus("account");
+      } catch {
+        if (generation === conversationGeneration.current && !clearingConversation.current) setPersistenceStatus("device");
+      }
+    },
+    onError: (cause) => {
+      const message = errorMessage(cause).toLowerCase();
+      if (message.includes("conversation changed in another tab") && !clearingConversation.current) {
+        setThreadReady(false);
+        setPersistenceStatus("loading");
+        setResyncGeneration((generation) => generation + 1);
+      } else if (!clearingConversation.current) {
+        setPersistenceStatus("device");
+      }
+    },
+  });
+  const messagesRef = useRef(messages);
+  messagesRef.current = messages;
   const [input, setInput] = useState("");
   const busy = status === "submitted" || status === "streaming";
 
+  useEffect(() => {
+    if (!resolvedScopeId) return;
+    let active = true;
+    const generation = conversationGeneration.current;
+    const query = new URLSearchParams({ mode, scopeId: resolvedScopeId });
+    void fetch(`/api/chat?${query}`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not load conversation");
+        return response.json() as Promise<{ exists?: boolean; revision?: number | null; messages?: unknown[] }>;
+      })
+      .then((data) => {
+        if (!active || generation !== conversationGeneration.current || clearingConversation.current) return;
+        serverRevision.current = data.revision ?? null;
+        const remote = Array.isArray(data.messages)
+          ? data.messages.filter((message): message is UIMessage => !!message && typeof message === "object" && "id" in message && "role" in message && "parts" in message)
+          : [];
+        if (remote.length || data.exists) {
+          setMessages(remote);
+          if (storageKey) saveMessages(storageKey, remote);
+        }
+        setPersistenceStatus(data.exists || !saved.length ? "account" : "device");
+      })
+      .catch(() => {
+        if (active && generation === conversationGeneration.current && !clearingConversation.current) setPersistenceStatus("device");
+      })
+      .finally(() => {
+        if (active && generation === conversationGeneration.current && !clearingConversation.current) setThreadReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [mode, resolvedScopeId, saved.length, setMessages, storageKey]);
+
+  useEffect(() => {
+    if (!resolvedScopeId || resyncGeneration === 0) return;
+    let active = true;
+    const generation = conversationGeneration.current;
+    const query = new URLSearchParams({ mode, scopeId: resolvedScopeId });
+    void fetch(`/api/chat?${query}`, { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Could not reload conversation");
+        return response.json() as Promise<{ exists?: boolean; revision?: number | null; messages?: unknown[] }>;
+      })
+      .then((data) => {
+        if (!active || generation !== conversationGeneration.current || clearingConversation.current) return;
+        serverRevision.current = data.revision ?? null;
+        const remote = Array.isArray(data.messages)
+          ? data.messages.filter((message): message is UIMessage => !!message && typeof message === "object" && "id" in message && "role" in message && "parts" in message)
+          : [];
+        const remoteIds = new Set(remote.map((message) => message.id));
+        const pending = [...messagesRef.current].reverse().find((message) => message.role === "user" && !remoteIds.has(message.id));
+        const retryText = pending?.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n").trim();
+        if (retryText) setInput(retryText);
+        setMessages(remote);
+        if (storageKey) saveMessages(storageKey, remote);
+        setPersistenceStatus("account");
+      })
+      .catch(() => {
+        if (active && generation === conversationGeneration.current && !clearingConversation.current) setPersistenceStatus("device");
+      })
+      .finally(() => {
+        if (active && generation === conversationGeneration.current && !clearingConversation.current) setThreadReady(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [mode, resyncGeneration, resolvedScopeId, setMessages, storageKey]);
+
   // Save after each finished reply (not on every streamed token).
   useEffect(() => {
-    if (!storageKey || busy) return;
+    if (!storageKey || busy || !threadReady) return;
     if (messages.length) saveMessages(storageKey, messages);
-  }, [storageKey, messages, busy]);
+  }, [storageKey, messages, busy, threadReady]);
 
   const clear = () => {
+    if (resolvedScopeId) {
+      conversationGeneration.current += 1;
+      clearingConversation.current = true;
+      setThreadReady(false);
+    }
     if (busy) void stop();
     setMessages([]);
     clearError();
+    setPersistenceStatus(resolvedScopeId ? "clearing" : "device");
     sentInitial.current = undefined;
     if (storageKey) {
       try {
@@ -181,21 +304,55 @@ export function ChatThread({
         // storage unavailable
       }
     }
+    if (resolvedScopeId) {
+      const query = new URLSearchParams({ mode, scopeId: resolvedScopeId });
+      void fetch(`/api/chat?${query}`, { method: "DELETE" })
+        .then(async (response) => {
+          if (!response.ok) throw new Error("Could not clear conversation");
+          const data = await response.json() as { revision?: number | null };
+          serverRevision.current = data.revision ?? null;
+          clearingConversation.current = false;
+          setPersistenceStatus("account");
+          setThreadReady(true);
+        })
+        .catch(async () => {
+          try {
+            const query = new URLSearchParams({ mode, scopeId: resolvedScopeId });
+            const response = await fetch(`/api/chat?${query}`, { cache: "no-store" });
+            if (response.ok) {
+              const data = await response.json() as { revision?: number | null; messages?: unknown[] };
+              serverRevision.current = data.revision ?? null;
+              const remote = Array.isArray(data.messages)
+                ? data.messages.filter((message): message is UIMessage => !!message && typeof message === "object" && "id" in message && "role" in message && "parts" in message)
+                : [];
+              setMessages(remote);
+              if (storageKey) saveMessages(storageKey, remote);
+            }
+          } catch {
+            // Keep the locally cleared transcript when the account copy can't be read.
+          }
+          clearingConversation.current = false;
+          setPersistenceStatus("error");
+          setThreadReady(true);
+        });
+    }
     onClear?.();
   };
 
   const sentInitial = useRef<string | undefined>(undefined);
   useEffect(() => {
+    if (!threadReady) return;
     const text = initialPrompt?.trim();
     if (!text || sentInitial.current === text) return;
     sentInitial.current = text;
     void sendMessage({ text });
-  }, [initialPrompt, sendMessage]);
+  }, [initialPrompt, sendMessage, threadReady]);
 
   const submit = () => {
     const text = input.trim();
-    if ((!text && !annotations.length) || busy) return;
+    if ((!text && !annotations.length) || busy || !threadReady) return;
     clearError();
+    if (resolvedScopeId) setPersistenceStatus("saving");
     setInput("");
     const message = text || `Use the attached slide element${annotations.length === 1 ? "" : "s"} as context for this conversation.`;
     void sendMessage({ text: message });
@@ -296,6 +453,11 @@ export function ChatThread({
           />
           <InputGroupAddon align="block-end" className="justify-between gap-2 px-2.5 pb-2.5 pt-1">
             <span className="flex min-w-0 items-center gap-1">
+              {resolvedScopeId && (
+                <span className="truncate px-1 text-[10px] text-muted-foreground" aria-live="polite">
+                  {persistenceStatus === "loading" ? "Loading chat…" : persistenceStatus === "saving" ? "Saving…" : persistenceStatus === "clearing" ? "Clearing…" : persistenceStatus === "error" ? "Account chat couldn't be cleared" : persistenceStatus === "device" ? "Saved on this device" : "Saved to your account"}
+                </span>
+              )}
               {messages.length > 0 && (
                 <TooltipHint content="Start a new chat">
                   <InputGroupButton type="button" size="xs" variant="ghost" onClick={clear}>
@@ -314,7 +476,7 @@ export function ChatThread({
             {busy ? (
               <InputGroupButton type="button" size="icon-sm" variant="secondary" aria-label="Stop" onClick={() => void stop()}><HugeiconsIcon icon={SquareIcon} /></InputGroupButton>
             ) : (
-              <InputGroupButton type="submit" size="icon-sm" variant="default" aria-label="Send" disabled={!input.trim() && !annotations.length}><HugeiconsIcon icon={ArrowUp01Icon} /></InputGroupButton>
+              <InputGroupButton type="submit" size="icon-sm" variant="default" aria-label="Send" disabled={!threadReady || (!input.trim() && !annotations.length)}><HugeiconsIcon icon={ArrowUp01Icon} /></InputGroupButton>
             )}
           </InputGroupAddon>
         </InputGroup>

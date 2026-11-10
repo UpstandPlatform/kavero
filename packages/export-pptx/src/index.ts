@@ -384,6 +384,7 @@ export async function exportPptx<T = Blob>(doc: CatalogDocument, opts: PptxOptio
     for (const el of elements) {
       if (el.hidden) continue;
       if (el.animations.length) warnings.add("Element animations aren't exported to PowerPoint yet.");
+      if (el.effects.length) warnings.add("Shader fills and effects aren't exported to PowerPoint yet.");
       addElement(s, el);
     }
   }

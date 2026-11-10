@@ -1,10 +1,11 @@
 import { AiCredentialService } from "@Kavero/api/services/ai-credential-service";
+import { ChatConversationService, mergeChatMessages } from "@Kavero/api/services/chat-conversation-service";
 import { AiService } from "@Kavero/api/services/ai-service";
 import { SecretBox } from "@Kavero/api/services/secret-box";
 import { providerFromEnv, type AiEnv, type LlmProvider } from "@Kavero/ai";
 import { PAGE_PRESETS, TEMPLATES, parseCatalogDocument, productSchema, type CatalogDocument } from "@Kavero/catalog-engine";
 import { outline } from "@Kavero/mcp-server";
-import { convertToModelMessages, stepCountIs, streamText, tool, type UIMessage } from "ai";
+import { convertToModelMessages, createIdGenerator, stepCountIs, streamText, tool, type ToolSet, type UIMessage, validateUIMessages } from "ai";
 import { z } from "zod";
 
 import { ENV } from "@/env.server";
@@ -15,6 +16,7 @@ export const maxDuration = 300;
 
 const serverProvider = providerFromEnv(process.env as AiEnv);
 const secretBox = new SecretBox(ENV.BETTER_AUTH_SECRET);
+const chatStore = new ChatConversationService(db);
 
 // Chat turns per user per minute (each can also run a generation or an edit, which have their own limit).
 const LIMIT = 20;
@@ -30,8 +32,16 @@ function limited(userId: string) {
 }
 
 const bodySchema = z.object({
-  messages: z.array(z.custom<UIMessage>((m) => !!m && typeof m === "object" && "role" in (m as object))).min(1).max(80),
+  messages: z.array(z.custom<UIMessage>((value) => {
+    if (!value || typeof value !== "object") return false;
+    const message = value as Partial<UIMessage>;
+    return typeof message.id === "string" && message.id.length > 0 && message.id.length <= 128
+      && ["user", "assistant", "system"].includes(message.role ?? "")
+      && Array.isArray(message.parts) && message.parts.length <= 500;
+  })).min(1).max(120),
   mode: z.enum(["landing", "editor"]),
+  scopeId: z.string().min(1).max(120).regex(/^[A-Za-z0-9_-]+$/),
+  expectedRevision: z.number().int().positive().nullable(),
   /** Editor only: the open catalog and where the user is. */
   context: z.object({
     document: z.unknown(),
@@ -43,6 +53,51 @@ const bodySchema = z.object({
 
 const fail = (status: number, error: string) => Response.json({ error }, { status });
 
+/** Each request has one of two disjoint tool maps, while persisted UIMessage uses the default empty tool map. */
+function validateChatMessages(messages: unknown, tools: ToolSet) {
+  // Keep the concrete schemas at runtime; the cast only bridges AI SDK's compile-time generic mismatch here.
+  return validateUIMessages({ messages, tools: tools as never });
+}
+
+const scopeSchema = z.object({
+  mode: z.enum(["landing", "editor"]),
+  scopeId: z.string().min(1).max(120).regex(/^[A-Za-z0-9_-]+$/),
+});
+
+function requestScope(url: URL) {
+  const parsed = scopeSchema.safeParse({ mode: url.searchParams.get("mode"), scopeId: url.searchParams.get("scopeId") });
+  if (!parsed.success || (parsed.data.mode === "landing" && parsed.data.scopeId !== "landing")) return null;
+  return parsed.data;
+}
+
+/** Load only the signed-in user's conversation for the requested landing/catalog scope. */
+export async function GET(request: Request) {
+  const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
+  if (!session) return fail(401, "Sign in to load this conversation.");
+  const scope = requestScope(new URL(request.url));
+  if (!scope) return fail(400, "Invalid chat scope.");
+  try {
+    const conversation = await chatStore.load(session.user.id, scope.mode, scope.scopeId);
+    return Response.json(conversation, { headers: { "Cache-Control": "private, no-store" } });
+  } catch {
+    return fail(503, "The conversation couldn't be loaded right now.");
+  }
+}
+
+/** Clear the signed-in user's current conversation. The revision prevents a late stream from restoring it. */
+export async function DELETE(request: Request) {
+  const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
+  if (!session) return fail(401, "Sign in to clear this conversation.");
+  const scope = requestScope(new URL(request.url));
+  if (!scope) return fail(400, "Invalid chat scope.");
+  try {
+    const revision = await chatStore.clear(session.user.id, scope.mode, scope.scopeId);
+    return Response.json({ revision }, { headers: { "Cache-Control": "private, no-store" } });
+  } catch {
+    return fail(503, "The conversation couldn't be cleared right now.");
+  }
+}
+
 /** Native chat (AI SDK) with the user's connected model: start a catalog from a prompt, or edit the open one. */
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
@@ -50,9 +105,11 @@ export async function POST(request: Request) {
   const userId = session.user.id;
   if (limited(userId)) return fail(429, "Too many messages — wait a minute and try again.");
 
-  const parsed = bodySchema.safeParse(await request.json().catch(() => null));
+  const body = await request.json().catch(() => null);
+  if (!body || new TextEncoder().encode(JSON.stringify(body)).byteLength > 12 * 1024 * 1024) return fail(413, "This chat request is too large.");
+  const parsed = bodySchema.safeParse(body);
   if (!parsed.success) return fail(400, "Invalid chat request.");
-  const { messages, mode, context } = parsed.data;
+  const { messages, mode, scopeId, context } = parsed.data;
 
   const personal = await new AiCredentialService(db, secretBox, { allowLocal: process.env.NODE_ENV !== "production", appUrl: ENV.BETTER_AUTH_URL }).provider(userId).catch(() => null);
   const provider: LlmProvider | null = personal ?? serverProvider;
@@ -65,20 +122,60 @@ export async function POST(request: Request) {
     const d = parseCatalogDocument(context?.document);
     if (!d.ok) return fail(400, "The open catalog couldn't be read.");
     doc = d.document;
+    if (scopeId !== doc.id) return fail(400, "The chat scope doesn't match the open catalog.");
+  } else if (scopeId !== "landing") {
+    return fail(400, "Invalid landing chat scope.");
   }
 
-  const tools = mode === "landing" ? landingTools(ai, userId) : editorTools(ai, userId, doc!, context?.slideId);
+  const tools: ToolSet = mode === "landing" ? landingTools(ai, userId) : editorTools(ai, userId, doc!, context?.slideId);
+  const currentMessage = messages.at(-1);
+  if (currentMessage?.role !== "user") return fail(400, "A new chat turn must end with a user message.");
+
+  let validatedMessages: UIMessage[];
+  try {
+    const stored = await chatStore.load(userId, mode, scopeId);
+    if (stored.revision !== parsed.data.expectedRevision) {
+      return fail(409, "This conversation changed in another tab. Reload the chat and send your message again.");
+    }
+    const storedMessages = await validateChatMessages(stored.messages as UIMessage[], tools);
+    const incomingMessages = await validateChatMessages(messages, tools);
+    // Import browser-only history on first save; later writes must use the revision returned by GET.
+    const merged = stored.exists
+      ? mergeChatMessages(storedMessages, incomingMessages)
+      : mergeChatMessages([], incomingMessages);
+    validatedMessages = await validateChatMessages(merged, tools);
+  } catch {
+    return fail(400, "The saved conversation contains an invalid message.");
+  }
+
+  let chatRevision: number;
+  try {
+    const savedRevision = await chatStore.beginTurn(userId, mode, scopeId, parsed.data.expectedRevision, validatedMessages);
+    if (savedRevision === undefined) return fail(409, "This conversation changed in another tab. Reload the chat and send your message again.");
+    chatRevision = savedRevision;
+  } catch {
+    return fail(503, "The conversation couldn't be saved right now.");
+  }
+
   const result = streamText({
     model,
     system: mode === "landing" ? LANDING_SYSTEM : editorSystem(doc!, context?.slideId, context?.selection, context?.annotations),
-    messages: await convertToModelMessages(messages, { tools }),
+    messages: await convertToModelMessages(validatedMessages.slice(-60), { tools }),
     tools,
     stopWhen: stepCountIs(4),
-    abortSignal: request.signal,
   });
-  return result.toUIMessageStreamResponse({
+
+  const response = result.toUIMessageStreamResponse({
+    originalMessages: validatedMessages,
+    generateMessageId: createIdGenerator({ prefix: "msg", size: 16 }),
+    onEnd: async ({ messages: completedMessages }) => {
+      await chatStore.saveIfRevision(userId, mode, scopeId, chatRevision, completedMessages);
+    },
     onError: (e) => (e instanceof Error ? e.message : "The AI model failed to answer.").slice(0, 300),
   });
+  // Continue the model stream after a browser disconnect so the database callback can save the full answer.
+  void Promise.resolve(result.consumeStream()).catch((error: unknown) => console.error("Chat stream consumption failed", error));
+  return response;
 }
 
 // ---------------------------------------------------------------------------

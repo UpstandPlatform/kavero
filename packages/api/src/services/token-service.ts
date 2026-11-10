@@ -14,6 +14,40 @@ export const SCOPES = {
 } as const;
 export type Scope = keyof typeof SCOPES;
 
+/** Shared scope-to-permission mapping for first-party API keys and the MCP server. */
+const SCOPE_PERMISSIONS: Record<Scope, readonly [resource: string, action: string]> = {
+  "catalogs:read": ["catalogs", "read"],
+  "catalogs:write": ["catalogs", "write"],
+  "catalogs:delete": ["catalogs", "delete"],
+  publish: ["publication", "publish"],
+};
+
+export function scopesToPermissions(scopes: readonly Scope[]) {
+  const permissions: Record<string, string[]> = {};
+  for (const scope of scopes) {
+    const [resource, action] = SCOPE_PERMISSIONS[scope];
+    (permissions[resource] ??= []).push(action);
+  }
+  return permissions;
+}
+
+/** Converts the Better Auth plugin's stored permissions back to the MCP scope set. */
+export function permissionsToScopes(value: unknown): Scope[] {
+  let permissions = value;
+  if (typeof permissions === "string") {
+    try {
+      permissions = JSON.parse(permissions) as unknown;
+    } catch {
+      return [];
+    }
+  }
+  if (!permissions || typeof permissions !== "object" || Array.isArray(permissions)) return [];
+  const record = permissions as Record<string, unknown>;
+  return (Object.entries(SCOPE_PERMISSIONS) as [Scope, readonly [string, string]][])
+    .filter(([, [resource, action]]) => Array.isArray(record[resource]) && record[resource].includes(action))
+    .map(([scope]) => scope);
+}
+
 const TOKEN_PREFIX = "kv_";
 /** Active (not revoked, not expired) tokens per user. */
 export const MAX_TOKENS_PER_USER = 50;

@@ -113,6 +113,15 @@ export const elementAnimationSchema = z.object({
   path: z.array(z.object({ x: z.number(), y: z.number() })).optional(),
 });
 
+/** A serializable reference to a trusted extension effect; no shader source is stored in a catalog. */
+export const elementEffectSchema = z.object({
+  id,
+  extensionId: extensionIdSchema,
+  effectId: z.string().min(1).max(96).regex(/^[a-z0-9][a-z0-9._-]*$/),
+  type: z.enum(["shader-effect", "shader-fill"]),
+  parameters: jsonMap.default({}),
+}).strict();
+
 // ---- Elements (discriminated union on `type`) ----
 
 export const positionSchema = z.object({
@@ -135,6 +144,7 @@ const elementBase = {
   /** Identity shared by copies of an element (duplicated slides, copy/paste) so Morph can match them. */
   morphKey: z.string().max(100).optional(),
   animations: z.array(elementAnimationSchema).default([]),
+  effects: z.array(elementEffectSchema).max(8).default([]),
 };
 
 export const textStyleSchema = z.object({
@@ -489,6 +499,7 @@ export const catalogDocumentSchema = z.object({
   }
   for (const [slideIndex, slide] of document.slides.entries()) {
     for (const [elementIndex, element] of slide.elements.entries()) {
+      if (element.effects.length && !add(element.effects, ["slides", slideIndex, "elements", elementIndex, "effects"])) return;
       if (element.type !== "extension") continue;
       extensionElements += 1;
       if (extensionElements > 2_000) {
@@ -502,6 +513,7 @@ export const catalogDocumentSchema = z.object({
 
 export type SlideTransition = z.infer<typeof slideTransitionSchema>;
 export type ElementAnimation = z.infer<typeof elementAnimationSchema>;
+export type ElementEffect = z.infer<typeof elementEffectSchema>;
 export type CatalogElement = z.infer<typeof catalogElementSchema>;
 export type CatalogElementType = CatalogElement["type"];
 export type CatalogSlide = z.infer<typeof catalogSlideSchema>;

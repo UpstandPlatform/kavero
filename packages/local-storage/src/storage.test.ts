@@ -7,7 +7,7 @@ function catalogWithImage() {
   doc.assets.push({ id: "ast_1", kind: "image", mimeType: "image/png", name: "a.png", uri: "local://ast_1" });
   doc.slides[0]!.elements.push({
     id: "el_1", type: "image", position: { x: 0, y: 0, width: 10, height: 10, rotation: 0 }, zIndex: 0,
-    locked: false, hidden: false, opacity: 1, animations: [], content: { assetId: "ast_1", alt: "" }, style: { fit: "cover", borderRadius: 0 },
+    locked: false, hidden: false, opacity: 1, animations: [], effects: [], content: { assetId: "ast_1", alt: "" }, style: { fit: "cover", borderRadius: 0 },
   });
   return doc;
 }

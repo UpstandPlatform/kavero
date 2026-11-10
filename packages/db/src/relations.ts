@@ -9,4 +9,5 @@ export const relations = {
   ...schema.publicationRelations,
   ...schema.integrationRelations,
   ...schema.workspaceRelations,
+  ...schema.chatRelations,
 };

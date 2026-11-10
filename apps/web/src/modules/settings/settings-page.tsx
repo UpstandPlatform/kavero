@@ -1,11 +1,9 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, Delete02Icon, Key02Icon, Loading02Icon, Plug01Icon, Refresh01Icon, ScrollIcon, SparklesIcon, UserGroupIcon } from "@hugeicons/core-free-icons";
+import { Delete02Icon, Key02Icon, Loading02Icon, Refresh01Icon, ScrollIcon, SparklesIcon, UserGroupIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
-import { Checkbox } from "@Kavero/ui/components/checkbox";
-import { CodeBlock, CodeBlockActions, CodeBlockContent, CodeBlockCopyButton, CodeBlockHeader, CodeBlockTitle, CopyField } from "@Kavero/ui/components/code-block";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
@@ -18,19 +16,29 @@ import { makeTRPCClient } from "@/utils/trpc";
 import { confirmAction } from "@/components/confirm-dialog";
 
 import { AiTab } from "./ai-tab";
+import { ApiKeysTab } from "./api-keys-tab";
+import { McpClientGuide } from "./mcp-client-guide";
 import { WorkspacesTab } from "./workspaces-tab";
 
 let client: ReturnType<typeof makeTRPCClient> | null = null;
 export const api = () => (client ??= makeTRPCClient());
 
-type Tab = "workspaces" | "tokens" | "connections" | "ai" | "activity";
+type Tab = "workspaces" | "ai-mcp" | "api-keys" | "activity";
+const TAB_IDS: Tab[] = ["workspaces", "ai-mcp", "api-keys", "activity"];
+
+function tabFromHash(hash: string): Tab | null {
+  if (hash === "#tokens") return "api-keys";
+  if (hash === "#ai" || hash === "#connections") return "ai-mcp";
+  const tab = hash.slice(1);
+  return TAB_IDS.includes(tab as Tab) ? tab as Tab : null;
+}
 
 export function SettingsPage() {
   const { data: session, isPending } = authClient.useSession();
-  const [tab, setTab] = useState<Tab>(() => (typeof window !== "undefined" && (["workspaces", "tokens", "connections", "ai", "activity"] as const).find((t) => window.location.hash === `#${t}`)) || "workspaces");
+  const [tab, setTab] = useState<Tab>(() => (typeof window !== "undefined" && tabFromHash(window.location.hash)) || "workspaces");
   useEffect(() => {
     const onHash = () => {
-      const t = (["workspaces", "tokens", "connections", "ai", "activity"] as const).find((x) => window.location.hash === `#${x}`);
+      const t = tabFromHash(window.location.hash);
       if (t) setTab(t);
     };
     window.addEventListener("hashchange", onHash);
@@ -40,16 +48,15 @@ export function SettingsPage() {
   if (!session) {
     return (
       <div className="mx-auto max-w-md p-8 text-sm">
-        <p className="mb-4">Sign in to manage API tokens and connected services.</p>
+        <p className="mb-4">Sign in to manage API keys and connected services.</p>
         <Link href="/login"><Button>Sign in</Button></Link>
       </div>
     );
   }
   const tabs: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: "workspaces", label: "Workspaces", icon: <HugeiconsIcon icon={UserGroupIcon} /> },
-    { id: "tokens", label: "API tokens & AI agents", icon: <HugeiconsIcon icon={Key02Icon} /> },
-    { id: "connections", label: "MCP connections", icon: <HugeiconsIcon icon={Plug01Icon} /> },
-    { id: "ai", label: "AI", icon: <HugeiconsIcon icon={SparklesIcon} /> },
+    { id: "ai-mcp", label: "AI & MCP", icon: <HugeiconsIcon icon={SparklesIcon} /> },
+    { id: "api-keys", label: "API keys", icon: <HugeiconsIcon icon={Key02Icon} /> },
     { id: "activity", label: "Activity", icon: <HugeiconsIcon icon={ScrollIcon} /> },
   ];
   return (
@@ -57,120 +64,34 @@ export function SettingsPage() {
       <h1 className="mb-6 text-2xl font-semibold tracking-tight">Settings</h1>
       <PageTabs label="Settings" tabs={tabs} value={tab} onChange={(id) => { setTab(id); history.replaceState(null, "", `#${id}`); }} />
       {tab === "workspaces" && <WorkspacesTab />}
-      {tab === "tokens" && <TokensTab />}
-      {tab === "connections" && <ConnectionsTab />}
-      {tab === "ai" && <AiTab />}
+      {tab === "ai-mcp" && <AiMcpTab />}
+      {tab === "api-keys" && <ApiKeysTab />}
       {tab === "activity" && <ActivityTab />}
     </div>
   );
 }
 
-// ---------- Tokens ----------
+// ---------- AI & MCP ----------
 
-const SCOPE_LABELS: Record<string, string> = {
-  "catalogs:read": "Read catalogs",
-  "catalogs:write": "Create and edit catalogs",
-  "catalogs:delete": "Delete catalogs",
-  publish: "Publish websites",
-};
+type AiMcpSection = "ai" | "clients" | "connections";
 
-type TokenRow = Awaited<ReturnType<ReturnType<typeof api>["integrations"]["tokens"]["list"]["query"]>>[number];
-
-function TokensTab() {
-  const [tokens, setTokens] = useState<TokenRow[] | null>(null);
-  const [name, setName] = useState("Claude");
-  const [scopes, setScopes] = useState<string[]>(["catalogs:read", "catalogs:write"]);
-  const [expires, setExpires] = useState("90");
-  const [created, setCreated] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
-  const refresh = useCallback(() => void api().integrations.tokens.list.query().then(setTokens), []);
-  useEffect(refresh, [refresh]);
-
-  const origin = typeof window !== "undefined" ? window.location.origin : "";
-  const endpoint = `${origin}/api/mcp`;
-  const config = JSON.stringify({ mcpServers: { kavero: { type: "http", url: endpoint, headers: { Authorization: `Bearer ${created ?? "<your token>"}` } } } }, null, 2);
-
-  async function create() {
-    setBusy(true);
-    try {
-      const r = await api().integrations.tokens.create.mutate({ name, scopes: scopes as never, expiresInDays: expires ? Number(expires) : undefined });
-      setCreated(r.token);
-      refresh();
-    } catch (e) {
-      toast.error((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
+function AiMcpTab() {
+  const [section, setSection] = useState<AiMcpSection>(() => {
+    if (typeof window !== "undefined" && window.location.hash === "#ai") return "ai";
+    if (typeof window !== "undefined" && window.location.hash === "#connections") return "connections";
+    return "clients";
+  });
+  const tabs: { id: AiMcpSection; label: string }[] = [
+    { id: "ai", label: "AI model" },
+    { id: "clients", label: "MCP clients" },
+    { id: "connections", label: "Connected servers" },
+  ];
   return (
-    <div className="grid gap-8">
-      <section className="grid gap-3">
-        <p className="text-sm text-muted-foreground">
-          Let AI agents (Claude, Cursor, your own scripts) build catalogs through Kavero’s MCP server. Give each agent its own token with only the permissions it needs.
-        </p>
-        <div className={`grid gap-4 text-xs ${surface.panel}`}>
-          <SectionHeader title="New token" />
-          <div className="grid gap-3 sm:grid-cols-[1fr_180px]">
-            <label className="grid gap-1.5">Name<Input value={name} onChange={(e) => setName(e.target.value)} maxLength={80} /></label>
-            <label className="grid gap-1.5">Expires
-              <SimpleSelect value={expires} onValueChange={setExpires} options={[{ value: "30", label: "in 30 days" }, { value: "90", label: "in 90 days" }, { value: "365", label: "in a year" }, { value: "", label: "never" }]} />
-            </label>
-          </div>
-          <fieldset className="grid gap-2">
-            <legend className="mb-1.5">Permissions</legend>
-            <div className="flex flex-wrap gap-x-5 gap-y-2">
-              {Object.entries(SCOPE_LABELS).map(([s, label]) => (
-                <label key={s} className="flex cursor-pointer items-center gap-2">
-                  <Checkbox checked={scopes.includes(s)} onCheckedChange={(checked) => setScopes(checked ? [...scopes, s] : scopes.filter((x) => x !== s))} /> {label}
-                </label>
-              ))}
-            </div>
-          </fieldset>
-          <div><Button onClick={create} disabled={busy || !scopes.length || !name.trim()}>{busy ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={Add01Icon} />} Create token</Button></div>
-        </div>
-
-        {created && (
-          <div className={`grid gap-2 text-xs ${surface.warning}`}>
-            <p className="font-medium">Copy this token now. It won’t be shown again.</p>
-            <CopyField value={created} />
-          </div>
-        )}
-
-        <div className="grid gap-2 text-xs">
-          <SectionHeader title="Connect an MCP client" />
-          <p className="text-muted-foreground">Server URL: <code className={surface.code}>{endpoint}</code> (Streamable HTTP). Send the token as <code className={surface.code}>Authorization: Bearer …</code>. For example, in an MCP client config:</p>
-          <CodeBlock>
-            <CodeBlockHeader>
-              <CodeBlockTitle>MCP client config</CodeBlockTitle>
-              <CodeBlockActions><CodeBlockCopyButton value={config} aria-label="Copy config" title="Copy config" /></CodeBlockActions>
-            </CodeBlockHeader>
-            <CodeBlockContent>{config}</CodeBlockContent>
-          </CodeBlock>
-        </div>
-      </section>
-
-      <section className="grid gap-3">
-        <SectionHeader title="Active tokens" />
-        {!tokens ? <p className="text-xs text-muted-foreground">Loading…</p> : tokens.length === 0 ? <p className="text-xs text-muted-foreground">No tokens yet.</p> : (
-          <ul className={surface.list}>
-            {tokens.map((t) => (
-              <li key={t.id} className="flex flex-wrap items-center gap-3 p-3 text-xs">
-                <div className="min-w-0 flex-1">
-                  <p className="font-medium">{t.name} <code className={`ml-1 text-muted-foreground ${surface.code}`}>{t.prefix}…</code></p>
-                  <p className="text-muted-foreground">
-                    {t.scopes.map((s) => SCOPE_LABELS[s] ?? s).join(", ")} · {t.lastUsedAt ? `used ${new Date(t.lastUsedAt).toLocaleString()}` : "never used"}
-                    {t.expiresAt ? ` · expires ${new Date(t.expiresAt).toLocaleDateString()}` : ""}
-                  </p>
-                </div>
-                <Button variant="ghost" size="sm" onClick={async () => { if (await confirmAction({ title: `Revoke “${t.name}”?`, description: "Agents using this token will stop working.", confirmLabel: "Revoke token", destructive: true })) { await api().integrations.tokens.revoke.mutate({ id: t.id }); refresh(); } }}>
-                  <HugeiconsIcon icon={Delete02Icon} /> Revoke
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
+    <div>
+      <PageTabs label="AI and MCP settings" tabs={tabs} value={section} onChange={setSection} />
+      {section === "ai" && <AiTab />}
+      {section === "clients" && <McpClientGuide />}
+      {section === "connections" && <ConnectionsTab />}
     </div>
   );
 }
@@ -205,7 +126,7 @@ function ConnectionsTab() {
     <div className="grid gap-8">
       <section className="grid gap-3">
         <p className="text-sm text-muted-foreground">
-          Connect MCP servers that hold your product data (store, inventory, PIM). You can then import products into any catalog from the editor. Credentials are encrypted and only used by the server.
+          Connect MCP servers that provide tools for your workflows. The editor can call approved tools from these connections; credentials are encrypted and only used by the server.
         </p>
         <div className={`grid gap-4 text-xs ${surface.panel}`}>
           <SectionHeader title="Add a server" />

@@ -109,6 +109,7 @@ export class ExtensionHost<Context = unknown, Contribution = unknown, Events ext
       ...manifest,
       publisher: Object.freeze({ ...manifest.publisher }),
       capabilities: Object.freeze([...manifest.capabilities]),
+      types: Object.freeze([...manifest.types]),
       categories: manifest.categories ? Object.freeze([...manifest.categories]) : undefined,
     });
     const migrations = definition.migrations ? Object.freeze({ ...definition.migrations }) : undefined;

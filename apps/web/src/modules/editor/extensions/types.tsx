@@ -1,7 +1,7 @@
-import type { CatalogDocument } from "@Kavero/catalog-engine";
+import type { CatalogDocument, ElementEffect } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand } from "@Kavero/editor-core";
-import type { ExtensionCapability, ExtensionDefinition, ExtensionEvents, ExtensionHost, ExtensionManifest } from "@Kavero/extensions";
-import type { ExtensionElementRenderer } from "@Kavero/renderer";
+import type { ExtensionCapability, ExtensionDefinition, ExtensionEvents, ExtensionHost, ExtensionManifest, JsonValue } from "@Kavero/extensions";
+import type { ExtensionElementEffectRenderer, ExtensionElementRenderer } from "@Kavero/renderer";
 import type { PptxExtensionElementRenderer } from "@Kavero/export-pptx";
 import type { ReactNode } from "react";
 
@@ -13,21 +13,37 @@ export interface ExtensionEditorApi {
   execute(command: EditorCommand): ReturnType<Editor["execute"]>;
 }
 
+export interface EditorMcpConnection {
+  id: string;
+  name: string;
+  status: "unknown" | "ok" | "error";
+  tools: { name: string; title?: string; description?: string }[];
+}
+
+export interface EditorExtensionIntegrationApi {
+  listConnections(): Promise<EditorMcpConnection[]>;
+  callTool(connectionId: string, tool: string, args: Record<string, JsonValue>): Promise<unknown>;
+}
+
 /** Raw host context stays inside the editor shell and is converted to a capability-scoped facade before contribution. */
 export interface EditorExtensionHostContext {
   editor: Editor;
+  activeSlideId: string;
   assetUrls: Record<string, string>;
   products: ProductUi;
   insertProduct(productId: string): void;
   insertGrid(productIds: string[]): void;
   importProducts(): void;
+  integrations: EditorExtensionIntegrationApi;
 }
 
 export interface EditorExtensionContext {
   editor: ExtensionEditorApi;
   readonly doc: CatalogDocument;
+  readonly activeSlideId: string;
   readonly assetUrls: Record<string, string>;
   products: ProductUi;
+  integrations: EditorExtensionIntegrationApi;
   insertProduct(productId: string): void;
   insertGrid(productIds: string[]): void;
   importProducts(): void;
@@ -44,7 +60,17 @@ export interface EditorExtensionContribution {
   toolGroups?: RailTool[][];
   panels?: EditorExtensionPanel[];
   renderers?: Record<string, ExtensionElementRenderer>;
+  effects?: EditorExtensionEffect[];
   pptxRenderers?: Record<string, PptxExtensionElementRenderer>;
+}
+
+export interface EditorExtensionEffect {
+  id: string;
+  name: string;
+  description: string;
+  type: ElementEffect["type"];
+  defaultParameters?: Record<string, JsonValue>;
+  render: ExtensionElementEffectRenderer;
 }
 
 export type EditorExportFormat = "pdf" | "images" | "pptx" | "html" | "video";
@@ -61,11 +87,12 @@ export function validateEditorExtensionContribution(manifest: ExtensionManifest,
   const panels = contribution.panels ?? [];
   const groups = contribution.toolGroups ?? [];
   const renderers = contribution.renderers ?? {};
+  const effects = contribution.effects ?? [];
   const pptxRenderers = contribution.pptxRenderers ?? {};
   if ((panels.length || groups.length) && !manifest.capabilities.includes("editor.ui")) {
     throw new Error(`Extension "${manifest.id}" contributes editor UI without requesting editor.ui.`);
   }
-  if ((Object.keys(renderers).length || Object.keys(pptxRenderers).length) && !manifest.capabilities.includes("editor.render")) {
+  if ((Object.keys(renderers).length || effects.length || Object.keys(pptxRenderers).length) && !manifest.capabilities.includes("editor.render")) {
     throw new Error(`Extension "${manifest.id}" contributes renderers without requesting editor.render.`);
   }
   if (panels.length > 32 || groups.length > 24) throw new Error(`Extension "${manifest.id}" exceeds editor contribution limits.`);
@@ -90,6 +117,15 @@ export function validateEditorExtensionContribution(manifest: ExtensionManifest,
   }
   for (const [id, renderer] of Object.entries({ ...renderers, ...pptxRenderers })) {
     if (id !== manifest.id || typeof renderer !== "function") throw new Error(`Extension "${manifest.id}" can only register its own slide renderer.`);
+  }
+  const effectIds = new Set<string>();
+  for (const effect of effects) {
+    if (!/^[a-z0-9][a-z0-9._-]{0,95}$/.test(effect.id) || !effect.name.trim() || effect.name.length > 80 || !effect.description.trim() || effect.description.length > 240 || typeof effect.render !== "function") {
+      throw new Error(`Extension "${manifest.id}" has an invalid shader effect contribution.`);
+    }
+    if (!new Set(manifest.types ?? ["plugin"]).has(effect.type)) throw new Error(`Extension "${manifest.id}" must declare the "${effect.type}" extension type to contribute this effect.`);
+    if (effectIds.has(effect.id)) throw new Error(`Extension "${manifest.id}" contributes duplicate shader effect id "${effect.id}".`);
+    effectIds.add(effect.id);
   }
 }
 
@@ -138,11 +174,24 @@ export function scopeEditorExtensionContext(
       context.products.import();
     },
   });
+  const integrations: EditorExtensionIntegrationApi = Object.freeze({
+    listConnections: () => {
+      requireCapability("integrations.call");
+      return context.integrations.listConnections().then((connections) => structuredClone(connections));
+    },
+    callTool: (connectionId: string, tool: string, args: Record<string, JsonValue>) => {
+      requireCapability("integrations.call");
+      if (!/^[A-Za-z0-9_-]{1,128}$/.test(connectionId) || !tool.trim() || tool.length > 200) throw new Error("Choose a valid connected service tool.");
+      return context.integrations.callTool(connectionId, tool, structuredClone(args));
+    },
+  });
   return Object.freeze({
     editor,
     get doc() { requireCapability("catalog.read"); return structuredClone(context.editor.getDocument()); },
+    get activeSlideId() { requireCapability("catalog.read"); return context.activeSlideId; },
     get assetUrls() { requireCapability("assets.read"); return { ...context.assetUrls }; },
     products,
+    integrations,
     insertProduct: (productId: string) => {
       requireCapability("catalog.write");
       requireCapability("editor.render");

@@ -4,7 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Cancel01Icon, PauseIcon, PlayIcon, SkipBackIcon } from "@hugeicons/core-free-icons";
 import { buildTimeline } from "@Kavero/animation-engine";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
-import { FrameView, type ExtensionRendererRegistry } from "@Kavero/renderer";
+import { FrameView, type ExtensionEffectRegistry, type ExtensionRendererRegistry } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
 import { Slider } from "@Kavero/ui/components/slider";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
@@ -17,13 +17,14 @@ const fmt = (ms: number) => {
 };
 
 /** Full-screen playback of the catalog timeline, exactly as the video export renders it. */
-export function PreviewPlayer({ doc, startSlide, assetUrls, onClose, openExport = false, extensionRenderers, prepareDocument }: {
+export function PreviewPlayer({ doc, startSlide, assetUrls, onClose, openExport = false, extensionRenderers, extensionEffects, prepareDocument }: {
   openExport?: boolean;
   doc: CatalogDocument;
   startSlide: number;
   assetUrls: Record<string, string>;
   onClose: () => void;
   extensionRenderers?: ExtensionRendererRegistry;
+  extensionEffects?: ExtensionEffectRegistry;
   prepareDocument?: (format: "video", document: CatalogDocument) => Promise<CatalogDocument>;
 }) {
   const timeline = useMemo(() => buildTimeline(doc), [doc]);
@@ -82,7 +83,7 @@ export function PreviewPlayer({ doc, startSlide, assetUrls, onClose, openExport 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black text-white" role="dialog" aria-modal="true" aria-label="Preview">
       <div ref={box} className="flex min-h-0 flex-1 items-center justify-center p-4">
-        <FrameView doc={doc} timeline={timeline} timeMs={time} scale={scale} resolveAsset={(id) => assetUrls[id]} extensionRenderers={extensionRenderers} />
+        <FrameView doc={doc} timeline={timeline} timeMs={time} scale={scale} resolveAsset={(id) => assetUrls[id]} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} />
       </div>
       <div className="flex items-center gap-2 border-t border-white/10 px-4 py-2 text-xs">
         <Button variant="ghost" size="icon-sm" className="text-white hover:bg-white/10" title="Restart" onClick={() => { setTime(0); setPlaying(true); }}><HugeiconsIcon icon={SkipBackIcon} /></Button>

@@ -2,7 +2,7 @@
 
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, ImageAdd01Icon, Link01Icon, Search01Icon, Upload01Icon } from "@hugeicons/core-free-icons";
-import { catalogElementSchema, createBlankSlide, createId, TEMPLATES, type CatalogDocument, type CatalogSlide } from "@Kavero/catalog-engine";
+import { catalogElementSchema, createBlockSlide, createId, PRESENTATION_BLOCKS, TEMPLATES, type CatalogDocument, type CatalogSlide, type PresentationBlockKind } from "@Kavero/catalog-engine";
 import type { Editor } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
@@ -105,27 +105,9 @@ function TemplatesLibrary({ editor, doc }: { editor: Editor; doc: CatalogDocumen
   );
 }
 
-type BlockKind = "section" | "quote" | "stats" | "agenda" | "feature" | "closing";
-const BLOCKS: { id: BlockKind; name: string; description: string }[] = [
-  { id: "section", name: "Section title", description: "A bold divider to introduce the next part." },
-  { id: "feature", name: "Feature overview", description: "Three clear benefit cards for one idea." },
-  { id: "stats", name: "Key statistics", description: "Three metrics with space for context." },
-  { id: "agenda", name: "Agenda", description: "A readable list for plans and contents." },
-  { id: "quote", name: "Quote", description: "A prominent statement with attribution." },
-  { id: "closing", name: "Closing slide", description: "A clean final slide with a call to action." },
-];
-
-function textElement(text: string, position: { x: number; y: number; width: number; height: number }, style: Record<string, unknown> = {}) {
-  return catalogElementSchema.parse({
-    type: "text",
-    position: { ...position, rotation: 0 },
-    content: { paragraphs: text.split("\n").map((line) => [{ text: line }]) },
-    style: { fontFamily: "token:body", color: "token:text", fontSize: 28, ...style },
-  });
-}
-
 function imageElement(assetId: string, alt: string, x: number, y: number, width: number, height: number) {
   return catalogElementSchema.parse({
+    id: createId("el"),
     type: "image",
     content: { assetId, alt },
     position: { x, y, width, height, rotation: 0 },
@@ -133,68 +115,10 @@ function imageElement(assetId: string, alt: string, x: number, y: number, width:
   });
 }
 
-function blockSlide(kind: BlockKind, name: string, width: number, height: number): CatalogSlide {
-  const slide = { ...createBlankSlide(), id: createId("sld"), name };
-  const m = Math.round(Math.min(width, height) * 0.09);
-  const small = Math.round(Math.min(width, height) * 0.025);
-  const large = Math.round(Math.min(width, height) * 0.072);
-  const elements: CatalogSlide["elements"] = [];
-  const addText = (text: string, x: number, y: number, w: number, h: number, style: Record<string, unknown> = {}) => {
-    elements.push(textElement(text, { x, y, width: w, height: h }, style));
-  };
-  const addShape = (x: number, y: number, w: number, h: number, fill = "token:accent") => {
-    elements.push(catalogElementSchema.parse({ type: "shape", position: { x, y, width: w, height: h, rotation: 0 }, content: { shape: "rect" }, style: { fill, borderRadius: Math.round(small / 2) } }));
-  };
-
-  if (kind === "section") {
-    addText("01  /  SECTION", m, m, width - 2 * m, small * 1.6, { fontSize: small, color: "token:muted", letterSpacing: 2, fontWeight: 600 });
-    addText("A new chapter\nstarts here.", m, height * 0.32, width * 0.74, height * 0.36, { fontFamily: "token:heading", fontSize: large * 1.65, fontWeight: 700, lineHeight: 1.05 });
-    addShape(m, height * 0.77, width * 0.17, Math.max(4, small * 0.18), "token:primary");
-  } else if (kind === "quote") {
-    addText("“", m, height * 0.12, width * 0.16, height * 0.22, { fontFamily: "token:heading", fontSize: large * 2, color: "token:primary" });
-    addText("A thoughtful idea can change how people see the whole story.", m, height * 0.32, width - 2 * m, height * 0.36, { fontFamily: "token:heading", fontSize: large * 0.88, italic: true, lineHeight: 1.25 });
-    addText("— Your name, role or source", m, height * 0.75, width * 0.72, small * 2, { fontSize: small, color: "token:muted" });
-  } else if (kind === "stats") {
-    addText("The impact, at a glance", m, m, width - 2 * m, height * 0.16, { fontFamily: "token:heading", fontSize: large, fontWeight: 700 });
-    const gap = m * 0.35;
-    const colW = (width - 2 * m - gap * 2) / 3;
-    ["48%", "3.2×", "12k"].forEach((metric, i) => {
-      const x = m + i * (colW + gap);
-      addShape(x, height * 0.34, colW, height * 0.38, i === 1 ? "token:primary" : "token:accent");
-      addText(metric, x + small, height * 0.39, colW - 2 * small, height * 0.14, { fontFamily: "token:heading", fontSize: large * 1.2, fontWeight: 700, color: i === 1 ? "token:on-primary" : "token:text" });
-      addText(["Growth", "Reach", "Customers"][i]!, x + small, height * 0.57, colW - 2 * small, height * 0.1, { fontSize: small, color: i === 1 ? "token:on-primary" : "token:muted" });
-    });
-  } else if (kind === "agenda") {
-    addText("Today’s agenda", m, m, width - 2 * m, height * 0.16, { fontFamily: "token:heading", fontSize: large, fontWeight: 700 });
-    ["Welcome and introductions", "What we learned", "The plan ahead", "Questions and discussion"].forEach((label, i) => {
-      const y = height * 0.3 + i * height * 0.14;
-      addText(String(i + 1).padStart(2, "0"), m, y, width * 0.08, height * 0.08, { fontSize: small, color: "token:primary", fontWeight: 700 });
-      addText(label, m + width * 0.1, y, width * 0.74, height * 0.08, { fontSize: Math.round(large * 0.48), fontWeight: 500 });
-      addShape(m + width * 0.1, y + height * 0.085, width * 0.74, Math.max(2, small * 0.08), "token:accent");
-    });
-  } else if (kind === "feature") {
-    addText("A better way to move forward", m, m, width - 2 * m, height * 0.16, { fontFamily: "token:heading", fontSize: large, fontWeight: 700 });
-    ["Made for people", "Clear by design", "Ready to grow"].forEach((label, i) => {
-      const gap = m * 0.28;
-      const colW = (width - 2 * m - gap * 2) / 3;
-      const x = m + i * (colW + gap);
-      addShape(x, height * 0.34, colW, height * 0.43, i === 1 ? "token:primary" : "token:accent");
-      addText(`0${i + 1}`, x + small * 0.7, height * 0.39, colW - small, small * 1.5, { fontSize: small * 0.78, color: i === 1 ? "token:on-primary" : "token:primary", fontWeight: 700 });
-      addText(label, x + small * 0.7, height * 0.5, colW - small * 1.4, height * 0.11, { fontSize: Math.round(small * 1.15), fontWeight: 700, color: i === 1 ? "token:on-primary" : "token:text" });
-      addText("Add a short sentence about this point.", x + small * 0.7, height * 0.63, colW - small * 1.4, height * 0.12, { fontSize: Math.round(small * 0.68), color: i === 1 ? "token:on-primary" : "token:muted" });
-    });
-  } else {
-    addText("Thank you", m, height * 0.28, width - 2 * m, height * 0.22, { fontFamily: "token:heading", fontSize: large * 1.4, fontWeight: 700, align: "center" });
-    addText("Let’s keep the conversation going.", width * 0.2, height * 0.53, width * 0.6, height * 0.12, { fontSize: small * 0.9, color: "token:muted", align: "center" });
-    addShape(width * 0.4, height * 0.72, width * 0.2, Math.max(6, small * 0.3), "token:primary");
-  }
-  return { ...slide, background: { kind: "color", color: "token:background" }, elements };
-}
-
 function BlocksLibrary({ editor, doc }: { editor: Editor; doc: CatalogDocument }) {
-  function addBlock(kind: BlockKind, name: string) {
+  function addBlock(kind: PresentationBlockKind, name: string) {
     try {
-      const slide = blockSlide(kind, name, doc.settings.width, doc.settings.height);
+      const slide = createBlockSlide(kind, name, doc.settings.width, doc.settings.height);
       const index = doc.slides.findIndex((item) => item.id === editor.getState().activeSlideId) + 1;
       const result = editor.execute({ type: "slide.add", slide, index });
       const id = result.createdIds[0];
@@ -211,7 +135,7 @@ function BlocksLibrary({ editor, doc }: { editor: Editor; doc: CatalogDocument }
         <h2 className="text-sm font-semibold">Building blocks</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Add a ready-made slide after the current one, then edit every text and shape.</p>
       </div>
-      {BLOCKS.map((block) => (
+      {PRESENTATION_BLOCKS.map((block) => (
         <button key={block.id} type="button" onClick={() => addBlock(block.id, block.name)} className="group grid gap-2 rounded-xl border bg-card p-2 text-start transition-colors hover:bg-muted/40">
           <div className="grid aspect-video grid-cols-3 gap-1 overflow-hidden rounded-md border bg-muted/30 p-[7%]">
             <span className="col-span-3 h-2 rounded-sm bg-primary/70" />

@@ -7,6 +7,7 @@ import { useEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 import { builtInExtensionRenderers } from "@/modules/editor/extensions/built-in-renderers";
+import { builtInExtensionEffects } from "@/modules/editor/extensions/built-in-effects";
 
 interface Loaded { doc: CatalogDocument; assets: Record<string, string>; scale: number; timeline: Timeline }
 
@@ -84,7 +85,7 @@ html,body,body>div{height:auto!important;min-height:0!important;display:block!im
         <CatalogFonts doc={print.doc} resolveAsset={resolve} />
         {print.doc.slides.map((slide, i) => (
           <div key={slide.id} className="kv-page">
-            <SlideView doc={print.doc} slide={slide} resolveAsset={resolve} extensionRenderers={builtInExtensionRenderers} />
+            <SlideView doc={print.doc} slide={slide} resolveAsset={resolve} extensionRenderers={builtInExtensionRenderers} extensionEffects={builtInExtensionEffects} />
             {print.pageNumbers && (
               <span style={{ position: "absolute", right: 24, bottom: 16, fontSize: 14, opacity: 0.6, fontFamily: "system-ui, sans-serif", mixBlendMode: "difference", color: "#fff" }}>
                 {i + 1} / {print.doc.slides.length}
@@ -103,7 +104,7 @@ html,body,body>div{height:auto!important;min-height:0!important;display:block!im
       {data && (
         <>
           <CatalogFonts doc={data.doc} resolveAsset={(id) => data.assets[id]} />
-          <FrameView doc={data.doc} timeline={data.timeline} timeMs={time} scale={data.scale} resolveAsset={(id) => data.assets[id]} extensionRenderers={builtInExtensionRenderers} />
+          <FrameView doc={data.doc} timeline={data.timeline} timeMs={time} scale={data.scale} resolveAsset={(id) => data.assets[id]} extensionRenderers={builtInExtensionRenderers} extensionEffects={builtInExtensionEffects} />
         </>
       )}
     </div>

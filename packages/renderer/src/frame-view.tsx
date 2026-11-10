@@ -3,20 +3,21 @@ import type { CatalogDocument } from "@Kavero/catalog-engine";
 import type { CSSProperties } from "react";
 
 import { fontFaceCss, googleFontsUrls } from "./fonts";
-import { MorphView, SlideView, type AssetResolver, type ExtensionRendererRegistry } from "./slide-view";
+import { MorphView, SlideView, type AssetResolver, type ExtensionEffectRegistry, type ExtensionRendererRegistry } from "./slide-view";
 
 /**
  * Renders the whole catalog at a global time: the current slide with its element
  * animations, plus the outgoing slide while a transition runs. Used for playback,
  * published sites and frame-by-frame video export.
  */
-export function FrameView({ doc, timeline, timeMs, scale = 1, resolveAsset, extensionRenderers }: {
+export function FrameView({ doc, timeline, timeMs, scale = 1, resolveAsset, extensionRenderers, extensionEffects }: {
   doc: CatalogDocument;
   timeline: Timeline;
   timeMs: number;
   scale?: number;
   resolveAsset?: AssetResolver;
   extensionRenderers?: ExtensionRendererRegistry;
+  extensionEffects?: ExtensionEffectRegistry;
 }) {
   const { width: W, height: H } = doc.settings;
   const frame = frameAt(timeline, timeMs);
@@ -31,7 +32,7 @@ export function FrameView({ doc, timeline, timeMs, scale = 1, resolveAsset, exte
   if (previous && frame.transition?.type === "morph") {
     return (
       <div style={{ position: "relative", width: W * scale, height: H * scale, overflow: "hidden", background: "#000" }}>
-        <MorphView doc={doc} from={previous} to={current} progress={frame.transition.progress} scale={scale} timeMs={frame.current.localMs} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} />
+        <MorphView doc={doc} from={previous} to={current} progress={frame.transition.progress} scale={scale} timeMs={frame.current.localMs} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} />
       </div>
     );
   }
@@ -39,11 +40,11 @@ export function FrameView({ doc, timeline, timeMs, scale = 1, resolveAsset, exte
     <div style={{ position: "relative", width: W * scale, height: H * scale, overflow: "hidden", background: "#000" }}>
       {previous && frame.previous && (
         <div style={layer(styles?.outgoing)}>
-          <SlideView doc={doc} slide={previous} scale={scale} timeMs={frame.previous.localMs} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} />
+          <SlideView doc={doc} slide={previous} scale={scale} timeMs={frame.previous.localMs} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} />
         </div>
       )}
       <div style={layer(styles?.incoming)}>
-        <SlideView doc={doc} slide={current} scale={scale} timeMs={frame.current.localMs} settledIds={settledIds} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} />
+        <SlideView doc={doc} slide={current} scale={scale} timeMs={frame.current.localMs} settledIds={settledIds} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} />
       </div>
     </div>
   );

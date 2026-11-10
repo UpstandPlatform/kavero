@@ -10,6 +10,7 @@ import {
   type CatalogElement,
   type ExtensionElement,
   type CatalogSlide,
+  type ElementEffect,
   type ElementPosition,
   type Product,
 } from "@Kavero/catalog-engine";
@@ -27,6 +28,7 @@ interface RenderContext {
   /** "edit" shows placeholders for empty content; "present" hides them. */
   mode: "edit" | "present";
   extensionRenderers?: ExtensionRendererRegistry;
+  extensionEffects?: ExtensionEffectRegistry;
 }
 
 export interface ExtensionRendererContext {
@@ -37,6 +39,8 @@ export interface ExtensionRendererContext {
 
 export type ExtensionElementRenderer = (props: { element: ExtensionElement; context: ExtensionRendererContext }) => ReactNode;
 export type ExtensionRendererRegistry = Readonly<Record<string, ExtensionElementRenderer>>;
+export type ExtensionElementEffectRenderer = (props: { element: CatalogElement; effect: ElementEffect; context: ExtensionRendererContext; children: ReactNode }) => ReactNode;
+export type ExtensionEffectRegistry = Readonly<Record<string, ExtensionElementEffectRenderer>>;
 
 class ExtensionRenderBoundary extends Component<{ extensionId: string; kind: string; mode: "edit" | "present"; children: ReactNode }, { failed: boolean }> {
   state = { failed: false };
@@ -82,6 +86,8 @@ export interface SlideViewProps {
   highlightedElementId?: string;
   /** Namespaced renderers contributed by installed extensions. */
   extensionRenderers?: ExtensionRendererRegistry;
+  /** Trusted extension effect renderers keyed by `${extensionId}/${effectId}`. */
+  extensionEffects?: ExtensionEffectRegistry;
   className?: string;
   children?: ReactNode;
 }
@@ -102,6 +108,7 @@ export const SlideView = memo(function SlideView({
   settledIds,
   highlightedElementId,
   extensionRenderers,
+  extensionEffects,
   className,
   children,
 }: SlideViewProps) {
@@ -117,7 +124,7 @@ export const SlideView = memo(function SlideView({
   const elements = [...slide.elements].sort((a, b) => a.zIndex - b.zIndex);
 
   return (
-    <Ctx.Provider value={{ doc, resolveAsset, mode, extensionRenderers }}>
+    <Ctx.Provider value={{ doc, resolveAsset, mode, extensionRenderers, extensionEffects }}>
       <div className={className} style={{ width: W * scale, height: H * scale, overflow: "hidden", position: "relative" }}>
         <div
           data-slide-id={slide.id}
@@ -133,7 +140,7 @@ export const SlideView = memo(function SlideView({
         >
           {elements.map((el) =>
             el.hidden || hiddenIds?.has(el.id) ? null : (
-              <ElementFrame key={el.id} element={el} position={{ ...el.position, ...overrides?.[el.id] }} schedule={settledIds?.has(el.id) ? null : schedule} timeMs={timeMs} highlighted={highlightedElementId === el.id} />
+      <ElementFrame key={el.id} element={el} position={{ ...el.position, ...overrides?.[el.id] }} schedule={settledIds?.has(el.id) ? null : schedule} timeMs={timeMs} highlighted={highlightedElementId === el.id} />
             ),
           )}
           {children}
@@ -157,6 +164,7 @@ export interface MorphViewProps {
   /** Local time of the incoming slide, so its other elements can start their animations. */
   timeMs?: number;
   extensionRenderers?: ExtensionRendererRegistry;
+  extensionEffects?: ExtensionEffectRegistry;
 }
 
 /**
@@ -164,7 +172,7 @@ export interface MorphViewProps {
  * the shared elements are drawn once on top, moving from their old geometry and
  * style to the new one (PowerPoint's Morph, Keynote's Magic Move).
  */
-export function MorphView({ doc, from, to, progress, scale = 1, resolveAsset = () => undefined, timeMs, extensionRenderers }: MorphViewProps) {
+export function MorphView({ doc, from, to, progress, scale = 1, resolveAsset = () => undefined, timeMs, extensionRenderers, extensionEffects }: MorphViewProps) {
   const pairs = useMemo(() => matchMorph(from, to), [from, to]);
   const hideFrom = useMemo(() => new Set(pairs.map(([a]) => a.id)), [pairs]);
   const hideTo = useMemo(() => new Set(pairs.map(([, b]) => b.id)), [pairs]);
@@ -173,9 +181,9 @@ export function MorphView({ doc, from, to, progress, scale = 1, resolveAsset = (
   const layer: CSSProperties = { position: "absolute", inset: 0 };
   return (
     <div style={{ position: "relative", width: W * scale, height: H * scale, overflow: "hidden" }}>
-      <div style={layer}><SlideView doc={doc} slide={from} scale={scale} timeMs={SETTLED_MS} hiddenIds={hideFrom} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} /></div>
-      <div style={{ ...layer, opacity: progress }}><SlideView doc={doc} slide={to} scale={scale} timeMs={timeMs} hiddenIds={hideTo} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} /></div>
-      <Ctx.Provider value={{ doc, resolveAsset, mode: "present", extensionRenderers }}>
+      <div style={layer}><SlideView doc={doc} slide={from} scale={scale} timeMs={SETTLED_MS} hiddenIds={hideFrom} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} /></div>
+      <div style={{ ...layer, opacity: progress }}><SlideView doc={doc} slide={to} scale={scale} timeMs={timeMs} hiddenIds={hideTo} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} /></div>
+      <Ctx.Provider value={{ doc, resolveAsset, mode: "present", extensionRenderers, extensionEffects }}>
         <div
           dir={documentDirection(doc)}
           lang={doc.metadata.language}
@@ -209,6 +217,21 @@ function ElementFrame({ element, position: p, schedule, timeMs, highlighted = fa
 }) {
   // Animation transforms sit on an inner layer so they compose with the element's own rotation.
   const anim = schedule && timeMs !== undefined && element.animations.length ? stateToCss(elementStateAt(schedule, element.id, timeMs)) : null;
+  const { doc, resolveAsset, mode, extensionEffects } = useRender();
+  const effectContext = { doc, resolveAsset, mode } as const;
+  const activeEffects = element.effects.filter((effect) => {
+    const installed = doc.extensions[effect.extensionId];
+    return installed?.enabled && installed.grantedCapabilities.includes("editor.render") && extensionEffects?.[`${effect.extensionId}/${effect.effectId}`];
+  });
+  const body = activeEffects.reduceRight<ReactNode>((children, effect) => {
+    const Renderer = extensionEffects?.[`${effect.extensionId}/${effect.effectId}`];
+    if (!Renderer) return children;
+    return (
+      <ExtensionRenderBoundary key={`${effect.id}:${effect.effectId}`} extensionId={effect.extensionId} kind={effect.effectId} mode={mode}>
+        <Renderer element={element} effect={effect} context={effectContext}>{children}</Renderer>
+      </ExtensionRenderBoundary>
+    );
+  }, <ElementBody element={element} />);
   return (
     <div
       data-element-id={element.id}
@@ -226,11 +249,9 @@ function ElementFrame({ element, position: p, schedule, timeMs, highlighted = fa
     >
       {anim ? (
         <div style={{ width: "100%", height: "100%", opacity: anim.opacity, transform: anim.transform, filter: anim.filter, transformOrigin: "50% 50%" }}>
-          <ElementBody element={element} />
+          {body}
         </div>
-      ) : (
-        <ElementBody element={element} />
-      )}
+      ) : body}
     </div>
   );
 }

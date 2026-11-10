@@ -69,7 +69,7 @@ export async function startVideoJob(input: { doc: CatalogDocument; assets: Recor
           if (p.phase === "encoding") job.status = "encoding";
         },
       });
-      job.bytes = (await stat(job.file)).size;
+      job.bytes = (await stat(/* turbopackIgnore: true */ job.file)).size;
       job.status = "done";
     } catch (e) {
       job.status = job.controller.signal.aborted ? "cancelled" : "error";

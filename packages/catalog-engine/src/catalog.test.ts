@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { cardDisplay, checkExportCompatibility, createCatalog, discountPercent, duplicateCatalog, formatMoney, matchesProduct, parseCatalogDocument, productSchema, productUsage } from "./index";
+import { cardDisplay, catalogElementSchema, checkExportCompatibility, createCatalog, discountPercent, duplicateCatalog, formatMoney, matchesProduct, parseCatalogDocument, productSchema, productUsage } from "./index";
 
 test("createCatalog produces a valid document", () => {
   const doc = createCatalog({ title: "Summer 2027", page: "a4-portrait" });
@@ -22,10 +22,30 @@ test("warns on missing assets and PDF animations", () => {
     zIndex: 0, locked: false, hidden: false, opacity: 1, content: { assetId: "nope", alt: "" },
     style: { fit: "cover", borderRadius: 0 },
     animations: [{ id: "a1", category: "entrance", preset: "fade", trigger: "on-enter", startMs: 0, durationMs: 500, delayMs: 0, easing: "ease-out" }],
+    effects: [],
   });
   const res = parseCatalogDocument(doc);
   expect(res.ok && res.warnings.length).toBe(1);
   expect(checkExportCompatibility(doc, "pdf")).toHaveLength(1);
+});
+
+test("shader effects are bounded references, default safely for older catalogs and warn for PowerPoint", () => {
+  const doc = createCatalog({ title: "Effects" });
+  doc.slides[0]!.elements.push(catalogElementSchema.parse({
+    id: "el_shader", type: "shape", position: { x: 0, y: 0, width: 100, height: 100 },
+    content: { shape: "rect" }, style: { fill: "#fff" },
+  }));
+  doc.slides[0]!.elements[0]!.effects.push({
+    id: "fx_1", extensionId: "com.kavero.aurora-fill", effectId: "aurora-fill", type: "shader-fill", parameters: { intensity: 0.32 },
+  });
+  expect(parseCatalogDocument(doc).ok).toBe(true);
+  expect(checkExportCompatibility(doc, "pptx").some((issue) => issue.message.includes("Shader fills"))).toBe(true);
+
+  const legacy = JSON.parse(JSON.stringify(doc)) as { slides: { elements: Record<string, unknown>[] }[] };
+  delete legacy.slides[0]!.elements[0]!.effects;
+  const parsed = parseCatalogDocument(legacy);
+  expect(parsed.ok).toBe(true);
+  if (parsed.ok) expect(parsed.document.slides[0]!.elements[0]!.effects).toEqual([]);
 });
 
 test("duplicateCatalog gives fresh ids", () => {
@@ -182,7 +202,7 @@ test("product validation warnings, usage and helpers", () => {
   const doc = createCatalog({ title: "Shop" });
   doc.products.push(productSchema.parse({ id: "p1", name: "Desk", price: 120, compareAtPrice: 100, imageAssetIds: ["missing"] }));
   const pos = { x: 0, y: 0, width: 10, height: 10, rotation: 0 };
-  const base = { zIndex: 0, locked: false, hidden: false, opacity: 1, animations: [], position: pos };
+  const base = { zIndex: 0, locked: false, hidden: false, opacity: 1, animations: [], effects: [], position: pos };
   doc.slides[0]!.elements.push(
     { ...base, id: "el_a", type: "product", content: { productId: "p1" }, style: { layout: "vertical", showPrice: true, showDescription: true, borderRadius: 8, imageFit: "contain", showAttributes: false } },
     { ...base, id: "el_b", type: "product-grid", content: { columns: 2, products: [{ productId: "p1" }] }, style: { layout: "vertical", showPrice: true, showDescription: true, borderRadius: 8, imageFit: "contain", showAttributes: false, gap: 16 } },

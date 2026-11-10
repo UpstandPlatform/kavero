@@ -13,10 +13,14 @@ export const EXTENSION_CAPABILITIES = [
   "assets.write",
   "network.fetch",
   "ai.invoke",
+  "integrations.call",
   "extension.messaging",
 ] as const;
 
 export type ExtensionCapability = (typeof EXTENSION_CAPABILITIES)[number];
+
+export const EXTENSION_TYPES = ["plugin", "widget", "shader-effect", "shader-fill", "integration"] as const;
+export type ExtensionType = (typeof EXTENSION_TYPES)[number];
 
 const httpsUrl = z.string().url().refine((value) => value.startsWith("https://"), "Use an HTTPS URL.");
 export const extensionIdPattern = /^[a-z0-9]+(?:[.-][a-z0-9]+)+$/;
@@ -32,6 +36,7 @@ export const extensionManifestSchema = z.object({
     url: httpsUrl.optional(),
   }).strict(),
   capabilities: z.array(z.enum(EXTENSION_CAPABILITIES)).max(EXTENSION_CAPABILITIES.length).refine((values) => new Set(values).size === values.length),
+  types: z.array(z.enum(EXTENSION_TYPES)).min(1).max(EXTENSION_TYPES.length).refine((values) => new Set(values).size === values.length).default(["plugin"]),
   hooks: z.array(z.string().trim().min(1).max(80).regex(/^[a-z][a-z0-9]*(?:[.-][a-z0-9]+)*$/)).max(32).refine((values) => new Set(values).size === values.length).optional(),
   defaultEnabled: z.boolean().optional(),
   categories: z.array(z.string().trim().min(1).max(40)).max(12).optional(),
@@ -50,6 +55,8 @@ export interface ExtensionManifest {
   publisher: { id: string; name: string; url?: string };
   /** Capabilities requested by the plugin. The host must grant each one. */
   capabilities: readonly ExtensionCapability[];
+  /** Store surfaces and editor APIs this extension contributes. Defaults to a traditional plugin. */
+  types?: readonly ExtensionType[];
   /** Host hooks this extension may register. Each hook can also require host-configured capabilities. */
   hooks?: readonly string[];
   /** Verified first-party bundles may be installed by default. */

@@ -6,8 +6,10 @@ import { MAX_FONT_BYTES, downloadFont, googleFontFaces, sniffFont } from "@Kaver
 import { SecretBox } from "@Kavero/api/services/secret-box";
 import { imageSize } from "@Kavero/api/services/image-size";
 import { fetchImageAsDataUrl } from "@Kavero/api/services/safe-fetch";
-import { TokenService, audit } from "@Kavero/api/services/token-service";
+import { TokenService, audit, isBanned, permissionsToScopes } from "@Kavero/api/services/token-service";
 import { providerFromEnv, type AiEnv } from "@Kavero/ai";
+import { user } from "@Kavero/db/schema/auth";
+import { eq } from "drizzle-orm";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { renderPdf, renderSlideImage } from "@Kavero/export-chromium";
 import { createKaveroMcpServer } from "@Kavero/mcp-server";
@@ -16,7 +18,7 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { renderOrigin } from "@/modules/export/access";
 import { objectStorage } from "@/modules/storage/object-storage";
 import { ENV } from "@/env.server";
-import { db } from "@/services";
+import { auth, db } from "@/services";
 
 export const runtime = "nodejs";
 
@@ -40,12 +42,28 @@ const unauthorized = (message: string) =>
 
 /**
  * Kavero MCP server (Streamable HTTP, stateless JSON mode).
- * Authenticate with a personal access token: `Authorization: Bearer kv_...`.
+ * Authenticate with a Better Auth API key: `Authorization: Bearer kv_...`.
+ * Legacy personal access tokens remain valid during migration.
  */
 export async function POST(request: Request) {
   const token = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
-  if (!token) return unauthorized("Missing bearer token. Create one in Kavero → Settings → API tokens.");
-  const principal = await new TokenService(db).authenticate(token);
+  if (!token) return unauthorized("Missing bearer token. Create one in Kavero → Settings → API keys.");
+  let principal: Awaited<ReturnType<TokenService["authenticate"]>> = null;
+  try {
+    const verified = await auth.api.verifyApiKey({ body: { key: token } });
+    if (verified.valid && verified.key) {
+      const [owner] = await db.select({ banned: user.banned, banExpires: user.banExpires }).from(user).where(eq(user.id, verified.key.referenceId)).limit(1);
+      if (!owner || isBanned(owner)) return unauthorized("Invalid, expired or revoked token.");
+      principal = {
+        userId: verified.key.referenceId,
+        tokenId: verified.key.id,
+        scopes: permissionsToScopes(verified.key.permissions),
+      };
+    }
+  } catch {
+    // Continue with legacy token authentication while users transition to Better Auth keys.
+  }
+  principal ??= await new TokenService(db).authenticate(token);
   if (!principal) return unauthorized("Invalid, expired or revoked token.");
   if (rateLimited(principal.tokenId)) {
     await audit(db, { userId: principal.userId, tokenId: principal.tokenId, action: "mcp:request", outcome: "denied", details: { reason: "rate-limit" } });

@@ -16,6 +16,9 @@ test("exports editable slides with warnings", async () => {
   doc.slides[0]!.elements.push(catalogElementSchema.parse({
     id: "h", type: "html", position: { x: 0, y: 0, width: 300, height: 100 }, content: { html: "<p>Hello <b>web</b></p>" },
   }));
+  doc.slides[0]!.elements[0]!.effects.push({
+    id: "fx_1", extensionId: "com.kavero.prism-glow", effectId: "prism-glow", type: "shader-effect", parameters: { intensity: 0.32 },
+  });
 
   const { data, warnings } = await exportPptx<Uint8Array>(doc, { assets: {}, outputType: "uint8array" });
   expect(data.byteLength).toBeGreaterThan(10_000);
@@ -24,6 +27,7 @@ test("exports editable slides with warnings", async () => {
   expect(names.match(/ppt\/slides\/slide\d+\.xml/g)?.filter((v, i, a) => a.indexOf(v) === i).length).toBe(doc.slides.length);
   expect(warnings.some((w) => w.includes("HTML blocks"))).toBe(true);
   expect(warnings.some((w) => w.includes("transitions"))).toBe(true);
+  expect(warnings.some((w) => w.includes("Shader fills and effects"))).toBe(true);
 });
 
 test("RTL text detection", async () => {

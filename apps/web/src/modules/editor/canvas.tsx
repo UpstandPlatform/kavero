@@ -2,7 +2,7 @@
 
 import type { CatalogElement, CatalogSlide, ElementPosition } from "@Kavero/catalog-engine";
 import type { Editor, EditorState } from "@Kavero/editor-core";
-import { SlideView, type ExtensionRendererRegistry } from "@Kavero/renderer";
+import { SlideView, type ExtensionEffectRegistry, type ExtensionRendererRegistry } from "@Kavero/renderer";
 import { Textarea } from "@Kavero/ui/components/textarea";
 import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 
@@ -41,9 +41,10 @@ export interface CanvasProps {
   onCancelAnnotation?: () => void;
   highlightedAnnotation?: { slideId: string; elementId: string } | null;
   extensionRenderers?: ExtensionRendererRegistry;
+  extensionEffects?: ExtensionEffectRegistry;
 }
 
-export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, actions, annotationMode = false, onAnnotateElement, onAddElementsToChat, onCancelAnnotation, highlightedAnnotation, extensionRenderers }: CanvasProps) {
+export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, actions, annotationMode = false, onAnnotateElement, onAddElementsToChat, onCancelAnnotation, highlightedAnnotation, extensionRenderers, extensionEffects }: CanvasProps) {
   const openMenu = useContextMenu();
   const run = useRun(editor);
   const doc = state.document;
@@ -300,6 +301,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
             highlightedElementId={highlightedAnnotation?.slideId === slide.id ? highlightedAnnotation.elementId : undefined}
             resolveAsset={(id) => assetUrls[id]}
             extensionRenderers={extensionRenderers}
+            extensionEffects={extensionEffects}
           />
 
           {/* Hit areas and selection chrome, in screen pixels over the scaled slide. */}

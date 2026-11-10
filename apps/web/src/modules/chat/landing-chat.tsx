@@ -13,6 +13,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { authClient } from "@/lib/auth-client";
 import { builtInExtensionRenderers } from "@/modules/editor/extensions/built-in-renderers";
+import { builtInExtensionEffects } from "@/modules/editor/extensions/built-in-effects";
 import { saveLocalCatalog } from "@/modules/catalog/local-catalogs";
 import { makeTRPCClient } from "@/utils/trpc";
 
@@ -59,7 +60,7 @@ export function LandingPrompt() {
           <p className="flex items-center gap-2 text-sm font-medium"><HugeiconsIcon icon={SparklesIcon} className="size-4" /> Kavero assistant</p>
           <Button variant="ghost" size="icon-sm" aria-label="Close chat" onClick={() => setStarted(null)}><HugeiconsIcon icon={Cancel01Icon} /></Button>
         </div>
-        <ChatThread mode="landing" initialPrompt={started} renderTool={(part) => <CreateCatalogPart part={part} />} placeholder="Reply or add details…" className="min-h-0 flex-1" />
+        <ChatThread mode="landing" scopeId="landing" storageKey="kavero:chat:landing" initialPrompt={started} renderTool={(part) => <CreateCatalogPart part={part} />} placeholder="Reply or add details…" className="min-h-0 flex-1" />
       </div>
     );
   }
@@ -135,7 +136,7 @@ function CreateCatalogPart({ part }: { part: ToolPart }) {
   const width = 280;
   return (
     <div className="flex flex-wrap items-center gap-4 rounded-xl border bg-background p-3">
-      {cover && <div className="overflow-hidden rounded-lg border"><SlideView doc={doc} slide={cover} scale={width / doc.settings.width} extensionRenderers={builtInExtensionRenderers} /></div>}
+      {cover && <div className="overflow-hidden rounded-lg border"><SlideView doc={doc} slide={cover} scale={width / doc.settings.width} extensionRenderers={builtInExtensionRenderers} extensionEffects={builtInExtensionEffects} /></div>}
       <div className="grid min-w-0 flex-1 gap-1">
         <p className="truncate font-medium" dir="auto">{output.title}</p>
         <p className="text-xs text-muted-foreground">{output.slides} slides · {state === "saved" ? "saved in this browser" : state === "error" ? "couldn't save in this browser" : "saving…"}</p>

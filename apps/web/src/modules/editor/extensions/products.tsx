@@ -16,6 +16,7 @@ export const productsExtension: EditorExtension = {
     apiVersion: "1.0.0",
     publisher: { id: "kavero", name: "Kavero" },
     capabilities: ["catalog.read", "catalog.write", "catalog.storage", "editor.ui", "editor.render", "assets.read", "assets.write", "network.fetch"],
+    types: ["plugin"],
     defaultEnabled: true,
     categories: ["catalogs", "commerce"],
     license: "MIT",

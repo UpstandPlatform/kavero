@@ -120,7 +120,7 @@ export class McpConnectionService {
       await this.db.update(mcpConnection).set({ status: "ok", lastError: null, capabilities: { tools, resources, server: client.getServerVersion() }, lastCheckedAt: new Date() }).where(eq(mcpConnection.id, id));
       return { id, status: "ok" as const, tools, resources };
     } catch (e) {
-      const message = scrub((e as Error).message, row);
+      const message = this.scrubConnectionError((e as Error).message, row);
       await this.db.update(mcpConnection).set({ status: "error", lastError: message, lastCheckedAt: new Date() }).where(eq(mcpConnection.id, id));
       return { id, status: "error" as const, error: message, tools: [] as ToolInfo[], resources: [] };
     } finally {
@@ -131,6 +131,11 @@ export class McpConnectionService {
   /** Call a tool on the user's connected server and return its content. */
   async callTool(userId: string, id: string, name: string, args: Record<string, unknown>) {
     const row = await this.owned(userId, id);
+    const listedTools = (row.capabilities as { tools?: ToolInfo[] } | null)?.tools ?? [];
+    if (!listedTools.some((tool) => tool.name === name)) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Choose a tool listed by this connection. Refresh the connection if its tool list is out of date." });
+    }
+    validateToolArguments(args);
     let client: Client | null = null;
     try {
       client = await this.connect(row);
@@ -139,11 +144,68 @@ export class McpConnectionService {
       await this.db.update(mcpConnection).set({ lastSyncAt: new Date(), status: "ok", lastError: null }).where(eq(mcpConnection.id, id));
       return result as { content?: { type: string; text?: string }[]; structuredContent?: unknown; isError?: boolean };
     } catch (e) {
-      throw new TRPCError({ code: "BAD_REQUEST", message: scrub((e as Error).message, row) });
+      throw new TRPCError({ code: "BAD_REQUEST", message: this.scrubConnectionError((e as Error).message, row) });
     } finally {
       await client?.close().catch(() => undefined);
     }
   }
+
+  private scrubConnectionError(message: string, row: { encryptedSecret: string | null }) {
+    if (row.encryptedSecret) {
+      try {
+        const secret = this.box.open(row.encryptedSecret);
+        if (secret) message = message.replaceAll(secret, "***");
+      } catch {
+        // An unreadable stored secret must not prevent returning the scrubbed error.
+      }
+    }
+    return scrub(message, row);
+  }
+}
+
+/** Keep user-controlled tool calls bounded and JSON-only before they reach remote services. */
+function validateToolArguments(args: Record<string, unknown>) {
+  if (!args || typeof args !== "object" || Array.isArray(args) || (Object.getPrototypeOf(args) !== Object.prototype && Object.getPrototypeOf(args) !== null)) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "Tool arguments must be a JSON object." });
+  }
+  const stack: Array<{ value: unknown; depth: number }> = [{ value: args, depth: 0 }];
+  const seen = new WeakSet<object>();
+  let nodes = 0;
+  let size = 0;
+  while (stack.length) {
+    const { value, depth } = stack.pop()!;
+    if (++nodes > 10_000 || depth > 24) throw new TRPCError({ code: "BAD_REQUEST", message: "Tool arguments are too large or deeply nested." });
+    if (value === null || typeof value === "boolean") continue;
+    if (typeof value === "number") {
+      if (!Number.isFinite(value)) throw new TRPCError({ code: "BAD_REQUEST", message: "Tool arguments must contain finite numbers." });
+      continue;
+    }
+    if (typeof value === "string") {
+      size += value.length;
+      continue;
+    }
+    if (typeof value !== "object") throw new TRPCError({ code: "BAD_REQUEST", message: "Tool arguments must contain JSON values only." });
+    if (seen.has(value)) throw new TRPCError({ code: "BAD_REQUEST", message: "Tool arguments cannot contain cycles." });
+    seen.add(value);
+    if (Array.isArray(value)) {
+      if (value.length > 2_000) throw new TRPCError({ code: "BAD_REQUEST", message: "Tool arguments contain too many items." });
+      for (const item of value) stack.push({ value: item, depth: depth + 1 });
+      continue;
+    }
+    const prototype = Object.getPrototypeOf(value);
+    if (prototype !== Object.prototype && prototype !== null) throw new TRPCError({ code: "BAD_REQUEST", message: "Tool arguments must be plain JSON objects." });
+    const keys = Reflect.ownKeys(value);
+    if (keys.length > 2_000 || keys.some((key) => typeof key !== "string" || ["__proto__", "prototype", "constructor"].includes(key))) {
+      throw new TRPCError({ code: "BAD_REQUEST", message: "Tool arguments contain too many or reserved fields." });
+    }
+    for (const key of keys as string[]) {
+      size += key.length;
+      const descriptor = Object.getOwnPropertyDescriptor(value, key);
+      if (!descriptor || !("value" in descriptor)) throw new TRPCError({ code: "BAD_REQUEST", message: "Tool arguments must be plain JSON objects." });
+      stack.push({ value: descriptor.value, depth: depth + 1 });
+    }
+  }
+  if (size > 64_000) throw new TRPCError({ code: "BAD_REQUEST", message: "Tool arguments exceed the 64 KB limit." });
 }
 
 /** Never echo credentials back in error messages. */

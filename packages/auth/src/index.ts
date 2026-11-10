@@ -8,6 +8,7 @@ import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { nextCookies } from "better-auth/next-js";
 import { admin } from "better-auth/plugins";
+import { apiKey } from "@better-auth/api-key";
 import { and, count, eq, gt, isNull, sql } from "drizzle-orm";
 
 export type AuthConfig = {
@@ -68,6 +69,20 @@ export function createAuth(env: AuthConfig, database: Database) {
         adminRoles: ["admin"],
         bannedUserMessage: "This account has been suspended. Contact the server admin.",
       }),
+      apiKey({
+        defaultPrefix: "kv_",
+        disableKeyHashing: false,
+        requireName: true,
+        maximumNameLength: 80,
+        references: "user",
+        keyExpiration: {
+          defaultExpiresIn: 90 * 24 * 60 * 60 * 1000,
+          minExpiresIn: 1,
+          maxExpiresIn: 365,
+        },
+        rateLimit: { enabled: true, timeWindow: 60_000, maxRequests: 120 },
+        permissions: { defaultPermissions: { catalogs: ["read"] } },
+      }),
       // Must stay last so cookies set by earlier plugins reach Next.js.
       nextCookies(),
     ],
@@ -75,3 +90,4 @@ export function createAuth(env: AuthConfig, database: Database) {
 }
 
 export type Session = ReturnType<typeof createAuth>["$Infer"]["Session"];
+export type Auth = ReturnType<typeof createAuth>;
