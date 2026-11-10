@@ -12,13 +12,11 @@ import { buildVarlockEnvBlob } from "./varlock-env";
  * storage (IndexedDB, where local catalogs live) is scoped to the origin, port included. */
 const DEFAULT_PORT = 41731;
 
-/** Placeholder so the server boots without a database; the pool connects lazily, so
- * only sign-in / cloud features fail when no real DATABASE_URL is configured. */
-const LOCAL_MODE_DATABASE_URL = "postgres://kavero:local-mode@127.0.0.1:1/kavero-not-configured";
 
 export type BundledServer = {
   url: string;
   child: ChildProcess;
+  /** No DATABASE_URL configured: embedded database and one automatic local account. */
   localMode: boolean;
   stop: () => void;
 };
@@ -107,8 +105,10 @@ export async function startBundledServer(opts: { resourcesDir: string; userDataD
   const chrome = userEnv["KAVERO_CHROME_PATH"] ?? findChrome();
 
   // Precedence: kavero.env > process env > desktop defaults.
+  // Local mode: Postgres embedded in the server process (PGlite), stored in the data folder.
+  const databaseDir = join(opts.userDataDir, "database");
   const appEnv: Record<string, string | undefined> = {
-    DATABASE_URL: LOCAL_MODE_DATABASE_URL,
+    DATABASE_URL: `pglite:${databaseDir}`,
     BETTER_AUTH_SECRET: getOrCreateAuthSecret(opts.userDataDir),
     KAVERO_STORAGE_DIR: storageDir,
     KAVERO_CHROME_PATH: chrome,
@@ -117,6 +117,10 @@ export async function startBundledServer(opts: { resourcesDir: string; userDataD
     NODE_ENV: "production",
     // Auth must match the origin the window actually loads.
     BETTER_AUTH_URL: url,
+    KAVERO_LOCAL_MODE: localMode ? "1" : "0",
+    // Keep the database (embedded or configured) on the app's schema after every update.
+    KAVERO_AUTO_MIGRATE: "1",
+    KAVERO_MIGRATIONS_DIR: join(webDir, "migrations"),
   };
   if ((appEnv["BETTER_AUTH_SECRET"]?.length ?? 0) < 32) {
     throw new Error("BETTER_AUTH_SECRET in kavero.env must be at least 32 characters.");

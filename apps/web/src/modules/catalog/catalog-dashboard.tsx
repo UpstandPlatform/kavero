@@ -11,7 +11,7 @@ import {
 } from "@Kavero/ui/components/dropdown-menu";
 import { Input } from "@Kavero/ui/components/input";
 import { Skeleton } from "@Kavero/ui/components/skeleton";
-import { Sparkles, Cloud, CloudOff, CloudUpload, Copy, Download, HardDrive, RefreshCw, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload } from "lucide-react";
+import { Sparkles, Cloud, CloudOff, CloudUpload, Copy, Download, HardDrive, RefreshCw, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload, Presentation } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -20,12 +20,14 @@ import { toast } from "sonner";
 import { authClient } from "@/lib/auth-client";
 
 import {
+  addExampleCatalogs,
   createLocalCatalog,
   deleteLocalCatalog,
   downloadProjectFile,
   duplicateLocalCatalog,
   importLocalProject,
   renameLocalCatalog,
+  seedExampleCatalogs,
   useLocalCatalogs,
 } from "./local-catalogs";
 import { SyncConflictError, deleteCloudCopy, listCloudCatalogs, listWorkspaces, pushCatalog, refreshFromCloud } from "./cloud-sync";
@@ -62,6 +64,11 @@ export function CatalogDashboard() {
     window.addEventListener("kavero:dashboard", onAction);
     return () => window.removeEventListener("kavero:dashboard", onAction);
   }, []);
+  // Example presentations appear on a fresh dashboard (once per browser).
+  const catalogsLoaded = catalogs !== null;
+  useEffect(() => {
+    if (catalogsLoaded) void seedExampleCatalogs().catch(() => undefined);
+  }, [catalogsLoaded]);
   const fileInput = useRef<HTMLInputElement>(null);
   const [conflicts, setConflicts] = useState<Set<string>>(new Set());
   const [cloudOnlyCount, setCloudOnlyCount] = useState(0);
@@ -176,7 +183,12 @@ export function CatalogDashboard() {
         <div className="flex flex-col items-center gap-3 rounded-xl border border-dashed px-6 py-16 text-center">
           <h2 className="text-lg font-medium">No catalogs yet</h2>
           <p className="max-w-sm text-sm text-muted-foreground">Start from a template or a blank page. Everything is saved in your browser — no account needed.</p>
-          <Button size="lg" onClick={() => setCreating(true)}><Plus /> Create your first catalog</Button>
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button size="lg" onClick={() => setCreating(true)}><Plus /> Create your first catalog</Button>
+            <Button size="lg" variant="outline" onClick={() => void addExampleCatalogs().then((n) => toast.success(`Added ${n} example presentations`), (e: Error) => toast.error(e.message))}>
+              <Presentation /> Add example presentations
+            </Button>
+          </div>
         </div>
       )}
 

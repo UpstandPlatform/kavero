@@ -148,7 +148,60 @@ const cardStyle = z.object({
   imageFit: z.enum(["contain", "cover"]).default("contain"),
   /** Show product attributes (specs) as a small list. */
   showAttributes: z.boolean().default(false),
+  // Optional so cards saved before these existed keep their look; see CARD_DISPLAY_DEFAULTS.
+  showImage: z.boolean().optional(),
+  showName: z.boolean().optional(),
+  showBrand: z.boolean().optional(),
+  showSubtitle: z.boolean().optional(),
+  /** Original price struck through next to the price, when the product has one. */
+  showCompareAtPrice: z.boolean().optional(),
+  showBadge: z.boolean().optional(),
+  showAvailability: z.boolean().optional(),
+  showRating: z.boolean().optional(),
+  showSku: z.boolean().optional(),
+  /** "View product" link when the product has a url. */
+  showLink: z.boolean().optional(),
+  /** How many attributes (specs) to list. */
+  maxAttributes: z.number().int().min(1).max(20).optional(),
 });
+
+/** What a product card shows when an optional display flag is unset. */
+export const CARD_DISPLAY_DEFAULTS = {
+  showImage: true,
+  showName: true,
+  showBrand: true,
+  showSubtitle: true,
+  showCompareAtPrice: true,
+  showBadge: true,
+  showAvailability: true,
+  showRating: true,
+  showSku: false,
+  showLink: false,
+  maxAttributes: 8,
+} as const;
+
+export type ProductCardStyle = z.infer<typeof cardStyle>;
+
+/** Card display options with defaults applied. */
+export function cardDisplay(style: Partial<ProductCardStyle>) {
+  const d = CARD_DISPLAY_DEFAULTS;
+  return {
+    showImage: style.showImage ?? d.showImage,
+    showName: style.showName ?? d.showName,
+    showBrand: style.showBrand ?? d.showBrand,
+    showSubtitle: style.showSubtitle ?? d.showSubtitle,
+    showPrice: style.showPrice ?? true,
+    showCompareAtPrice: style.showCompareAtPrice ?? d.showCompareAtPrice,
+    showDescription: style.showDescription ?? true,
+    showAttributes: style.showAttributes ?? false,
+    maxAttributes: style.maxAttributes ?? d.maxAttributes,
+    showBadge: style.showBadge ?? d.showBadge,
+    showAvailability: style.showAvailability ?? d.showAvailability,
+    showRating: style.showRating ?? d.showRating,
+    showSku: style.showSku ?? d.showSku,
+    showLink: style.showLink ?? d.showLink,
+  };
+}
 
 export const productElementSchema = z.object({
   ...elementBase,
@@ -249,16 +302,40 @@ export const catalogAssetSchema = z.object({
   fontSource: z.enum(["local", "upload", "google"]).optional(),
 }).refine((a) => a.kind !== "font" || !!a.family, { message: "Font assets need a family name", path: ["family"] });
 
+export const PRODUCT_AVAILABILITY = ["in-stock", "out-of-stock", "pre-order", "limited"] as const;
+export const AVAILABILITY_LABELS: Record<(typeof PRODUCT_AVAILABILITY)[number], string> = {
+  "in-stock": "In stock",
+  "out-of-stock": "Out of stock",
+  "pre-order": "Pre-order",
+  limited: "Limited stock",
+};
+
+/** Everything except id and name is optional, so catalogs saved before a field existed stay valid. */
 export const productSchema = z.object({
   id,
   name: z.string(),
+  /** Short tagline under the name. */
+  subtitle: z.string().max(200).optional(),
   description: z.string().optional(),
   sku: z.string().optional(),
+  brand: z.string().max(100).optional(),
   price: z.number().optional(),
+  /** Original price, shown struck through to signal a discount. */
+  compareAtPrice: z.number().nonnegative().optional(),
   currency: z.string().length(3).optional(),
+  /** Shown after the price, e.g. "per m²" or "/ kg". */
+  unit: z.string().max(30).optional(),
+  /** Short label over the photo, e.g. "New", "Sale". */
+  badge: z.string().max(30).optional(),
+  availability: z.enum(PRODUCT_AVAILABILITY).optional(),
+  rating: z.number().min(0).max(5).optional(),
+  /** First image is the primary one. */
   imageAssetIds: z.array(id).default([]),
   url: linkUrl.optional(),
   category: z.string().optional(),
+  /** Search keywords; not shown on cards. */
+  tags: z.array(z.string().max(50)).max(30).optional(),
+  /** Specs as label → value, in display order. */
   attributes: z.record(z.string(), z.string()).default({}),
   source: z.string().optional(),
 });

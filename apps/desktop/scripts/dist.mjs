@@ -5,8 +5,8 @@
 //   node scripts/dist.mjs --dir      unpacked app only (fast check)
 //   node scripts/dist.mjs --win|--mac|--linux
 //
-// - Publishing metadata (latest*.yml / app-update.yml for a future auto-updater) is
-//   generated only when GITHUB_REPOSITORY (owner/name) is set, as on GitHub Actions.
+// - Publishing metadata (latest*.yml, app-update.yml) for in-app updates is always generated,
+//   for GITHUB_REPOSITORY (owner/name) or UpstandPlatform/Kavero.
 //   Nothing is ever uploaded from here: releases are created by the workflow.
 // - Signing is optional. Without a certificate (CSC_LINK / WIN_CSC_LINK) builds are
 //   unsigned; macOS notarizes only when APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD and
@@ -32,8 +32,10 @@ if (!target) throw new Error(`Unsupported platform: ${platform}`);
 /** @type {import("electron-builder").Configuration} */
 const config = { extends: join(desktopDir, "electron-builder.yml") };
 
-const [owner, repo] = (env.GITHUB_REPOSITORY ?? "").split("/");
-config.publish = owner && repo ? [{ provider: "github", owner, repo, releaseType: "draft" }] : null;
+// Always describe the GitHub release feed: electron-builder then writes app-update.yml into
+// the app (and latest.yml next to the installer), which in-app updates need.
+const [owner, repo] = (env.GITHUB_REPOSITORY || "UpstandPlatform/Kavero").split("/");
+config.publish = [{ provider: "github", owner, repo, releaseType: "release" }];
 
 const hasCert = platform === "win32" ? !!(env.WIN_CSC_LINK || env.CSC_LINK) : !!env.CSC_LINK;
 if (!hasCert && platform !== "linux") {

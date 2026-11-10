@@ -127,7 +127,8 @@ export function ProductImportDialog({ editor, doc, uploadImage, activeSlideIndex
         type: "product.upsert",
         product: {
           id: ids[i], name: p.name, description: p.description, sku: p.sku, price: p.price, currency: p.currency, url: p.url?.startsWith("http") ? p.url : undefined,
-          category: p.category, attributes: p.attributes, source: conn?.name, imageAssetIds: imageIds.has(i) ? [imageIds.get(i)!] : existing.get(ids[i]!)?.imageAssetIds ?? [],
+          category: p.category, attributes: p.attributes, source: conn?.name,
+          brand: p.brand, compareAtPrice: p.compareAtPrice, availability: p.availability, rating: p.rating, tags: p.tags, imageAssetIds: imageIds.has(i) ? [imageIds.get(i)!] : existing.get(ids[i]!)?.imageAssetIds ?? [],
         },
       }));
       if (layout !== "none") {

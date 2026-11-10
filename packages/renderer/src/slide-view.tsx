@@ -1,6 +1,11 @@
 import {
+  AVAILABILITY_LABELS,
+  cardDisplay,
+  discountPercent,
   documentDirection,
+  formatMoney,
   resolveToken,
+  type ProductCardStyle,
   type CatalogDocument,
   type CatalogElement,
   type CatalogSlide,
@@ -278,7 +283,8 @@ export function ElementBody({ element: el }: { element: CatalogElement }) {
           href={mode === "present" ? el.content.href : undefined}
           target="_blank"
           rel="noopener noreferrer"
-          style={{ ...fill, display: "flex", alignItems: "center", justifyContent: "center", background: color(el.style.background), color: color(el.style.color), borderRadius: el.style.borderRadius, textDecoration: "none", fontWeight: 600 }}
+          // Label scales with the button (like the PowerPoint export), so buttons read at any page size.
+          style={{ ...fill, display: "flex", alignItems: "center", justifyContent: "center", padding: "0 0.8em", boxSizing: "border-box", overflow: "hidden", whiteSpace: "nowrap", fontSize: Math.max(12, Math.round(Math.min(el.position.height * 0.36, 28))), background: color(el.style.background), color: color(el.style.color), borderRadius: el.style.borderRadius, textDecoration: "none", fontWeight: 600 }}
         >
           {el.content.label}
         </a>
@@ -296,34 +302,95 @@ export function ElementBody({ element: el }: { element: CatalogElement }) {
   }
 }
 
-function ProductCard({ product, style: s }: { product: Product | undefined; style: { layout: string; showPrice: boolean; showDescription: boolean; background?: string; borderRadius: number; imageFit?: "contain" | "cover"; showAttributes?: boolean } }) {
+const clamp = (lines: number): CSSProperties => ({ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: lines, overflow: "hidden", overflowWrap: "anywhere" });
+
+const AVAILABILITY_DOT: Record<string, string> = { "in-stock": "#16a34a", "out-of-stock": "#dc2626", "pre-order": "#2563eb", limited: "#d97706" };
+
+function Stars({ rating }: { rating: number }) {
+  const r = Math.max(0, Math.min(5, rating));
+  return (
+    <span role="img" aria-label={`Rated ${r} out of 5`} style={{ display: "inline-flex", alignItems: "center", gap: 4, fontSize: 13 }}>
+      {/* Filled stars are clipped over empty ones so half ratings show. */}
+      <span aria-hidden style={{ position: "relative", letterSpacing: 1, lineHeight: 1 }}>
+        <span style={{ opacity: 0.25 }}>★★★★★</span>
+        <span style={{ position: "absolute", insetInlineStart: 0, top: 0, width: `${(r / 5) * 100}%`, overflow: "hidden", whiteSpace: "nowrap" }}>★★★★★</span>
+      </span>
+      <span style={{ opacity: 0.7, fontVariantNumeric: "tabular-nums" }}>{r.toFixed(1).replace(/\.0$/, "")}</span>
+    </span>
+  );
+}
+
+function ProductCard({ product, style: s }: { product: Product | undefined; style: Partial<ProductCardStyle> & { layout: string; borderRadius: number } }) {
   const { doc, resolveAsset, mode } = useRender();
   if (!product) return <Placeholder label="Product" radius={s.borderRadius} show={mode === "edit"} minHeight={120} />;
-  const img = product.imageAssetIds[0] ? resolveAsset(product.imageAssetIds[0]) : undefined;
-  const price = product.price !== undefined
-    ? new Intl.NumberFormat(doc.metadata.language, { style: "currency", currency: product.currency ?? doc.metadata.currency }).format(product.price)
-    : null;
+  const d = cardDisplay(s);
+  const lang = doc.metadata.language;
+  const currency = product.currency ?? doc.metadata.currency;
+  const img = d.showImage && product.imageAssetIds[0] ? resolveAsset(product.imageAssetIds[0]) : undefined;
+  const price = d.showPrice ? formatMoney(product.price, currency, lang) : null;
+  const discount = discountPercent(product);
+  const compareAt = d.showPrice && d.showCompareAtPrice && discount !== null ? formatMoney(product.compareAtPrice, currency, lang) : null;
+  const badge = d.showBadge && product.badge?.trim() ? product.badge.trim() : null;
+  const attributes = d.showAttributes ? Object.entries(product.attributes ?? {}).filter(([k, v]) => k && v).slice(0, d.maxAttributes) : [];
+  const availability = d.showAvailability ? product.availability : undefined;
+  const sku = d.showSku ? product.sku : undefined;
+  const link = d.showLink ? product.url : undefined;
+  const rating = d.showRating ? product.rating : undefined;
   const horizontal = s.layout === "horizontal";
+  const primary = resolveToken(doc, "token:primary");
+  const badgeEl = badge && (
+    <span dir="auto" style={{
+      display: "inline-block", maxWidth: "calc(100% - 20px)", padding: "3px 10px", borderRadius: 999, fontSize: 12, fontWeight: 600, lineHeight: 1.4,
+      background: primary, color: resolveToken(doc, "token:on-primary"), whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis",
+    }}>{badge}</span>
+  );
   return (
     <div style={{
       width: "100%", height: "100%", display: "flex", flexDirection: horizontal ? "row" : "column", overflow: "hidden",
       borderRadius: s.borderRadius, background: s.background ? resolveToken(doc, s.background) : "transparent", gap: 12,
     }}>
-      <div style={{ flex: horizontal ? "0 0 45%" : "1 1 0", minHeight: 0, background: "rgba(127,127,127,0.12)", borderRadius: s.borderRadius, overflow: "hidden" }}>
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        {img && <img src={img} alt={product.name} draggable={false} style={{ width: "100%", height: "100%", objectFit: s.imageFit ?? "contain", display: "block" }} />}
-      </div>
-      <div style={{ flex: "0 0 auto", padding: horizontal ? "8px 0" : 0, textAlign: "start" }}>
-        <div dir="auto" style={{ fontWeight: 600, fontSize: 22, fontFamily: `${resolveToken(doc, "token:heading", "fonts")}, system-ui, sans-serif` }}>{product.name}</div>
-        {s.showDescription && product.description && <div dir="auto" style={{ fontSize: 15, opacity: 0.7, marginTop: 4 }}>{product.description}</div>}
-        {s.showAttributes && Object.keys(product.attributes ?? {}).length > 0 && (
+      {d.showImage && (
+        <div style={{ position: "relative", flex: horizontal ? "0 0 45%" : "1 1 0", minHeight: 0, background: "rgba(127,127,127,0.12)", borderRadius: s.borderRadius, overflow: "hidden" }}>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          {img && <img src={img} alt={product.name} draggable={false} style={{ width: "100%", height: "100%", objectFit: s.imageFit ?? "contain", display: "block" }} />}
+          {badgeEl && <div style={{ position: "absolute", top: 10, insetInlineStart: 10, insetInlineEnd: 0 }}>{badgeEl}</div>}
+        </div>
+      )}
+      <div style={{ flex: d.showImage ? "0 0 auto" : "1 1 auto", minWidth: 0, minHeight: 0, overflow: "hidden", padding: horizontal ? "8px 0" : 0, textAlign: "start" }}>
+        {!d.showImage && badgeEl && <div style={{ marginBottom: 6 }}>{badgeEl}</div>}
+        {d.showBrand && product.brand && <div dir="auto" style={{ fontSize: 12, fontWeight: 600, letterSpacing: "0.06em", textTransform: "uppercase", opacity: 0.6, marginBottom: 2, ...clamp(1) }}>{product.brand}</div>}
+        {d.showName && <div dir="auto" style={{ fontWeight: 600, fontSize: 22, fontFamily: `${resolveToken(doc, "token:heading", "fonts")}, system-ui, sans-serif`, ...clamp(3) }}>{product.name}</div>}
+        {d.showSubtitle && product.subtitle && <div dir="auto" style={{ fontSize: 15, opacity: 0.8, marginTop: 2, ...clamp(2) }}>{product.subtitle}</div>}
+        {rating !== undefined && <div style={{ marginTop: 4 }}><Stars rating={rating} /></div>}
+        {d.showDescription && product.description && <div dir="auto" style={{ fontSize: 15, opacity: 0.7, marginTop: 4, ...clamp(4) }}>{product.description}</div>}
+        {attributes.length > 0 && (
           <ul style={{ margin: "6px 0 0", padding: 0, listStyle: "none", fontSize: 13, opacity: 0.8, lineHeight: 1.45 }}>
-            {Object.entries(product.attributes).slice(0, 8).map(([k, v]) => (
-              <li key={k} dir="auto"><span style={{ opacity: 0.7 }}>{k}:</span> {v}</li>
+            {attributes.map(([k, v]) => (
+              <li key={k} dir="auto" style={clamp(1)}><span style={{ opacity: 0.7 }}>{k}:</span> {v}</li>
             ))}
           </ul>
         )}
-        {s.showPrice && price && <div style={{ fontSize: 18, fontWeight: 600, marginTop: 6, color: resolveToken(doc, "token:primary") }}>{price}</div>}
+        {(price || compareAt) && (
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "baseline", columnGap: 8, rowGap: 2, marginTop: 6 }}>
+            {price && <span style={{ fontSize: 18, fontWeight: 600, color: primary }}>{price}{product.unit && <span dir="auto" style={{ fontSize: 13, fontWeight: 400, opacity: 0.75, marginInlineStart: 4 }}>{product.unit}</span>}</span>}
+            {compareAt && <span style={{ fontSize: 14, opacity: 0.6, textDecoration: "line-through" }}>{compareAt}</span>}
+            {compareAt && <span style={{ fontSize: 12, fontWeight: 600, color: primary }}>−{discount}%</span>}
+          </div>
+        )}
+        {(availability || sku || link) && (
+          <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", columnGap: 10, rowGap: 4, marginTop: 6, fontSize: 12 }}>
+            {availability && (
+              <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "2px 8px", borderRadius: 999, border: "1px solid rgba(127,127,127,0.35)", whiteSpace: "nowrap" }}>
+                <span aria-hidden style={{ width: 7, height: 7, borderRadius: 999, background: AVAILABILITY_DOT[availability] }} />
+                {AVAILABILITY_LABELS[availability]}
+              </span>
+            )}
+            {sku && <span dir="auto" style={{ opacity: 0.6, ...clamp(1) }}>SKU {sku}</span>}
+            {link && (mode === "present"
+              ? <a href={link} target="_blank" rel="noopener noreferrer" style={{ color: primary, fontWeight: 600, textDecoration: "underline", textUnderlineOffset: 2 }}>View product</a>
+              : <span style={{ color: primary, fontWeight: 600, textDecoration: "underline", textUnderlineOffset: 2 }}>View product</span>)}
+          </div>
+        )}
       </div>
     </div>
   );

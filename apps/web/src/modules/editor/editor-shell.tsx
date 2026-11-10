@@ -22,6 +22,9 @@ import { LayersPanel } from "./layers-panel";
 import { ShortcutsDialog } from "./shortcuts-dialog";
 import { useEditorKeyboard } from "./use-editor-keyboard";
 import { ProductImportDialog } from "./product-import-dialog";
+import { ProductFormDialog } from "./product-form";
+import { ProductPickerDialog, type PickOptions, type ProductUi } from "./product-picker";
+import { ProductsPanel } from "./products-panel";
 import { PublishDialog } from "./publish-dialog";
 import { PreviewPlayer } from "./preview-player";
 import { PropertiesPanel } from "./properties-panel";
@@ -113,6 +116,8 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
   const [publishing, setPublishing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [aiEditing, setAiEditing] = useState(false);
+  const [picking, setPicking] = useState<PickOptions | null>(null);
+  const [productForm, setProductForm] = useState<{ productId?: string; onSaved?: (id: string) => void; key: number } | null>(null);
 
   /** Add an element centred on the slide and select it. */
   const addElement = useCallback(
@@ -146,7 +151,18 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
 
   const actions = useMemo(() => createActions({ editor, run, uploadImage }), [editor, run, uploadImage]);
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
-  const [sidebar, setSidebar] = useState<"slides" | "layers">("slides");
+  const [sidebar, setSidebar] = useState<"slides" | "layers" | "products">("slides");
+
+  const productUi = useMemo<ProductUi>(() => ({
+    pick: setPicking,
+    edit: (productId, onSaved) => setProductForm({ productId, onSaved, key: Date.now() }),
+    import: () => setImporting(true),
+  }), []);
+  const insertProduct = (productId: string) => addElement({ type: "product", content: { productId }, size: [W * 0.22, H * 0.5] } as never);
+  const insertGrid = (productIds: string[]) => {
+    const columns = Math.min(4, Math.max(1, productIds.length <= 4 ? productIds.length : Math.ceil(productIds.length / 2)));
+    addElement({ type: "product-grid", content: { products: productIds.map((productId) => ({ productId })), columns }, size: [W * 0.8, H * 0.6] } as never);
+  };
   const [renamingSlide, setRenamingSlide] = useState<string | null>(null);
   const openMenu = useContextMenu();
 
@@ -209,8 +225,8 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
         <Button variant="ghost" size="sm" title="Line" aria-label="Line" onClick={() => addElement({ type: "shape", content: { shape: "line" }, style: { fill: "token:text", strokeWidth: 3 }, size: [W * 0.25, 20] } as never)}><Minus /> <span className="hidden xl:inline">Line</span></Button>
         <input ref={fileInput} type="file" accept="image/*" className="hidden" onChange={(e) => addImage(e.target.files?.[0])} />
         <Button variant="ghost" size="sm" title="Image" aria-label="Image" onClick={() => fileInput.current?.click()}><ImagePlus /> <span className="hidden xl:inline">Image</span></Button>
-        <Button variant="ghost" size="sm" title="Product" aria-label="Product" onClick={() => addElement({ type: "product", content: { productId: doc.products[0]?.id ?? "none" }, size: [W * 0.22, H * 0.5] } as never)}><Tag /> <span className="hidden xl:inline">Product</span></Button>
-        <Button variant="ghost" size="sm" title="Product grid" aria-label="Product grid" onClick={() => addElement({ type: "product-grid", content: { products: [], columns: 3 }, size: [W * 0.8, H * 0.6] } as never)}><LayoutGrid /> <span className="hidden xl:inline">Product grid</span></Button>
+        <Button variant="ghost" size="sm" title="Product card" aria-label="Product card" aria-haspopup="dialog" onClick={() => productUi.pick({ multiple: false, title: "Add a product card", confirmLabel: "Add to slide", onConfirm: ([id]) => id && insertProduct(id) })}><Tag /> <span className="hidden xl:inline">Product</span></Button>
+        <Button variant="ghost" size="sm" title="Product grid" aria-label="Product grid" aria-haspopup="dialog" onClick={() => productUi.pick({ multiple: true, title: "Add a product grid", confirmLabel: "Add grid to slide", onConfirm: insertGrid })}><LayoutGrid /> <span className="hidden xl:inline">Product grid</span></Button>
         <Button variant="ghost" size="sm" title="HTML block" aria-label="HTML block" onClick={() => addElement({ type: "html", content: { html: SAMPLE_HTML, css: SAMPLE_CSS }, size: [W * 0.4, H * 0.3] } as never)}><Code2 /> <span className="hidden xl:inline">HTML</span></Button>
         <Button variant="ghost" size="sm" title="Import products from MCP" aria-label="Import products from MCP" onClick={() => setImporting(true)}><PackagePlus /> <span className="hidden xl:inline">Import products</span></Button>
         <div className="ml-auto flex shrink-0 items-center gap-1 text-xs">
@@ -224,16 +240,19 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
       <div className="grid min-h-0 grid-cols-[clamp(140px,17vw,220px)_minmax(0,1fr)_clamp(220px,24vw,272px)]">
         {/* Slides / Layers */}
         <aside className="flex min-h-0 flex-col border-r">
-          <div className="flex items-center gap-1 px-2 py-2" role="tablist" aria-label="Sidebar">
-            {(["slides", "layers"] as const).map((t) => (
+          <div className="flex flex-wrap items-center gap-0.5 px-2 py-2" role="tablist" aria-label="Sidebar">
+            {(["slides", "layers", "products"] as const).map((t) => (
               <button key={t} type="button" role="tab" aria-selected={sidebar === t} onClick={() => setSidebar(t)}
-                className="rounded-md px-2 py-1 text-xs font-medium text-muted-foreground capitalize aria-selected:bg-muted aria-selected:text-foreground">
-                {t}{t === "layers" ? ` (${slide.elements.length})` : ""}
+                title={t === "layers" ? `Layers on this slide (${slide.elements.length})` : t === "products" ? `Products in this catalog (${doc.products.length})` : "Slides"}
+                className="rounded-md px-1.5 py-1 text-xs font-medium text-muted-foreground capitalize aria-selected:bg-muted aria-selected:text-foreground">
+                {t}
               </button>
             ))}
             {sidebar === "slides" && <Button variant="ghost" size="icon-sm" className="ml-auto" title={`Add slide (${kbd("Ctrl+M")})`} onClick={() => actions.addSlide()}><Plus /></Button>}
           </div>
-          {sidebar === "layers" ? (
+          {sidebar === "products" ? (
+            <ProductsPanel editor={editor} doc={doc} assetUrls={assetUrls} ui={productUi} onInsert={insertProduct} />
+          ) : sidebar === "layers" ? (
             <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
               <LayersPanel editor={editor} slide={slide} selection={state.selection} actions={actions} />
             </div>
@@ -279,13 +298,20 @@ function EditorShell({ editor, assetUrls, saveStatus, cloudLabel, uploadImage, u
 
         {/* Properties */}
         <aside className="min-h-0 overflow-y-auto border-l">
-          <PropertiesPanel editor={editor} doc={doc} slide={slide} selection={state.selection} addFont={uploadFont} />
+          <PropertiesPanel editor={editor} doc={doc} slide={slide} selection={state.selection} addFont={uploadFont} assetUrls={assetUrls} productUi={productUi} />
         </aside>
       </div>
       <CatalogFonts doc={doc} resolveAsset={(id) => assetUrls[id]} />
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
       {aiEditing && <AiEditDialog editor={editor} doc={doc} slideId={slide.id} assetUrls={assetUrls} onClose={() => setAiEditing(false)} />}
       {importing && <ProductImportDialog editor={editor} doc={doc} uploadImage={uploadImage} activeSlideIndex={slideIndex} onClose={() => setImporting(false)} />}
+      {picking && <ProductPickerDialog doc={doc} assetUrls={assetUrls} options={picking} ui={productUi} onClose={() => setPicking(null)} />}
+      {productForm && (
+        <ProductFormDialog
+          key={productForm.key} editor={editor} doc={doc} productId={productForm.productId} assetUrls={assetUrls} uploadImage={uploadImage}
+          onSaved={productForm.onSaved} onClose={() => setProductForm(null)}
+        />
+      )}
       {publishing && <PublishDialog doc={doc} onClose={() => setPublishing(false)} />}
       {previewing && <PreviewPlayer doc={doc} startSlide={previewing === "export" ? 0 : slideIndex} openExport={previewing === "export"} assetUrls={assetUrls} onClose={() => setPreviewing(false)} />}
     </div>

@@ -1,4 +1,7 @@
-import { documentDirection, resolveToken, type CatalogDocument, type CatalogElement, type Product } from "@Kavero/catalog-engine";
+import {
+  AVAILABILITY_LABELS, cardDisplay, discountPercent, documentDirection, formatMoney, resolveToken,
+  type CatalogDocument, type CatalogElement, type Product, type ProductCardStyle,
+} from "@Kavero/catalog-engine";
 import PptxGenJS from "pptxgenjs";
 
 /**
@@ -217,30 +220,86 @@ export async function exportPptx<T = Blob>(doc: CatalogDocument, opts: PptxOptio
     s: PptxGenJS.Slide,
     p: { x: number; y: number; width: number; height: number; rotation: number },
     product: Product | undefined,
-    style: { layout: string; showPrice: boolean; showDescription: boolean; background?: string; borderRadius: number },
+    style: Partial<ProductCardStyle> & { layout: string; background?: string; borderRadius: number },
   ) {
     if (!product) {
       warnings.add("Some product cards had no product selected and were left out.");
       return;
     }
+    const d = cardDisplay(style);
     const horizontal = style.layout === "horizontal";
-    const textH = Math.min(p.height * 0.4, 110);
-    const img = { x: p.x, y: p.y, width: horizontal ? p.width * 0.45 : p.width, height: horizontal ? p.height : p.height - textH - 8 };
-    const txt = horizontal
-      ? { x: p.x + p.width * 0.45 + 12, y: p.y, width: p.width * 0.55 - 12, height: p.height }
-      : { x: p.x, y: p.y + img.height + 8, width: p.width, height: textH };
-    if (style.background) s.addShape(pptx.ShapeType.rect, { x: inch(p.x), y: inch(p.y), w: inch(p.width), h: inch(p.height), fill: { color: color(style.background) } });
-    const data = asset(product.imageAssetIds[0]);
-    if (data) s.addImage({ data, x: inch(img.x), y: inch(img.y), w: inch(img.width), h: inch(img.height), sizing: { type: "cover", w: inch(img.width), h: inch(img.height) }, altText: product.name });
-    else s.addShape(pptx.ShapeType.rect, { x: inch(img.x), y: inch(img.y), w: inch(img.width), h: inch(img.height), fill: { color: "EEEEEE" } });
-
-    const price = product.price !== undefined
-      ? new Intl.NumberFormat(doc.metadata.language, { style: "currency", currency: product.currency ?? doc.metadata.currency }).format(product.price)
+    // Extra rows for the newer fields; cards without them keep their original proportions.
+    const extra = [
+      d.showBrand && product.brand, d.showSubtitle && product.subtitle, d.showRating && product.rating !== undefined,
+      (d.showAvailability && product.availability) || (d.showSku && product.sku), d.showLink && product.url,
+      d.showAttributes && Object.keys(product.attributes ?? {}).length > 0,
+    ].filter(Boolean).length;
+    const textH = extra ? Math.min(p.height * 0.5, 110 + extra * 18) : Math.min(p.height * 0.4, 110);
+    const img = d.showImage
+      ? { x: p.x, y: p.y, width: horizontal ? p.width * 0.45 : p.width, height: horizontal ? p.height : p.height - textH - 8 }
       : null;
-    const runs: PptxGenJS.TextProps[] = [{ text: product.name, options: { bold: true, fontSize: 16, fontFace: font("token:heading"), breakLine: true } }];
-    if (style.showDescription && product.description) runs.push({ text: product.description, options: { fontSize: 11, color: color("token:muted"), breakLine: true } });
-    if (style.showPrice && price) runs.push({ text: price, options: { bold: true, fontSize: 13, color: color("token:primary") } });
-    s.addText(runs, { x: inch(txt.x), y: inch(txt.y), w: inch(txt.width), h: inch(txt.height), valign: "top", color: color("token:text"), fontFace: font("token:body"), margin: 0, hyperlink: product.url ? { url: product.url } : undefined });
+    const txt = !img ? { x: p.x, y: p.y, width: p.width, height: p.height }
+      : horizontal
+        ? { x: p.x + p.width * 0.45 + 12, y: p.y, width: p.width * 0.55 - 12, height: p.height }
+        : { x: p.x, y: p.y + img.height + 8, width: p.width, height: textH };
+    if (style.background) s.addShape(pptx.ShapeType.rect, { x: inch(p.x), y: inch(p.y), w: inch(p.width), h: inch(p.height), fill: { color: color(style.background) } });
+    const badge = d.showBadge && product.badge?.trim() ? product.badge.trim() : null;
+    if (img) {
+      const data = asset(product.imageAssetIds[0]);
+      if (data) s.addImage({ data, x: inch(img.x), y: inch(img.y), w: inch(img.width), h: inch(img.height), sizing: { type: "cover", w: inch(img.width), h: inch(img.height) }, altText: product.name });
+      else s.addShape(pptx.ShapeType.rect, { x: inch(img.x), y: inch(img.y), w: inch(img.width), h: inch(img.height), fill: { color: "EEEEEE" } });
+      if (badge) {
+        const bw = Math.min(img.width - 20, 24 + badge.length * 8), bh = 24;
+        const bx = docRtl ? img.x + img.width - 10 - bw : img.x + 10;
+        s.addText(badge, {
+          x: inch(bx), y: inch(img.y + 10), w: inch(bw), h: inch(bh), shape: pptx.ShapeType.roundRect, rectRadius: 1,
+          fill: { color: color("token:primary") }, color: color("token:on-primary"), bold: true, fontSize: 9, align: "center", valign: "middle", margin: 0, fontFace: font("token:body"),
+        });
+      }
+    }
+
+    const lang = doc.metadata.language;
+    const currency = product.currency ?? doc.metadata.currency;
+    const price = d.showPrice ? formatMoney(product.price, currency, lang) : null;
+    const discount = discountPercent(product);
+    const compareAt = d.showPrice && d.showCompareAtPrice && discount !== null ? formatMoney(product.compareAtPrice, currency, lang) : null;
+    const muted = color("token:muted");
+    const runs: PptxGenJS.TextProps[] = [];
+    const line = (text: string, options: PptxGenJS.TextPropsOptions = {}) => runs.push({ text, options: { ...options, breakLine: true } });
+    if (!img && badge) line(badge, { bold: true, fontSize: 9, color: color("token:primary") });
+    if (d.showBrand && product.brand) line(product.brand.toUpperCase(), { bold: true, fontSize: 9, color: muted, charSpacing: 1 });
+    if (d.showName) line(product.name, { bold: true, fontSize: 16, fontFace: font("token:heading") });
+    if (d.showSubtitle && product.subtitle) line(product.subtitle, { fontSize: 11 });
+    if (d.showRating && product.rating !== undefined) {
+      const r = Math.round(Math.max(0, Math.min(5, product.rating)));
+      line(`${"★".repeat(r)}${"☆".repeat(5 - r)} ${product.rating.toFixed(1).replace(/\.0$/, "")}`, { fontSize: 10 });
+    }
+    if (d.showDescription && product.description) line(product.description, { fontSize: 11, color: muted });
+    if (d.showAttributes) {
+      for (const [k, v] of Object.entries(product.attributes ?? {}).filter(([k, v]) => k && v).slice(0, d.maxAttributes)) line(`${k}: ${v}`, { fontSize: 9, color: muted });
+    }
+    if (price || compareAt) {
+      if (price) runs.push({ text: price, options: { bold: true, fontSize: 13, color: color("token:primary") } });
+      if (price && product.unit) runs.push({ text: ` ${product.unit}`, options: { fontSize: 10, color: muted } });
+      if (compareAt) runs.push({ text: `  ${compareAt}`, options: { fontSize: 10, color: muted, strike: "sngStrike" } });
+      if (compareAt) runs.push({ text: `  −${discount}%`, options: { fontSize: 10, bold: true, color: color("token:primary") } });
+      runs[runs.length - 1]!.options!.breakLine = true;
+    }
+    const meta = [
+      d.showAvailability && product.availability ? `● ${AVAILABILITY_LABELS[product.availability]}` : null,
+      d.showSku && product.sku ? `SKU ${product.sku}` : null,
+    ].filter(Boolean).join("   ");
+    if (meta) line(meta, { fontSize: 9, color: muted });
+    if (d.showLink && product.url) line("View product", { fontSize: 10, bold: true, underline: { style: "sng" }, color: color("token:primary"), hyperlink: { url: product.url } });
+    if (!runs.length) return;
+    // Trailing break would add an empty paragraph.
+    delete runs[runs.length - 1]!.options!.breakLine;
+    const rtl = textIsRtl(product.name, docRtl);
+    s.addText(runs, {
+      x: inch(txt.x), y: inch(txt.y), w: inch(txt.width), h: inch(txt.height), valign: "top", color: color("token:text"), fontFace: font("token:body"), margin: 0,
+      align: rtl ? "right" : "left", rtlMode: rtl || undefined, lang,
+      hyperlink: product.url && !(d.showLink) ? { url: product.url } : undefined, fit: "shrink",
+    });
   }
 
   function placeholder(s: PptxGenJS.Slide, el: CatalogElement, label: string) {

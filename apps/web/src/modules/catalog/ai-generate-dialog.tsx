@@ -82,6 +82,7 @@ export function AiGenerateDialog({ onClose }: { onClose: () => void }) {
       setMcpProducts(r.products.map((p) => ({
         id: p.id ? `ext_${p.id}`.replace(/[^\w-]/g, "_").slice(0, 100) : createId("prd"), name: p.name, description: p.description, sku: p.sku, price: p.price, currency: p.currency,
         url: p.url?.startsWith("http") ? p.url : undefined, category: p.category, attributes: p.attributes, imageAssetIds: [], imageUrl: p.imageUrl, source: conn?.name,
+        brand: p.brand, compareAtPrice: p.compareAtPrice, availability: p.availability, rating: p.rating, tags: p.tags,
       })));
       if (!r.products.length) toast.error("No products found in that tool's result");
     } catch (e) {

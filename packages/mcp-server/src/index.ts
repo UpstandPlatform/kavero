@@ -4,6 +4,7 @@ import { PublicationService, slugify } from "@Kavero/api/services/publication-se
 import { audit, type Scope, type TokenPrincipal } from "@Kavero/api/services/token-service";
 import {
   PAGE_PRESETS,
+  PRODUCT_AVAILABILITY,
   TEMPLATES,
   createCatalog,
   createFromTemplate,
@@ -92,13 +93,21 @@ export function outline(doc: CatalogDocument) {
     title: doc.metadata.title,
     page: { width: doc.settings.width, height: doc.settings.height },
     theme: doc.theme,
-    products: doc.products.map((p) => ({ id: p.id, name: p.name, price: p.price, currency: p.currency })),
+    products: doc.products.map((p) => ({
+      id: p.id, name: p.name, price: p.price, currency: p.currency, sku: p.sku, brand: p.brand, category: p.category,
+      compareAtPrice: p.compareAtPrice, badge: p.badge, availability: p.availability, images: p.imageAssetIds.length || undefined,
+    })),
     assets: doc.assets.map((a) => ({ id: a.id, kind: a.kind, name: a.name, ...(a.kind === "font" ? { family: a.family, weight: a.fontWeight ?? 400, style: a.fontStyle ?? "normal" } : {}) })),
     slides: doc.slides.map((s, i) => ({
       index: i, id: s.id, name: s.name, transition: s.transition?.type,
       elements: s.elements.map((e) => ({ id: e.id, type: e.type, position: e.position, text: text(e), animations: e.animations.length || undefined })),
     })),
   };
+}
+
+/** imageUrl first (the primary image), then imageUrls, without duplicates. */
+function productImageUrls(p: { imageUrl?: string; imageUrls?: string[] }): string[] {
+  return [...new Set([p.imageUrl, ...(p.imageUrls ?? [])].filter((u): u is string => !!u))];
 }
 
 const GENERIC_FONTS = new Set(["system-ui", "sans-serif", "serif", "monospace", "cursive", "fantasy"]);
@@ -313,9 +322,19 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
 
   const productInput = z.object({
     id: z.string().max(100).optional(), name: z.string().min(1).max(200), description: z.string().max(2000).optional(),
+    subtitle: z.string().max(200).optional().describe("Short tagline shown under the name"),
+    brand: z.string().max(100).optional(),
     sku: z.string().max(100).optional(), price: z.number().optional(), currency: z.string().length(3).optional(),
-    url: z.string().url().optional(), category: z.string().max(100).optional(), attributes: z.record(z.string(), z.string()).optional(),
-    imageUrl: z.string().url().optional().describe("Public https image URL; downloaded and stored with the catalog"),
+    compareAtPrice: z.number().nonnegative().optional().describe("Original price; shown struck through when higher than price"),
+    unit: z.string().max(30).optional().describe('Shown after the price, e.g. "per m²" or "/ kg"'),
+    badge: z.string().max(30).optional().describe('Short label over the photo, e.g. "New", "Sale"'),
+    availability: z.enum(PRODUCT_AVAILABILITY).optional(),
+    rating: z.number().min(0).max(5).optional(),
+    tags: z.array(z.string().max(50)).max(30).optional().describe("Search keywords; not shown on cards"),
+    url: z.string().url().optional(), category: z.string().max(100).optional(),
+    attributes: z.record(z.string(), z.string()).optional().describe("Specs as label → value, in display order"),
+    imageUrl: z.string().url().optional().describe("Public https image URL; downloaded and stored with the catalog (becomes the primary image)"),
+    imageUrls: z.array(z.string().url()).max(10).optional().describe("More public https image URLs (gallery), after imageUrl"),
   });
 
   server.registerTool("catalog_import_products", {
@@ -329,25 +348,26 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     const ids = products.map((p) => p.id ?? createId("prd"));
     const commands: EditorCommand[] = [];
     const warnings: string[] = [];
-    const imageFor = new Map<number, string>();
+    const imageFor = new Map<number, string[]>();
     if (host.importImage) {
-      const wanted = products.map((p, i) => ({ i, url: p.imageUrl })).filter((x): x is { i: number; url: string } => !!x.url).slice(0, 60);
+      const wanted = products.flatMap((p, i) => productImageUrls(p).map((url) => ({ i, url }))).slice(0, 60);
       for (const { i, url } of wanted) {
         try {
           const asset = await host.importImage(rowId, url, products[i]!.name);
           if (!document.assets.some((a) => a.id === asset.id) && !commands.some((c) => c.type === "asset.add" && c.asset.id === asset.id)) {
             commands.push({ type: "asset.add", asset: { id: asset.id, kind: "image", mimeType: asset.mimeType, name: products[i]!.name, uri: `cloud://${asset.id}`, bytes: asset.bytes, hash: asset.hash, width: asset.width, height: asset.height } });
           }
-          imageFor.set(i, asset.id);
+          const list = imageFor.get(i) ?? [];
+          if (!list.includes(asset.id)) imageFor.set(i, [...list, asset.id]);
         } catch (e) {
           warnings.push(`${products[i]!.name}: image not imported (${(e as Error).message})`);
         }
       }
-    } else if (products.some((p) => p.imageUrl)) warnings.push("Image import isn't available on this server");
+    } else if (products.some((p) => productImageUrls(p).length)) warnings.push("Image import isn't available on this server");
     products.forEach((p, i) => {
-      const { imageUrl: _u, ...rest } = p;
+      const { imageUrl: _u, imageUrls: _us, ...rest } = p;
       const existing = document.products.find((x) => x.id === ids[i]);
-      commands.push({ type: "product.upsert", product: { ...rest, id: ids[i], currency: p.currency?.toUpperCase(), source, imageAssetIds: imageFor.has(i) ? [imageFor.get(i)!] : existing?.imageAssetIds ?? [] } });
+      commands.push({ type: "product.upsert", product: { ...rest, id: ids[i], currency: p.currency?.toUpperCase(), source, imageAssetIds: imageFor.get(i) ?? existing?.imageAssetIds ?? [] } });
     });
     if (addSlides !== "none") {
       const groups = new Map<string, string[]>();
@@ -576,24 +596,30 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     const products = (a.products ?? []).map((p) => ({ ...p, id: p.id ?? createId("prd"), currency: p.currency?.toUpperCase(), imageAssetIds: [] as string[], attributes: p.attributes ?? {} }));
     // Same per-user rate limit and AI job log as the web app.
     const result = await new AiService(db, host.ai ?? null).generate(uid, {
-      brief: a.brief, products: products.map(({ imageUrl: _u, ...p }) => p), templateId: a.template,
+      brief: a.brief, products: products.map(({ imageUrl: _u, imageUrls: _us, ...p }) => p), templateId: a.template,
       page: a.page as keyof typeof PAGE_PRESETS | undefined, language: a.language, currency: a.currency?.toUpperCase(),
     });
     const created = await catalogs.create(uid, result.document, a.workspaceId);
     const warnings: string[] = [];
-    const withImages = products.filter((p) => p.imageUrl);
+    const withImages = products.filter((p) => productImageUrls(p).length);
     if (withImages.length && host.importImage) {
       const commands: EditorCommand[] = [];
-      for (const p of withImages.slice(0, 60)) {
-        try {
-          const asset = await host.importImage(created.id, p.imageUrl!, p.name);
-          if (!commands.some((c) => c.type === "asset.add" && c.asset.id === asset.id)) {
-            commands.push({ type: "asset.add", asset: { id: asset.id, kind: "image", mimeType: asset.mimeType, name: p.name, uri: `cloud://${asset.id}`, bytes: asset.bytes, hash: asset.hash, width: asset.width, height: asset.height } });
+      let budget = 60;
+      for (const p of withImages) {
+        const imageAssetIds: string[] = [];
+        for (const url of productImageUrls(p)) {
+          if (budget-- <= 0) break;
+          try {
+            const asset = await host.importImage(created.id, url, p.name);
+            if (!commands.some((c) => c.type === "asset.add" && c.asset.id === asset.id)) {
+              commands.push({ type: "asset.add", asset: { id: asset.id, kind: "image", mimeType: asset.mimeType, name: p.name, uri: `cloud://${asset.id}`, bytes: asset.bytes, hash: asset.hash, width: asset.width, height: asset.height } });
+            }
+            if (!imageAssetIds.includes(asset.id)) imageAssetIds.push(asset.id);
+          } catch (e) {
+            warnings.push(`${p.name}: image not imported (${(e as Error).message})`);
           }
-          commands.push({ type: "product.upsert", product: { id: p.id, name: p.name, imageAssetIds: [asset.id] } });
-        } catch (e) {
-          warnings.push(`${p.name}: image not imported (${(e as Error).message})`);
         }
+        if (imageAssetIds.length) commands.push({ type: "product.upsert", product: { id: p.id, name: p.name, imageAssetIds } });
       }
       if (commands.length) await catalogs.applyCommands(uid, created.id, commands);
     }

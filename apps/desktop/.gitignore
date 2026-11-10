@@ -1,4 +1,5 @@
 dist/
-release/
+# electron-builder output (also temporary release-* folders)
+release*/
 web-bundle/
 .turbo/

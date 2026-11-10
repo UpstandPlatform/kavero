@@ -70,6 +70,17 @@ export function checkIntegrity(doc: CatalogDocument): ValidationIssue[] {
     if (!productIds.has(id)) issues.push({ path, message: `Missing product "${id}"`, severity: "warning" });
   };
 
+  const productSeen = new Set<string>();
+  doc.products.forEach((p, pi) => {
+    const pp = `products.${pi}`;
+    if (productSeen.has(p.id)) issues.push({ path: `${pp}.id`, message: `Duplicate product id "${p.id}"`, severity: "warning" });
+    productSeen.add(p.id);
+    p.imageAssetIds.forEach((a, ai) => missingAsset(a, `${pp}.imageAssetIds.${ai}`));
+    if (p.price !== undefined && p.compareAtPrice !== undefined && p.compareAtPrice < p.price) {
+      issues.push({ path: `${pp}.compareAtPrice`, message: `"${p.name}": the compare-at price is lower than the price, so no discount is shown`, severity: "warning" });
+    }
+  });
+
   doc.slides.forEach((slide, si) => {
     const sp = `slides.${si}`;
     dup(slide.id, `${sp}.id`);

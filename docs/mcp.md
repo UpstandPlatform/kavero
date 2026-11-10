@@ -26,6 +26,9 @@ Give each agent its own token with only what it needs. Revoke tokens in the same
 
 ### Configure the client
 
+> **Desktop app:** Kavero's own server runs on your computer, so use `http://127.0.0.1:41731/api/mcp` (the default port) with a token from the app's Settings — no account or deployment needed. Keep the app open while the agent works; links it returns (`kavero://editor/…`) open the catalog in the app.
+
+
 The server uses **Streamable HTTP** at `https://<your-kavero>/api/mcp` (locally `http://localhost:3001/api/mcp`) with `Authorization: Bearer <token>`.
 
 Claude Code:
@@ -129,10 +132,34 @@ Colors: hex or theme tokens `token:background`, `token:text`, `token:muted`, `to
 
 | Tool | Permission | Input | Notes |
 | --- | --- | --- | --- |
-| `catalog_import_products` | write | `catalogId`, `products[]` (`name`, `price?`, `currency?`, `description?`, `sku?`, `category?`, `url?`, `attributes?`, `imageUrl?`, `id?`), `addSlides?` (`none`/`single`/`per-category`), `columns?`, `source?` | Upserts by `id`; downloads `imageUrl`s; can add product-grid slides (6 per slide) |
+| `catalog_import_products` | write | `catalogId`, `products[]` (fields below), `addSlides?` (`none`/`single`/`per-category`), `columns?`, `source?` | Upserts by `id`; downloads `imageUrl`/`imageUrls`; can add product-grid slides (6 per slide) |
 | `asset_import` | write | `catalogId`, `name`, and `url` **or** `data` (base64) + `mimeType` | For cover photos, backgrounds, logos. Returns `assetId`, `width`, `height` |
 
-Image downloads accept public **https** URLs only (private network and cloud-metadata addresses are refused) and PNG, JPEG, GIF or WebP up to 8 MB; base64 `data` can be up to 15 MB. `catalog_import_products` downloads at most 60 `imageUrl`s per call — import large lists in batches.
+Product fields (all optional except `name`; `catalog_generate` accepts the same):
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `id` | string | Updates the product with this id, otherwise creates one |
+| `name` | string | Required |
+| `subtitle` | string, max 200 | Short tagline under the name |
+| `description` | string | |
+| `brand`, `category`, `sku` | string | |
+| `price` | number | |
+| `compareAtPrice` | number ≥ 0 | Original price; shown struck through with the discount when higher than `price` |
+| `currency` | 3-letter code | Defaults to the catalog currency |
+| `unit` | string, max 30 | After the price, e.g. `"per m²"`, `"/ kg"` |
+| `badge` | string, max 30 | Label over the photo, e.g. `"New"`, `"Sale"` |
+| `availability` | `in-stock`, `out-of-stock`, `pre-order`, `limited` | |
+| `rating` | number 0–5 | Shown as stars |
+| `tags` | string[] | Search keywords in the editor; not shown on cards |
+| `url` | https URL | "View product" link |
+| `attributes` | object | Specs as label → value, in display order |
+| `imageUrl` | https URL | Primary image |
+| `imageUrls` | https URL[], max 10 | More images, after `imageUrl` |
+
+Product cards and grids choose what to show with optional style flags (unset means the default): `showImage`, `showName`, `showBrand`, `showSubtitle`, `showCompareAtPrice`, `showBadge`, `showAvailability`, `showRating` (default `true`), `showSku`, `showLink` (default `false`), plus `showPrice`, `showDescription`, `showAttributes` and `maxAttributes` (default 8). For example `slide_update_element` with `changes: {"style":{"showSku":true,"showLink":true}}`. The catalog outline lists each product's id, name, price, brand, category, badge and availability.
+
+Image downloads accept public **https** URLs only (private network and cloud-metadata addresses are refused) and PNG, JPEG, GIF or WebP up to 8 MB; base64 `data` can be up to 15 MB. `catalog_import_products` downloads at most 60 images (`imageUrl` plus `imageUrls`) per call — import large lists in batches.
 
 ### Fonts
 

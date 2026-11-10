@@ -9,12 +9,13 @@ import {
   DropdownMenuTrigger,
 } from "@Kavero/ui/components/dropdown-menu";
 import { Skeleton } from "@Kavero/ui/components/skeleton";
-import { Bot, KeyRound, LayoutGrid, LogOut, Plug, Shield, Users } from "lucide-react";
+import { Bot, KeyRound, LayoutGrid, LogOut, Plug, RefreshCw, Shield, Users } from "lucide-react";
 import type { Route } from "next";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 
 import { authClient } from "@/lib/auth-client";
+import { useDesktop } from "@/lib/desktop";
 
 function initials(name: string) {
   return name.split(/\s+/).filter(Boolean).slice(0, 2).map((w) => [...w][0]?.toUpperCase()).join("") || "?";
@@ -24,8 +25,11 @@ export default function UserMenu() {
   const router = useRouter();
   const pathname = usePathname();
   const { data: session, isPending } = authClient.useSession();
+  // Desktop local mode signs in automatically: no sign-in or sign-out.
+  const desktop = useDesktop();
+  const localMode = desktop?.localMode === true;
 
-  if (isPending) return <Skeleton className="size-8 rounded-full" />;
+  if (isPending || (localMode && !session)) return <Skeleton className="size-8 rounded-full" />;
 
   if (!session) {
     return (
@@ -52,7 +56,7 @@ export default function UserMenu() {
         <DropdownMenuGroup>
           <DropdownMenuLabel className="grid">
             <span className="truncate font-medium text-foreground">{session.user.name}</span>
-            <span className="truncate font-normal">{session.user.email}</span>
+            <span className="truncate font-normal">{localMode ? "Local account on this computer" : session.user.email}</span>
           </DropdownMenuLabel>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
@@ -63,7 +67,9 @@ export default function UserMenu() {
           <DropdownMenuItem onClick={go("/settings#tokens" as Route)}><KeyRound /> API tokens &amp; MCP</DropdownMenuItem>
           <DropdownMenuItem onClick={go("/settings#connections" as Route)}><Plug /> Product sources</DropdownMenuItem>
           {session.user.role === "admin" && <DropdownMenuItem onClick={go("/admin" as Route)}><Shield /> Admin</DropdownMenuItem>}
+          {desktop?.updates && <DropdownMenuItem onClick={() => void desktop.updates!.check()}><RefreshCw /> Check for updates</DropdownMenuItem>}
         </DropdownMenuGroup>
+        {!localMode && (<>
         <DropdownMenuSeparator />
         <DropdownMenuItem
           variant="destructive"
@@ -71,6 +77,7 @@ export default function UserMenu() {
         >
           <LogOut /> Sign out
         </DropdownMenuItem>
+        </>)}
       </DropdownMenuContent>
     </DropdownMenu>
   );

@@ -44,7 +44,9 @@ export type EditorCommand =
   | { type: "asset.add"; asset: CatalogAsset }
   | { type: "asset.remove"; assetId: string }
   | { type: "product.upsert"; product: Omit<Partial<Product>, "id"> & { id?: string; name: string } }
-  | { type: "product.delete"; productId: string }
+  /** Fails while the product is on a slide, unless `removeFromSlides` also deletes its cards and drops it from grids. */
+  | { type: "product.delete"; productId: string; removeFromSlides?: boolean }
+  | { type: "product.duplicate"; productId: string }
   | { type: "batch"; commands: EditorCommand[]; label?: string };
 
 export interface CommandResult {
@@ -258,11 +260,28 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
       break;
     }
     case "product.delete": {
-      const used = doc.slides.some((s) => s.elements.some((e) =>
-        (e.type === "product" && e.content.productId === cmd.productId) ||
-        (e.type === "product-grid" && e.content.products.some((p) => p.productId === cmd.productId))));
-      if (used) throw new CommandError("Product is still placed on a slide");
+      const shows = (e: CatalogElement) => e.type === "product" && e.content.productId === cmd.productId;
+      const lists = (e: CatalogElement) => e.type === "product-grid" && e.content.products.some((p) => p.productId === cmd.productId);
+      const used = doc.slides.some((s) => s.elements.some((e) => shows(e) || lists(e)));
+      if (used && !cmd.removeFromSlides) throw new CommandError("Product is still placed on a slide");
+      if (used) {
+        for (const slide of doc.slides) {
+          slide.elements = slide.elements.filter((e) => !shows(e));
+          for (const e of slide.elements) {
+            if (e.type === "product-grid") e.content.products = e.content.products.filter((p) => p.productId !== cmd.productId);
+          }
+          normalizeZ(slide);
+        }
+      }
       doc.products = doc.products.filter((p) => p.id !== cmd.productId);
+      break;
+    }
+    case "product.duplicate": {
+      const i = doc.products.findIndex((p) => p.id === cmd.productId);
+      if (i < 0) throw new CommandError(`Product "${cmd.productId}" not found`);
+      const copy = { ...structuredClone(doc.products[i]!), id: createId("prd"), name: `${doc.products[i]!.name} (copy)` };
+      doc.products.splice(i + 1, 0, copy);
+      created.push(copy.id);
       break;
     }
     case "batch":

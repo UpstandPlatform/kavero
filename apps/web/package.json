@@ -26,6 +26,7 @@
     "@Kavero/renderer": "workspace:*",
     "@Kavero/ui": "workspace:*",
     "@aws-sdk/client-s3": "3.1152.0",
+    "@electric-sql/pglite": "^0.5.16",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@swc/helpers": "^0.5.23",
     "@tanstack/react-form": "^1.33.5",

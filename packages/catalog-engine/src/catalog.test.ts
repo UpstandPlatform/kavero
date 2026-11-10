@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { checkExportCompatibility, createCatalog, duplicateCatalog, parseCatalogDocument } from "./index";
+import { cardDisplay, checkExportCompatibility, createCatalog, discountPercent, duplicateCatalog, formatMoney, matchesProduct, parseCatalogDocument, productSchema, productUsage } from "./index";
 
 test("createCatalog produces a valid document", () => {
   const doc = createCatalog({ title: "Summer 2027", page: "a4-portrait" });
@@ -158,4 +158,47 @@ test("file names keep non-Latin titles", async () => {
   expect(safeFileName("Summer / 2027!", ".kavero")).toBe("summer-2027.kavero");
   expect(safeFileName("???", "pdf")).toBe("catalog.pdf");
   expect(attachmentHeader("کاتالوگ.pdf")).toContain("filename*=UTF-8''%DA%A9");
+});
+
+test("products accept the optional card fields and old products stay valid", () => {
+  const doc = createCatalog({ title: "Shop" });
+  doc.products.push({ id: "p_old", name: "Old chair", imageAssetIds: [], attributes: {} });
+  doc.products.push(productSchema.parse({
+    id: "p_new", name: "Lamp", subtitle: "Warm light", brand: "Lumo", price: 80, compareAtPrice: 100, currency: "EUR", unit: "/ piece",
+    badge: "Sale", availability: "pre-order", rating: 4.5, tags: ["lighting"], url: "https://example.com/lamp", attributes: { Height: "40 cm", Bulb: "E27" },
+  }));
+  const res = parseCatalogDocument(JSON.parse(JSON.stringify(doc)));
+  expect(res.ok).toBe(true);
+  if (res.ok) {
+    expect(res.document.products[0]).toEqual({ id: "p_old", name: "Old chair", imageAssetIds: [], attributes: {} });
+    expect(Object.keys(res.document.products[1]!.attributes)).toEqual(["Height", "Bulb"]);
+  }
+  expect(productSchema.safeParse({ id: "x", name: "X", rating: 6 }).success).toBe(false);
+  expect(productSchema.safeParse({ id: "x", name: "X", availability: "maybe" }).success).toBe(false);
+  expect(productSchema.safeParse({ id: "x", name: "X", compareAtPrice: -1 }).success).toBe(false);
+});
+
+test("product validation warnings, usage and helpers", () => {
+  const doc = createCatalog({ title: "Shop" });
+  doc.products.push(productSchema.parse({ id: "p1", name: "Desk", price: 120, compareAtPrice: 100, imageAssetIds: ["missing"] }));
+  const pos = { x: 0, y: 0, width: 10, height: 10, rotation: 0 };
+  const base = { zIndex: 0, locked: false, hidden: false, opacity: 1, animations: [], position: pos };
+  doc.slides[0]!.elements.push(
+    { ...base, id: "el_a", type: "product", content: { productId: "p1" }, style: { layout: "vertical", showPrice: true, showDescription: true, borderRadius: 8, imageFit: "contain", showAttributes: false } },
+    { ...base, id: "el_b", type: "product-grid", content: { columns: 2, products: [{ productId: "p1" }] }, style: { layout: "vertical", showPrice: true, showDescription: true, borderRadius: 8, imageFit: "contain", showAttributes: false, gap: 16 } },
+  );
+  const res = parseCatalogDocument(doc);
+  expect(res.ok && res.warnings.map((w) => w.path).sort()).toEqual(["products.0.compareAtPrice", "products.0.imageAssetIds.0"]);
+  expect(productUsage(doc, "p1").map((u) => [u.slideIndex, u.elementId, u.elementType])).toEqual([[0, "el_a", "product"], [0, "el_b", "product-grid"]]);
+  expect(productUsage(doc, "nope")).toEqual([]);
+  expect(discountPercent({ price: 75, compareAtPrice: 100 })).toBe(25);
+  expect(discountPercent({ price: 120, compareAtPrice: 100 })).toBeNull();
+  expect(formatMoney(undefined, "USD", "en")).toBeNull();
+  expect(formatMoney(5, "USD", "en")).toBe("$5.00");
+  expect(matchesProduct(productSchema.parse({ id: "a", name: "Oak table", sku: "T-1", tags: ["wood"] }), "WOOD")).toBe(true);
+});
+
+test("card display defaults keep existing cards unchanged", () => {
+  const d = cardDisplay({ showPrice: false, showDescription: true, showAttributes: true });
+  expect(d).toMatchObject({ showPrice: false, showDescription: true, showAttributes: true, showImage: true, showName: true, showSku: false, showLink: false, maxAttributes: 8 });
 });

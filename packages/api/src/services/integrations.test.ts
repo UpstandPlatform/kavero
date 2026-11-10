@@ -16,6 +16,13 @@ test("extracts products from common shapes", () => {
   expect(mapProduct({ foo: 1 })).toBeNull();
 });
 
+test("maps brand, compare-at price, availability, rating and tags", () => {
+  const p = mapProduct({ name: "Lamp", price: "80", regular_price: "100", vendor: "Lumo", stock_status: "onbackorder", average_rating: "4.5", tags: [{ name: "light" }, "desk"] });
+  expect(p).toMatchObject({ brand: "Lumo", price: 80, compareAtPrice: 100, availability: "pre-order", rating: 4.5, tags: ["light", "desk"] });
+  expect(p?.attributes).toEqual({});
+  expect(mapProduct({ title: "X", price: 10, compare_at_price: 5, availableForSale: false })).toMatchObject({ compareAtPrice: undefined, availability: "out-of-stock" });
+});
+
 test("private address detection", () => {
   for (const ip of ["127.0.0.1", "10.1.2.3", "172.20.0.1", "192.168.1.1", "169.254.169.254", "::1", "fd00::1", "::ffff:10.0.0.1"]) expect(isPrivateAddress(ip)).toBe(true);
   for (const ip of ["8.8.8.8", "172.32.0.1", "2606:4700::1"]) expect(isPrivateAddress(ip)).toBe(false);

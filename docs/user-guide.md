@@ -23,6 +23,8 @@ For AI agents and the MCP server, see [mcp.md](mcp.md). For hosting your own Kav
 
 Open Kavero (locally `http://localhost:3001`) and click **Open the editor**. You don't need an account: catalogs are saved in your browser (IndexedDB) as you work.
 
+**Example presentations.** A fresh dashboard comes with four ready-to-use 6-slide decks — **Kavero**, **OpenRive**, **Upstand** and **dgrunner** — built with the editor's own features (theme colors and fonts, a Morph transition from the cover to the overview, staggered animations, a code panel and link buttons). Present them, export them, or duplicate one as the starting point for your own product. They're normal catalogs: edit or delete them freely; a deleted example doesn't come back. To add fresh copies, use **Add example presentations** on an empty dashboard.
+
 Sign in when you want to:
 
 - sync catalogs across devices and keep version history,
@@ -52,13 +54,13 @@ Each catalog card has a menu: rename, duplicate, export a `.kavero` file, save t
 | Area | What it does |
 | --- | --- |
 | Top bar | Title, save status, cloud status, undo/redo, **AI**, **Export**, **Publish**, **Preview** |
-| Toolbar | Add heading, text, rectangle, ellipse, line, image, product, product grid, HTML block, or **Import products** |
-| Slides / Layers (left) | **Slides**: thumbnails; add, duplicate, rename, delete and reorder. **Layers**: every element on the current slide, top layer first |
+| Toolbar | Add heading, text, rectangle, ellipse, line, image, HTML block; **Product** and **Product grid** open the product picker; **Import products** |
+| Slides / Layers / Products (left) | **Slides**: thumbnails; add, duplicate, rename, delete and reorder. **Layers**: every element on the current slide, top layer first. **Products**: the catalog's product library |
 | Canvas | Select, drag, resize (corners/edges), rotate (top handle); drag on empty space to select several |
 | Properties (right) | Everything about the selection, or the slide and theme when nothing is selected |
 
 - Snapping guides appear when edges or centers line up with the slide or other elements; hold **Alt** to move freely, **Shift** to lock to one axis.
-- Several selected elements can be aligned, distributed and grouped. Clicking a grouped element selects the whole group.
+- **Align** buttons (Position section) line one element up with the slide (left, center, right, top, middle, bottom) or several elements with each other; with three or more selected you can also distribute them evenly. Hover a button for its shortcut (**Alt+A/H/D** and **Alt+W/V/S**). Several selected elements can also be grouped; clicking a grouped element selects the whole group.
 - Each element can be locked, hidden, reordered (front/back) and given an opacity.
 - **Right-click** anything for its menu: elements (cut, copy, paste, duplicate, delete, copy/paste style, order, align, lock, hide, rename, select all of a type), empty canvas (paste here, select all, add slide) and slide thumbnails (duplicate, copy/paste slide, rename, move, delete). Menus work with the arrow keys too.
 - Copy and paste work between catalogs and browser tabs. Pasting an image or text copied from another app adds it to the slide.
@@ -88,10 +90,47 @@ Click **AI** in the top bar, describe the change ("make this slide more minimal"
 
 ## Products
 
-- Products belong to the catalog. Add them in a product card's properties, by pasting a list in **Generate with AI**, or with **Import products** from a connected MCP source (with images).
-- **Product card**: one product. **Product grid**: several; set the number of columns.
-- Card options: show price, description and specs (attributes), and photo fit: **Show whole photo** (default) or **Fill and crop**.
-- Prices are formatted for the catalog's language and currency.
+Products belong to the catalog: define a product once and show it on as many slides as you like. Editing it updates every card.
+
+### The product library
+
+Open the **Products** tab in the left sidebar to see every product in the catalog.
+
+- **New** opens the product form; **Import** brings in many products from a connected MCP source (with images).
+- Click a product to edit it. Hover it for **Add to slide**, **Edit**, **Duplicate** and **Delete**.
+- Each row shows the price and how many cards use the product. Deleting a product that is on slides first tells you which slides and elements use it; confirming removes its cards and takes it out of grids. **Undo** brings everything back.
+- You can also add products by pasting a list in **Generate with AI**.
+
+### Product details
+
+Only the name is required. Fill in what your cards should show:
+
+| Field | Notes |
+| --- | --- |
+| Name, subtitle | Subtitle is a short tagline under the name |
+| Brand, category, SKU | Also used by search in the library and picker |
+| Price, compare-at price, currency, unit | A compare-at price higher than the price is shown struck through with the discount (e.g. −25%). Currency defaults to the catalog's. Unit appears after the price, e.g. "per m²" or "/ kg" |
+| Badge | A short label over the photo: New, Sale, Bestseller… |
+| Availability | In stock, out of stock, pre-order or limited stock |
+| Rating | 0–5, shown as stars |
+| Images | Upload several or pick images already in the catalog; reorder or remove them and choose the primary one (the first, shown on cards) |
+| Product link | Shown as a **View product** link when turned on for a card |
+| Description | Longer text, cut off neatly on small cards |
+| Specs | Name–value rows (Size, Material…), in the order you set |
+| Tags | Search keywords; not shown on cards |
+
+### Adding products to slides
+
+- **Product** (toolbar) opens the picker: search by name, SKU, brand, category or tag and pick one. **Product grid** lets you pick several; the list on the right is the order in the grid.
+- **New product** in the picker opens the form and adds the product when you save it. With no products yet, the picker explains how to add or import them.
+- A selected **product card** shows its product in the properties with **Change…** (pick another) and **Edit product**.
+- A selected **product grid** lists its products: reorder, remove or edit them, set the columns and gap, or use **Add or reorder products…**.
+
+### What a card shows
+
+Under **Card shows** choose: image, name, brand, subtitle, price, compare-at price, badge, availability, rating, SKU, description, specs (with a maximum count) and the **View product** link. Fields a product doesn't have are skipped, so cards don't get empty gaps; long names and descriptions are cut off neatly. Also choose the layout (photo on top or beside the text), photo fit (**Show whole photo** or **Fill and crop**) and corner radius.
+
+Cards look the same in the editor, Preview, published websites, PDF, JPG, video and HTML exports. PowerPoint cards carry the same information as editable text. Prices are formatted for the catalog's language and currency, and cards follow right-to-left catalogs.
 
 ## Images and HTML blocks
 

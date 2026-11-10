@@ -5,7 +5,7 @@
 - **Development**: the window loads the web dev server (`http://localhost:3001`, or `KAVERO_URL`).
 - **Installed app**: the Next standalone build of `apps/web` ships inside the app (`<resources>/web`). On launch the app starts it with Electron's own Node (`ELECTRON_RUN_AS_NODE=1`) on `127.0.0.1`, waits for it, loads it, and stops it on quit.
 
-Source: `src/main.ts` (window, lifecycle, security), `src/server.ts` (bundled server), `src/config.ts` (`kavero.env`, secret), `src/varlock-env.ts`, `src/chrome.ts`, `src/preload.ts`. Electron 44, compiled with `tsc` to `dist/`.
+Source: `src/main.ts` (windows, splash, `kavero://` links, lifecycle, security), `src/server.ts` (bundled server), `src/local-account.ts` (automatic local account), `src/updater.ts` (in-app updates), `src/pages.ts` (splash and error pages), `src/config.ts` (`kavero.env`, secret), `src/varlock-env.ts`, `src/chrome.ts`, `src/preload.ts`. Electron 44; `tsc` type-checks and compiles to `dist/`, then `scripts/bundle-main.mjs` bundles `dist/main.js` with its dependencies (electron-updater), because the packaged app ships no `node_modules`.
 
 ## Development
 
@@ -49,7 +49,7 @@ Help → **Open Data Folder** opens it. Any variable from `apps/web/.env.schema`
 
 ```sh
 # kavero.env
-DATABASE_URL=postgres://user:pass@db.example.com:5432/kavero   # enables sign-in + cloud catalogs
+DATABASE_URL=postgres://user:pass@db.example.com:5432/kavero   # team mode: shared Postgres + normal sign-in
 ANTHROPIC_API_KEY=sk-ant-...                                  # AI generation
 KAVERO_CHROME_PATH=/opt/chrome/chrome                         # if Chrome isn't auto-detected
 KAVERO_PORT=41731                                             # local server port (default 41731)
@@ -57,6 +57,8 @@ KAVERO_PORT=41731                                             # local server por
 
 Also in the data folder:
 
+- `database/`: the embedded database in local mode (PGlite). Back it up with the rest of the folder.
+- `local-account.json`: the local account's random password, encrypted with the OS (DPAPI on Windows, Keychain on macOS, libsecret on Linux).
 - `auth-secret`: the `BETTER_AUTH_SECRET`, generated randomly on first launch unless `kavero.env` sets one. It also encrypts saved MCP credentials, so keep it.
 - `storage/`: asset storage (`KAVERO_STORAGE_DIR`).
 - `logs/server.log`: output of the bundled server.
@@ -68,15 +70,41 @@ The port stays the same across launches on purpose. Local catalogs live in Index
 
 Under the hood: the web app reads its config through varlock. A deployed server would normally resolve that config with the varlock CLI (`--import varlock/auto-load`), but that CLI is not available inside the app. Instead, `src/varlock-env.ts` builds varlock's pre-resolved `__VARLOCK_ENV` blob from the bundled `.env.schema` and the merged values (`kavero.env` > process env > desktop defaults).
 
-## Local mode and cloud features
+## Local mode (default)
 
-Without `DATABASE_URL`, Kavero starts in **local mode**: the server receives a placeholder connection string that is never reached.
+Without `DATABASE_URL`, the installed app runs entirely on your computer:
 
-- **Works**: creating and editing catalogs (IndexedDB), templates, `.kavero` project files, and PPTX export.
-- **Needs a database**: sign-in, cloud catalogs and sync, publishing, API tokens, the MCP endpoint, MCP connections, and anything else that hits Postgres.
-- **Health**: `/api/health` reports `db: false` in local mode, which is expected.
+- **Embedded database.** The bundled server uses [PGlite](https://pglite.dev) — real Postgres compiled to WebAssembly, running inside the server process — stored in `database/` in the data folder (`DATABASE_URL=pglite:<folder>` internally). Migrations run automatically on every start (`KAVERO_AUTO_MIGRATE`), so updates never need a manual step.
+- **No sign-in screens.** On first launch the app creates a local account (`me@kavero.local`, named after your OS user) with a random password stored encrypted in `local-account.json`, and signs it in automatically on every launch. Sign-in, sign-up and sign-out are hidden; `/login` goes to the dashboard. Being the first account, it is the server admin.
+- **Everything works locally**: cloud catalogs (saved to the embedded database), workspaces, publishing (sites are served at `http://127.0.0.1:<port>/c/<slug>` while the app runs), API tokens, the admin page, and the MCP endpoint.
+- The server only listens on `127.0.0.1`, so nothing is reachable from other computers.
 
-To enable cloud features, point `DATABASE_URL` at a Postgres database with migrations applied (see `docs/deployment.md`).
+**Team mode.** Put `DATABASE_URL` (a shared Postgres) in `kavero.env` and Kavero uses it with normal Better Auth accounts: sign-up, sign-in and the admin's sign-up policy, exactly like a deployed server. Migrations still run on start. **Remote mode.** Set `KAVERO_URL` to a deployed Kavero (e.g. `https://kavero.example.com`) and the window simply loads it, with that server's sign-in.
+
+### MCP in the desktop app
+
+1. Open **Settings → API tokens & AI agents** and create a token.
+2. Point your MCP client at `http://127.0.0.1:41731/api/mcp` (the token page shows a ready-to-paste config) — Kavero must be running.
+3. Links that agents return (`editorUrl`) use `kavero://editor/<catalog id>` in local mode: clicking one opens the catalog in the app, which is the signed-in place. The installer registers the `kavero://` scheme.
+
+## In-app updates
+
+The app checks [GitHub Releases](https://github.com/UpstandPlatform/Kavero/releases) 15 seconds after launch and every 4 hours (or **Help → Check for Updates…**, or **Check for updates** in the account menu). When a newer version exists, a card in the corner offers **Download**; when it's downloaded, **Restart to update** installs it (or it installs the next time you quit). Nothing downloads without a click.
+
+- It reads `latest.yml` from the latest release, which the [release workflow](#releases) uploads with each installer, and downloads only the changed blocks when it can.
+- Works for the Windows installer and Linux AppImage. Unsigned macOS builds can't update in place; the card opens the release page instead.
+- **The repository must be public** for installed apps to see releases. While it's private, set `KAVERO_UPDATE_TOKEN` (a read-only GitHub token) in the environment to test updates — never put a token in a build.
+- Pre-release builds (`0.4.0-beta.1`) also receive pre-releases.
+
+## Icons and installer artwork
+
+`assets/icon.svg` is the app icon: the web app's logo (two stacked slides with a K) on a dark rounded square. `bun run icons` (`scripts/make-icons.ts`) renders everything from it with headless Chrome and writes the results, which are committed:
+
+- `assets/icon.png` (1024 px, macOS/Linux) and `assets/icon.ico` (16–256 px, Windows)
+- `assets/installerSidebar.bmp`, `uninstallerSidebar.bmp` (welcome and finish pages) and `installerHeader.bmp` (inner pages) for the Windows installer
+- the web app's `favicon.ico`, `icon.svg` and `apple-icon.png`
+
+On launch a small branded splash window shows while the local server starts; it closes as soon as the app is ready. The window opens straight on the catalogs dashboard and follows the system's light or dark theme.
 
 ## Exports need Chrome
 
@@ -147,7 +175,8 @@ Without these secrets, builds are unsigned: `CSC_IDENTITY_AUTO_DISCOVERY=false`,
 
 ## Current limitations and next steps
 
-- **No auto-update yet.** The update metadata (`latest*.yml`) is already produced and attached to releases, so the next step is to add `electron-updater` to the main process.
+- **Updates need a public repository.** See [In-app updates](#in-app-updates).
+- **Local catalogs in the browser and the local cloud are separate stores.** Catalogs you save to the cloud live in the embedded database and show up on any port; unsaved ones live in the app's browser storage (below).
 - **No stdio MCP companion UI yet.** This is the intended next step: a main-process service that spawns local MCP servers (stdio) and exposes them to the web app over a narrow, explicit IPC bridge in the preload.
 - **Exports need a system Chrome.** See above.
 - **macOS is arm64 only.** Windows and Linux are x64 only.

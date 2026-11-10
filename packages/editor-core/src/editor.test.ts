@@ -68,6 +68,29 @@ test("products and assets", () => {
   expect(editor.getDocument().assets).toHaveLength(1);
 });
 
+test("product fields, duplicate and delete from slides with undo", () => {
+  const { editor, slideId } = setup();
+  const [pid] = editor.execute({ type: "product.upsert", product: { name: "Lamp", price: 80, compareAtPrice: 100, badge: "Sale", availability: "in-stock", rating: 4, attributes: { Height: "40 cm" } } }).createdIds;
+  expect(() => editor.execute({ type: "product.upsert", product: { id: pid, name: "Lamp", rating: 7 } })).toThrow();
+  // Clearing an optional field on edit.
+  editor.execute({ type: "product.upsert", product: { id: pid, name: "Lamp", badge: undefined } });
+  expect(editor.getDocument().products[0]!.badge).toBeUndefined();
+  const [copy] = editor.execute({ type: "product.duplicate", productId: pid! }).createdIds;
+  expect(editor.getDocument().products.map((p) => p.name)).toEqual(["Lamp", "Lamp (copy)"]);
+  expect(editor.getDocument().products[1]).toMatchObject({ price: 80, attributes: { Height: "40 cm" } });
+  const [card] = editor.execute({ type: "element.add", slideId, element: { type: "product", position: pos, content: { productId: pid! } } as never }).createdIds;
+  const [grid] = editor.execute({ type: "element.add", slideId, element: { type: "product-grid", position: pos, content: { products: [{ productId: pid! }, { productId: copy! }] } } as never }).createdIds;
+  editor.execute({ type: "product.delete", productId: pid!, removeFromSlides: true });
+  const els = editor.getDocument().slides[0]!.elements;
+  expect(els.find((e) => e.id === card)).toBeUndefined();
+  const g = els.find((e) => e.id === grid);
+  expect(g?.type === "product-grid" && g.content.products).toEqual([{ productId: copy! }]);
+  expect(editor.getDocument().products.map((p) => p.id)).toEqual([copy!]);
+  editor.undo();
+  expect(editor.getDocument().products).toHaveLength(2);
+  expect(editor.getDocument().slides[0]!.elements.some((e) => e.id === card)).toBe(true);
+});
+
 test("setZ moves an element to an exact layer", () => {
   const editor = new Editor(createCatalog({ title: "T" }), { coalesceMs: 0 });
   const slideId = editor.getState().activeSlideId;

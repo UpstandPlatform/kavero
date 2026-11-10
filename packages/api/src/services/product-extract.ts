@@ -14,7 +14,31 @@ export interface ExtractedProduct {
   url?: string;
   category?: string;
   imageUrl?: string;
+  brand?: string;
+  compareAtPrice?: number;
+  availability?: "in-stock" | "out-of-stock" | "pre-order" | "limited";
+  rating?: number;
+  tags?: string[];
   attributes: Record<string, string>;
+}
+
+function availabilityOf(o: Record<string, unknown>): ExtractedProduct["availability"] {
+  const v = pick(o, ["availability", "stock_status", "stockStatus", "inventory_status", "availableForSale", "in_stock", "inStock"]);
+  if (typeof v === "boolean") return v ? "in-stock" : "out-of-stock";
+  const t = str(v)?.toLowerCase().replace(/[\s_-]/g, "");
+  if (!t) return undefined;
+  if (/^(instock|available|true|yes)$/.test(t)) return "in-stock";
+  if (/^(outofstock|soldout|unavailable|false|no)$/.test(t)) return "out-of-stock";
+  if (/^(preorder|onbackorder|backorder)$/.test(t)) return "pre-order";
+  if (/^(limited|lowstock|limitedavailability)$/.test(t)) return "limited";
+  return undefined;
+}
+
+function tagsOf(o: Record<string, unknown>): string[] | undefined {
+  const v = pick(o, ["tags"]);
+  const list = Array.isArray(v) ? v.map((t) => str(t) ?? str(pick((t ?? {}) as Record<string, unknown>, ["name"]))) : typeof v === "string" ? v.split(",") : [];
+  const out = [...new Set(list.map((t) => t?.trim().slice(0, 50)).filter((t): t is string => !!t))].slice(0, 30);
+  return out.length ? out : undefined;
 }
 
 const pick = (o: Record<string, unknown>, keys: string[]) => {
@@ -54,9 +78,14 @@ export function mapProduct(o: Record<string, unknown>): ExtractedProduct | null 
   if (!name) return null;
   const priceRaw = pick(o, ["price", "price.amount", "priceRange.minVariantPrice.amount", "variants.0.price", "regular_price", "unit_price", "cost"]);
   const currency = str(pick(o, ["currency", "currencyCode", "price.currency", "price.currencyCode", "priceRange.minVariantPrice.currencyCode"]));
+  const price = toPrice(priceRaw);
+  // Only a higher original price counts as a discount.
+  const compareRaw = toPrice(pick(o, ["compare_at_price", "compareAtPrice", "compareAtPrice.amount", "variants.0.compare_at_price", "variants.0.compareAtPrice", "compareAtPriceRange.maxVariantPrice.amount", "regular_price", "original_price", "list_price"]));
+  const compareAtPrice = compareRaw !== undefined && price !== undefined && compareRaw > price ? compareRaw : undefined;
+  const rating = toPrice(pick(o, ["rating", "average_rating", "rating.value", "averageRating"]));
   const attributes: Record<string, string> = {};
   for (const [k, v] of Object.entries(o)) {
-    if (["string", "number", "boolean"].includes(typeof v) && !/^(id|name|title|description|body_html|price|currency|sku|url|link|handle|image|category|type)$/i.test(k) && String(v).length < 200) {
+    if (["string", "number", "boolean"].includes(typeof v) && !/^(id|name|title|description|body_html|price|currency|sku|url|link|handle|image|category|type|vendor|brand|compare_at_price|compareAtPrice|regular_price|rating|average_rating|availability|stock_status|availableForSale|tags)$/i.test(k) && String(v).length < 200) {
       attributes[k] = String(v);
     }
     if (Object.keys(attributes).length >= 12) break;
@@ -66,11 +95,16 @@ export function mapProduct(o: Record<string, unknown>): ExtractedProduct | null 
     name: name.slice(0, 200),
     description: stripHtml(str(pick(o, ["description", "body_html", "bodyHtml", "short_description", "summary"])))?.slice(0, 2000),
     sku: str(pick(o, ["sku", "variants.0.sku", "code"])),
-    price: toPrice(priceRaw),
+    price,
     currency: currency && /^[A-Za-z]{3}$/.test(currency) ? currency.toUpperCase() : undefined,
     url: str(pick(o, ["url", "link", "permalink", "onlineStoreUrl", "product_url"])),
     category: str(pick(o, ["category", "product_type", "productType", "type", "categories.0.name", "collection"])),
     imageUrl: imageOf(o),
+    brand: str(pick(o, ["brand", "brand.name", "vendor", "manufacturer"]))?.slice(0, 100),
+    compareAtPrice,
+    availability: availabilityOf(o),
+    rating: rating !== undefined && rating >= 0 && rating <= 5 ? rating : undefined,
+    tags: tagsOf(o),
     attributes,
   };
 }

@@ -17,8 +17,10 @@ It's local-first: open it and start working, no account needed. Sign in to sync 
 - **MCP both ways** — import products from your store's MCP server; let Claude and other agents create, edit, preview, export and publish catalogs through Kavero's MCP server (29 tools incl. fonts, scoped tokens, audit log).
 - **Motion** — element animations and slide transitions that play the same in preview, on websites and in video.
 - **Every format from one document** — PDF with selectable text, PowerPoint with editable objects, MP4 up to 4K, JPG slide images in a zip, published websites with SEO and social previews, or a single self-contained HTML file to host anywhere.
+- **Example presentations** for Kavero and its sister projects (OpenRive, Upstand, dgrunner) on every fresh dashboard — open one to see Morph, animations and themes in action.
 - **12 templates** for fashion, jewelry, electronics, furniture, cosmetics, food, real estate, industrial, automotive and general catalogs.
 - **Right-to-left** catalogs (Persian, Arabic, Hebrew, Urdu) with per-paragraph direction.
+- **Desktop app** — install on Windows, macOS or Linux and work fully offline: an embedded database, no sign-in, a local MCP endpoint for your AI agents, and in-app updates from GitHub Releases.
 - **Teams** — workspaces with owner, admin, editor and viewer roles.
 - **Server admin** — the first account is the admin: manage users and roles, suspend accounts, moderate published sites, choose open, invite-only or closed sign-ups, and review the activity log.
 
@@ -45,7 +47,7 @@ Everything runs in one container too: `docker compose up -d --build` (see [deplo
 | [Using Kavero](docs/user-guide.md) | Dashboard, editor, layers, products, RTL, animations and Morph, exports, sync, publishing, admin, shortcuts |
 | [MCP](docs/mcp.md) | Connecting agents, tool reference, element JSON, recipes, product sources |
 | [Deployment](docs/deployment.md) | Environment, Docker, migrations, admin accounts, storage, hosting, backups, CI |
-| [Desktop app](docs/desktop.md) | The Electron app, installers, and automatic releases with changelog |
+| [Desktop app](docs/desktop.md) | Local mode (embedded database, no sign-in, local MCP), in-app updates, installers and automatic releases |
 | [Architecture](docs/architecture.md) | Packages, document model, sync, rendering, exports |
 | [Agent skills](skills/README.md) | Skills that teach AI agents to use Kavero over MCP: quick start, catalogs, animations, Morph, products, publishing and exports |
 

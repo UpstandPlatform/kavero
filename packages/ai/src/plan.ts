@@ -122,7 +122,13 @@ Guidelines:
 
 export function plannerPrompt(input: PlanInput, maxProducts = 300) {
   const shown = input.products.slice(0, maxProducts);
-  const lines = shown.map((p) => [p.id, p.name, p.category ?? "", p.price !== undefined ? `${p.price}${p.currency ? ` ${p.currency}` : ""}` : "", (p.description ?? "").slice(0, 120)].join(" | "));
+  const lines = shown.map((p) => [
+    p.id,
+    p.brand ? `${p.brand} ${p.name}` : p.name,
+    p.category ?? "",
+    p.price !== undefined ? `${p.price}${p.currency ? ` ${p.currency}` : ""}${p.unit ? ` ${p.unit}` : ""}${p.compareAtPrice !== undefined && p.compareAtPrice > p.price ? ` (was ${p.compareAtPrice})` : ""}` : "",
+    [p.badge && `[${p.badge}]`, p.subtitle, p.description].filter(Boolean).join(" — ").slice(0, 160),
+  ].join(" | "));
   return [
     `Brief:\n${input.brief.trim() || "(none)"}`,
     `Language: ${input.language ?? "en"}`,

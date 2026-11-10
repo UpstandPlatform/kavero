@@ -52,7 +52,11 @@ export async function POST(request: Request) {
     return Response.json({ jsonrpc: "2.0", error: { code: -32002, message: "Rate limit exceeded; slow down." }, id: null }, { status: 429, headers: { "Retry-After": "60" } });
   }
 
-  const origin = new URL(request.url).origin;
+  // Links handed to agents use the app's public address (BETTER_AUTH_URL), not the
+  // address this request happened to arrive on (an internal or localhost name).
+  const origin = new URL(ENV.BETTER_AUTH_URL).origin;
+  // Desktop local mode: editor links open in the Kavero app (kavero://), which is signed in.
+  const localMode = process.env.KAVERO_LOCAL_MODE === "1";
   const catalogs = new CatalogService(db);
   /** Store image or font bytes for a cloud catalog; same bytes → same asset id (no duplicates). */
   const storeImage = async (catalogRowId: string, bytes: Uint8Array, mimeType: string) => {
@@ -79,7 +83,7 @@ export async function POST(request: Request) {
     principal,
     host: {
       publicUrl: (slug) => `${origin}/c/${slug}`,
-      editorUrl: (documentId) => `${origin}/editor/${encodeURIComponent(documentId)}`,
+      editorUrl: (documentId) => (localMode ? `kavero://editor/${encodeURIComponent(documentId)}` : `${origin}/editor/${encodeURIComponent(documentId)}`),
       importImage: async (catalogRowId, url) => {
         const dataUrl = await fetchImageAsDataUrl(url, { allowLocal: process.env.NODE_ENV !== "production" });
         const [, mimeType = "", b64 = ""] = /^data:([^;]+);base64,([A-Za-z0-9+/=]*)$/.exec(dataUrl) ?? [];

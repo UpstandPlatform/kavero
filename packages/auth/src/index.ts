@@ -59,12 +59,13 @@ export function createAuth(env: AuthConfig, database: Database) {
       },
     },
     plugins: [
-      nextCookies(),
       admin({
         defaultRole: "user",
         adminRoles: ["admin"],
         bannedUserMessage: "This account has been suspended. Contact the server admin.",
       }),
+      // Must stay last so cookies set by earlier plugins reach Next.js.
+      nextCookies(),
     ],
   });
 }

@@ -7,7 +7,7 @@ copyright: Copyright © 2026 Kavero
 
 directories:
   output: release
-  # Put icon.png (1024×1024) here; without it electron-builder uses the default Electron icon.
+  # icon.png / icon.ico and the installer artwork come from scripts/make-icons.ts (assets/icon.svg).
   buildResources: assets
 
 asar: true
@@ -16,6 +16,8 @@ npmRebuild: false
 files:
   - dist/**/*.js
   - package.json
+  # Window icon on Linux (Windows and macOS use the executable's icon).
+  - assets/icon.png
   - "!**/*.map"
   - "!node_modules/**/*"
 
@@ -32,17 +34,33 @@ extraResources:
 
 artifactName: ${productName}-${version}-${os}-${arch}.${ext}
 
+# kavero://editor/<id> links from MCP agents open in the app (Windows registers at runtime too).
+protocols:
+  - name: Kavero
+    schemes: [kavero]
+
 win:
+  icon: assets/icon.ico
   target:
     - target: nsis
       arch: [x64]
 nsis:
+  # Branded installer: icon, welcome/finish sidebar and inner-page header in the app's style.
+  installerIcon: assets/icon.ico
+  uninstallerIcon: assets/icon.ico
+  installerSidebar: assets/installerSidebar.bmp
+  uninstallerSidebar: assets/uninstallerSidebar.bmp
+  installerHeader: assets/installerHeader.bmp
+  shortcutName: Kavero
+  createDesktopShortcut: true
+  createStartMenuShortcut: true
   oneClick: false
   perMachine: false
   allowToChangeInstallationDirectory: true
   deleteAppDataOnUninstall: false
 
 mac:
+  icon: assets/icon.png
   category: public.app-category.productivity
   # arm64 only: the bundled server carries native modules (sharp, ffmpeg) for the build
   # machine's arch. Add x64 by building on an Intel runner (macos-13) as a separate job.
@@ -56,6 +74,7 @@ mac:
   notarize: false
 
 linux:
+  icon: assets/icon.png
   category: Office
   maintainer: Kavero <hello@kavero.app>
   target:

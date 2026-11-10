@@ -1,16 +1,20 @@
 "use client";
 
-import { documentDirection, resolveToken, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
+import { cardDisplay, documentDirection, resolveToken, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
 import {
-  AlignCenter, AlignLeft, AlignRight, ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Eye, EyeOff, Lock, Trash2, Unlock,
+  AlignCenter, AlignCenterHorizontal, AlignCenterVertical, AlignEndHorizontal, AlignEndVertical, AlignHorizontalDistributeCenter, AlignLeft, AlignRight,
+  AlignStartHorizontal, AlignStartVertical, AlignVerticalDistributeCenter, ArrowDown, ArrowDownToLine, ArrowUp, ArrowUpToLine, Eye, EyeOff, Lock, Pencil, Plus,
+  Replace, Tag, Trash2, Unlock, X,
 } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 
 import { matchMorph, slideDurationMs } from "@Kavero/animation-engine";
 
+import { kbd } from "./editor-actions";
 import { FontPicker, type AddFont } from "./font-picker";
+import { ProductThumb, productPrice, type ProductUi } from "./product-picker";
 import { useRun } from "./use-catalog-editor";
 
 const FONTS = ["Inter", "Playfair Display", "Space Grotesk", "DM Serif Display", "Montserrat", "Lora", "Poppins", "Roboto", "Georgia", "Arial"];
@@ -21,7 +25,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="border-b px-3 py-3">
       <h3 className="mb-2 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{title}</h3>
-      <div className="grid gap-2">{children}</div>
+      <div className="grid grid-cols-[minmax(0,1fr)] gap-2">{children}</div>
     </section>
   );
 }
@@ -79,7 +83,9 @@ function ColorInput({ doc, value, onChange }: { doc: CatalogDocument; value: str
   );
 }
 
-export function PropertiesPanel({ editor, doc, slide, selection, addFont }: { editor: Editor; doc: CatalogDocument; slide: CatalogSlide; selection: string[]; addFont: AddFont }) {
+export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetUrls, productUi }: {
+  editor: Editor; doc: CatalogDocument; slide: CatalogSlide; selection: string[]; addFont: AddFont; assetUrls: Record<string, string>; productUi: ProductUi;
+}) {
   const run = useRun(editor);
   const [fontPickerFor, setFontPickerFor] = useState<string | null>(null);
   const rtl = documentDirection(doc) === "rtl";
@@ -231,7 +237,7 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont }: { ed
         </Section>
       )}
 
-      {(el.type === "product" || el.type === "product-grid") && <ProductProperties doc={doc} el={el} run={run} update={update} />}
+      {(el.type === "product" || el.type === "product-grid") && <ProductProperties doc={doc} el={el} run={run} update={update} assetUrls={assetUrls} ui={productUi} />}
 
       {el.type === "html" && (
         <Section title="HTML & CSS">
@@ -248,6 +254,18 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont }: { ed
     </div>
   );
 }
+
+const ALIGN_BUTTONS = [
+  ["l", AlignStartVertical, "Align left", "Alt+A"],
+  ["c", AlignCenterVertical, "Align center", "Alt+H"],
+  ["r", AlignEndVertical, "Align right", "Alt+D"],
+  ["t", AlignStartHorizontal, "Align top", "Alt+W"],
+  ["m", AlignCenterHorizontal, "Align middle", "Alt+V"],
+  ["b", AlignEndHorizontal, "Align bottom", "Alt+S"],
+] as const;
+
+const segment = "inline-flex overflow-hidden rounded-lg border border-input divide-x divide-input";
+const segmentBtn = "grid size-7 place-items-center text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:relative focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-ring [&_svg]:size-4";
 
 function AlignTools({ elements, run, doc }: { elements: CatalogElement[]; run: (c: EditorCommand) => unknown; doc: CatalogDocument }) {
   // One element aligns to the slide; several align to their shared bounding box.
@@ -284,81 +302,150 @@ function AlignTools({ elements, run, doc }: { elements: CatalogElement[]; run: (
       }),
     });
   };
-  const btn = "h-7 flex-1 border border-input text-[11px] hover:bg-muted";
+  const target = single ? "to slide" : "selection";
+  // Alignment is physical (x/y on the page), so the buttons keep left-to-right order in RTL catalogs too.
   return (
-    <div className="grid gap-1">
-      <span className="text-xs text-muted-foreground">Align {single ? "to slide" : "selection"}</span>
-      <div className="flex gap-0.5">
-        {([["l", "Left"], ["c", "Center"], ["r", "Right"], ["t", "Top"], ["m", "Middle"], ["b", "Bottom"]] as const).map(([k, l]) => (
-          <button key={k} type="button" className={btn} onClick={() => align(k)} title={`Align ${l.toLowerCase()}`}>{l}</button>
+    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+      <span className="me-auto text-xs text-muted-foreground">Align {target}</span>
+      <div className="flex gap-1" role="toolbar" aria-label={`Align ${target}`} dir="ltr">
+        {[ALIGN_BUTTONS.slice(0, 3), ALIGN_BUTTONS.slice(3)].map((group, gi) => (
+          <div key={gi} className={segment} role="group" aria-label={gi === 0 ? "Horizontal" : "Vertical"}>
+            {group.map(([k, Icon, label, keys]) => (
+              <button key={k} type="button" className={segmentBtn} onClick={() => align(k)} title={`${label} (${kbd(keys)})`} aria-label={`${label} ${target} (${kbd(keys)})`} aria-keyshortcuts={keys}>
+                <Icon aria-hidden />
+              </button>
+            ))}
+          </div>
         ))}
+        {elements.length > 2 && (
+          <div className={segment} role="group" aria-label="Distribute">
+            <button type="button" className={segmentBtn} onClick={() => distribute("x")} title="Distribute horizontally" aria-label="Distribute horizontally"><AlignHorizontalDistributeCenter aria-hidden /></button>
+            <button type="button" className={segmentBtn} onClick={() => distribute("y")} title="Distribute vertically" aria-label="Distribute vertically"><AlignVerticalDistributeCenter aria-hidden /></button>
+          </div>
+        )}
       </div>
-      {elements.length > 2 && (
-        <div className="flex gap-0.5">
-          <button type="button" className={btn} onClick={() => distribute("x")}>Distribute horizontally</button>
-          <button type="button" className={btn} onClick={() => distribute("y")}>Distribute vertically</button>
-        </div>
-      )}
     </div>
   );
 }
 
-function ProductProperties({ doc, el, run, update }: {
+const CARD_OPTIONS = [
+  ["showImage", "Image"], ["showName", "Name"], ["showBrand", "Brand"], ["showSubtitle", "Subtitle"],
+  ["showPrice", "Price"], ["showCompareAtPrice", "Compare-at price"], ["showBadge", "Badge"], ["showAvailability", "Availability"],
+  ["showRating", "Rating"], ["showSku", "SKU"], ["showDescription", "Description"], ["showAttributes", "Specs"], ["showLink", "View product link"],
+] as const;
+
+function ProductProperties({ doc, el, run, update, assetUrls, ui }: {
   doc: CatalogDocument;
   el: Extract<CatalogElement, { type: "product" | "product-grid" }>;
   run: (c: EditorCommand) => unknown;
   update: (c: Record<string, unknown>) => unknown;
+  assetUrls: Record<string, string>;
+  ui: ProductUi;
 }) {
-  const [name, setName] = useState("");
-  const [price, setPrice] = useState("");
-  const chosen = el.type === "product" ? [el.content.productId] : el.content.products.map((p) => p.productId);
-  const toggle = (id: string) => {
-    if (el.type === "product") return update({ content: { productId: id } });
-    const next = chosen.includes(id) ? chosen.filter((x) => x !== id) : [...chosen, id];
-    // Arrays replace rather than merge, so send the whole list.
-    run({ type: "element.update", elementId: el.id, changes: { content: { products: next.map((productId) => ({ productId })) } } });
+  const display = cardDisplay(el.style);
+  const byId = new Map(doc.products.map((p) => [p.id, p]));
+  // Arrays replace rather than merge, so always send the whole list.
+  const setGrid = (ids: string[]) => run({ type: "element.update", elementId: el.id, changes: { content: { products: ids.map((productId) => ({ productId })) } } });
+  const gridIds = el.type === "product-grid" ? el.content.products.map((p) => p.productId) : [];
+  const moveInGrid = (i: number, by: number) => {
+    const next = [...gridIds];
+    const j = i + by;
+    if (j < 0 || j >= next.length) return;
+    [next[i], next[j]] = [next[j]!, next[i]!];
+    setGrid(next);
   };
+  const current = el.type === "product" ? byId.get(el.content.productId) : undefined;
+  const chooseProduct = () => ui.pick({
+    multiple: false, initial: current ? [current.id] : [], title: "Show a different product", confirmLabel: "Use this product",
+    onConfirm: ([id]) => id && update({ content: { productId: id } }),
+  });
+
   return (
-    <Section title="Products">
-      {el.type === "product-grid" && (
-        <Field label="Columns"><NumberInput value={el.content.columns} min={1} max={8} onCommit={(columns) => update({ content: { columns } })} /></Field>
+    <>
+      {el.type === "product" ? (
+        <Section title="Product">
+          {!current ? (
+            <>
+              <p className="text-[11px] text-muted-foreground">No product chosen for this card.</p>
+              <Button variant="outline" size="sm" onClick={chooseProduct} aria-haspopup="dialog"><Tag /> Choose product…</Button>
+            </>
+          ) : (
+            <>
+              <div className="flex items-center gap-2">
+                <ProductThumb product={current} assetUrls={assetUrls} />
+                <div className="min-w-0 flex-1 text-xs">
+                  <p className="truncate font-medium">{current.name}</p>
+                  <p className="truncate text-muted-foreground">{[productPrice(doc, current), current.sku].filter(Boolean).join(" · ") || " "}</p>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-1">
+                <Button variant="outline" size="sm" onClick={chooseProduct} aria-haspopup="dialog"><Replace /> Change…</Button>
+                <Button variant="outline" size="sm" onClick={() => ui.edit(current.id)} aria-haspopup="dialog"><Pencil /> Edit product</Button>
+              </div>
+            </>
+          )}
+        </Section>
+      ) : (
+        <Section title={`Products in grid (${gridIds.length})`}>
+          <Field label="Columns"><NumberInput value={el.content.columns} min={1} max={8} onCommit={(columns) => update({ content: { columns } })} /></Field>
+          {gridIds.length === 0 ? (
+            <p className="text-[11px] text-muted-foreground">This grid is empty. Add products to fill it.</p>
+          ) : (
+            <ol className="grid max-h-56 gap-0.5 overflow-y-auto">
+              {gridIds.map((id, i) => {
+                const p = byId.get(id);
+                const name = p?.name ?? "Missing product";
+                return (
+                  <li key={`${id}-${i}`} className="group flex items-center gap-1.5 rounded-md py-0.5 text-xs hover:bg-muted/60">
+                    {p ? <ProductThumb product={p} assetUrls={assetUrls} className="size-6" /> : <span className="size-6 shrink-0 rounded-md border border-dashed" />}
+                    <span className={`min-w-0 flex-1 truncate ${p ? "" : "text-muted-foreground italic"}`} title={name}>{name}</span>
+                    <span className="flex opacity-60 group-hover:opacity-100 group-focus-within:opacity-100">
+                      <Button variant="ghost" size="icon-xs" title="Move earlier" aria-label={`Move ${name} earlier`} disabled={i === 0} onClick={() => moveInGrid(i, -1)}><ArrowUp /></Button>
+                      <Button variant="ghost" size="icon-xs" title="Move later" aria-label={`Move ${name} later`} disabled={i === gridIds.length - 1} onClick={() => moveInGrid(i, 1)}><ArrowDown /></Button>
+                      {p && <Button variant="ghost" size="icon-xs" title="Edit product" aria-label={`Edit ${name}`} onClick={() => ui.edit(id)}><Pencil /></Button>}
+                      <Button variant="ghost" size="icon-xs" title="Remove from grid" aria-label={`Remove ${name} from grid`} onClick={() => setGrid(gridIds.filter((_, j) => j !== i))}><X /></Button>
+                    </span>
+                  </li>
+                );
+              })}
+            </ol>
+          )}
+          <Button variant="outline" size="sm" aria-haspopup="dialog"
+            onClick={() => ui.pick({ multiple: true, initial: gridIds, title: "Products in this grid", confirmLabel: "Update grid", onConfirm: setGrid })}>
+            <Plus /> Add or reorder products…
+          </Button>
+        </Section>
       )}
-      <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.style.showPrice} onChange={(e) => update({ style: { showPrice: e.target.checked } })} /> Show price</label>
-      <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.style.showDescription} onChange={(e) => update({ style: { showDescription: e.target.checked } })} /> Show description</label>
-      <label className="flex items-center gap-2 text-xs"><input type="checkbox" checked={el.style.showAttributes} onChange={(e) => update({ style: { showAttributes: e.target.checked } })} /> Show specs (attributes)</label>
-      <Field label="Photo fit">
-        <select className={inputCls} value={el.style.imageFit} onChange={(e) => update({ style: { imageFit: e.target.value } })}>
-          <option value="contain">Show whole photo</option>
-          <option value="cover">Fill and crop</option>
-        </select>
-      </Field>
-      <div className="grid max-h-48 gap-1 overflow-y-auto">
-        {doc.products.length === 0 && <p className="text-[11px] text-muted-foreground">No products yet. Add one below. (Import from MCP comes in a later phase.)</p>}
-        {doc.products.map((p) => (
-          <label key={p.id} className="flex items-center gap-2 text-xs">
-            <input type={el.type === "product" ? "radio" : "checkbox"} name={`p-${el.id}`} checked={chosen.includes(p.id)} onChange={() => toggle(p.id)} />
-            <span className="truncate">{p.name}</span>
-            {p.price !== undefined && <span className="ml-auto text-muted-foreground tabular-nums">{p.price}</span>}
-          </label>
-        ))}
-      </div>
-      <form
-        className="flex gap-1"
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (!name.trim()) return;
-          const r = run({ type: "product.upsert", product: { name: name.trim(), price: price ? Number(price) : undefined } }) as { createdIds: string[] } | null;
-          const id = r?.createdIds[0];
-          if (id) toggle(id);
-          setName("");
-          setPrice("");
-        }}
-      >
-        <input className={inputCls} placeholder="Product name" value={name} onChange={(e) => setName(e.target.value)} />
-        <input className={`${inputCls} w-16`} placeholder="Price" type="number" min={0} step="0.01" value={price} onChange={(e) => setPrice(e.target.value)} />
-        <Button type="submit" size="sm" variant="outline">Add</Button>
-      </form>
-    </Section>
+
+      <Section title="Card shows">
+        <div className="grid grid-cols-2 gap-x-2 gap-y-1.5">
+          {CARD_OPTIONS.map(([key, label]) => (
+            <label key={key} className="flex min-w-0 items-center gap-1.5 text-xs">
+              <input type="checkbox" checked={display[key]} onChange={(e) => update({ style: { [key]: e.target.checked } })} />
+              <span className="truncate">{label}</span>
+            </label>
+          ))}
+        </div>
+        {display.showAttributes && (
+          <Field label="Max specs"><NumberInput value={display.maxAttributes} min={1} max={20} onCommit={(maxAttributes) => update({ style: { maxAttributes } })} /></Field>
+        )}
+        <Field label="Layout">
+          <select className={inputCls} value={el.style.layout === "horizontal" ? "horizontal" : "vertical"} onChange={(e) => update({ style: { layout: e.target.value } })}>
+            <option value="vertical">Photo on top</option>
+            <option value="horizontal">Photo beside text</option>
+          </select>
+        </Field>
+        <Field label="Photo fit">
+          <select className={inputCls} value={el.style.imageFit} onChange={(e) => update({ style: { imageFit: e.target.value } })}>
+            <option value="contain">Show whole photo</option>
+            <option value="cover">Fill and crop</option>
+          </select>
+        </Field>
+        <Field label="Radius"><NumberInput value={el.style.borderRadius} min={0} onCommit={(borderRadius) => update({ style: { borderRadius } })} /></Field>
+        {el.type === "product-grid" && <Field label="Gap"><NumberInput value={el.style.gap} min={0} max={400} onCommit={(gap) => update({ style: { gap } })} /></Field>}
+        <p className="text-[11px] text-muted-foreground">Fields a product doesn’t have are skipped, so cards never show empty gaps.</p>
+      </Section>
+    </>
   );
 }
 

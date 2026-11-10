@@ -33,3 +33,18 @@ test("RTL text detection", async () => {
   expect(textIsRtl("۰۹۱۲ ۰۵۶ ۱۸۱۰", true)).toBe(true);
   expect(textIsRtl("123", false)).toBe(false);
 });
+
+test("product cards export the new product fields", async () => {
+  const doc = createFromTemplate("tech", { title: "Deck", page: "16:9" });
+  doc.products.push({
+    id: "p1", name: "Phone X", subtitle: "Pro camera", brand: "Acme", price: 899, compareAtPrice: 999, unit: "/ unit", badge: "Sale",
+    availability: "limited", rating: 4.5, sku: "PX-1", url: "https://example.com/x", imageAssetIds: [], attributes: { Storage: "256 GB" },
+  });
+  const grid = doc.slides[2]!.elements.find((e) => e.type === "product-grid")!;
+  if (grid.type === "product-grid") {
+    grid.content.products = [{ productId: "p1" }];
+    Object.assign(grid.style, { showAttributes: true, showSku: true, showLink: true });
+  }
+  const { data } = await exportPptx<Uint8Array>(doc, { assets: {}, outputType: "uint8array" });
+  expect(data.byteLength).toBeGreaterThan(10_000);
+});

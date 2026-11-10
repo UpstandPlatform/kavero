@@ -7,6 +7,7 @@ import { useState } from "react";
 
 import { getQueryClient, makeTRPCClient, TRPCProvider } from "@/utils/trpc";
 
+import { DesktopUpdateNotice } from "./desktop-update";
 import { ThemeProvider } from "./theme-provider";
 
 export default function Providers({ children }: { children: React.ReactNode }) {
@@ -22,6 +23,7 @@ export default function Providers({ children }: { children: React.ReactNode }) {
         <ReactQueryDevtools />
       </QueryClientProvider>
       <Toaster richColors />
+      <DesktopUpdateNotice />
     </ThemeProvider>
   );
 }

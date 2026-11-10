@@ -15,6 +15,7 @@
     "make-admin": "bun scripts/make-admin.ts"
   },
   "dependencies": {
+    "@electric-sql/pglite": "^0.5.16",
     "drizzle-orm": "catalog:",
     "pg": "^8.23.0",
     "zod": "catalog:"

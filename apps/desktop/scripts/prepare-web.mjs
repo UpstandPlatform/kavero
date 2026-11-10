@@ -35,9 +35,17 @@ const storeDir = join(standalone, "node_modules", ".bun");
 // Packages are copied from the traced standalone store (only the files the server uses).
 // serverExternalPackages are loaded unbundled and read data files that tracing misses
 // (e.g. playwright-core/browsers.json), so those come in full from the repo's own store
-// (same entry names).
-const FULL_COPY = /^(playwright-core|@ffmpeg-installer\/.*)$/;
+// (same entry names). Same for sharp's platform package (@img/sharp-<os>-<arch>, Next's
+// image optimizer): tracing keeps its .node addon but not the libvips DLLs it links against.
+const FULL_COPY = /^(playwright-core|@ffmpeg-installer\/.*|@img\/sharp-.*)$/;
 const repoStoreDir = join(desktopDir, "..", "..", "node_modules", ".bun");
+
+// Packages the server never needs at runtime. apps/web/next.config.ts already keeps them
+// out of the trace (outputFileTracingExcludes; see the reasons there), this is the safety
+// net so a tracing regression can't silently add hundreds of MB to the installer again
+// (Electron itself once did: 369 MB of a 568 MB resources folder).
+const NEVER_SHIP = /^(electron|electron-builder|app-builder-bin|app-builder-lib|typescript|drizzle-kit|@types\/.*)$/;
+const neverShipped = new Set();
 const storeReal = existsSync(storeDir) ? realpathSync(storeDir) : null;
 
 /** Lists package dirs (incl. scoped) directly inside a node_modules dir. */
@@ -93,6 +101,10 @@ const tracedOnly = [];
 let packageCount = 0;
 
 function placeAt(ref, nmDir, asName = ref.name) {
+  if (NEVER_SHIP.test(ref.name)) {
+    neverShipped.add(ref.name);
+    return;
+  }
   const dest = join(nmDir, ...asName.split("/"));
   let names = placed.get(nmDir);
   if (!names) placed.set(nmDir, (names = new Map()));
@@ -166,11 +178,26 @@ cpSync(standalone, out, {
   },
 });
 
+// The bundled server requires serverExternalPackages through hashed aliases
+// (.next/node_modules/<name>-<hash>, placed in step 3), not by their bare name. For the big
+// FULL_COPY ones the hoisted copy is then a dead duplicate: @ffmpeg-installer/ffmpeg would
+// ship twice (62 MB each with its binary package, since the aliased copy gets its own
+// nested one in resolveQueue). Small externals like pg stay hoisted, just in case.
+const aliasedKeys = new Set();
+for (const rel of links) {
+  try {
+    const ref = storeRef(realpathSync(join(standalone, rel)));
+    if (ref && FULL_COPY.test(ref.name) && basename(rel) !== ref.name.split("/").pop()) aliasedKeys.add(keyOf(ref));
+  } catch {
+    // dangling, reported in step 3
+  }
+}
+
 // 2. Hoisted packages (bun keeps them in .bun/node_modules) go to the root node_modules.
 for (const pkg of listPackages(join(storeDir, "node_modules"))) {
   try {
     const ref = storeRef(realpathSync(pkg.path));
-    if (ref) placeAt(ref, join(out, "node_modules"), pkg.name);
+    if (ref && !aliasedKeys.has(keyOf(ref))) placeAt(ref, join(out, "node_modules"), pkg.name);
   } catch {
     // dangling
   }
@@ -205,7 +232,10 @@ cpSync(join(webDir, ".next", "static"), join(outWeb, ".next", "static"), { recur
 if (existsSync(join(webDir, "public"))) cpSync(join(webDir, "public"), join(outWeb, "public"), { recursive: true });
 else mkdirSync(join(outWeb, "public"), { recursive: true });
 cpSync(join(webDir, ".env.schema"), join(outWeb, ".env.schema"));
+// Database migrations: the server applies them on startup (KAVERO_AUTO_MIGRATE).
+cpSync(join(webDir, "..", "..", "packages", "db", "src", "migrations"), join(outWeb, "migrations"), { recursive: true });
 
+if (neverShipped.size) console.warn(`prepare-web: left out (never needed at runtime): ${[...neverShipped].join(", ")}; check outputFileTracingExcludes in apps/web/next.config.ts`);
 if (tracedOnly.length) console.warn(`prepare-web: not in the repo store, shipping the traced (possibly incomplete) copy of: ${tracedOnly.join(", ")}`);
 const age = Math.round((Date.now() - statSync(serverJs).mtimeMs) / 60000);
 console.log(

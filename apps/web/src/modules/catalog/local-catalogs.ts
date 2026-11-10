@@ -10,7 +10,7 @@ import {
   type DocVersion,
   versionOf,
 } from "@Kavero/local-storage";
-import { createFromTemplate, createCatalog, duplicateCatalogWithAssets, safeFileName, type CreateCatalogInput } from "@Kavero/catalog-engine";
+import { EXAMPLE_DECKS, createFromTemplate, createCatalog, duplicateCatalogWithAssets, safeFileName, type CreateCatalogInput } from "@Kavero/catalog-engine";
 import { useCallback, useEffect, useState } from "react";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { slideThumbnail } from "./thumbnail";
@@ -76,6 +76,39 @@ export async function createLocalCatalog(input: CreateCatalogInput & { templateI
   const doc = input.templateId && input.templateId !== "blank" ? createFromTemplate(input.templateId, input) : createCatalog(input);
   await saveLocalCatalog(doc);
   return doc;
+}
+
+const EXAMPLES_SEEDED = "kavero:examples-seeded";
+
+/**
+ * Adds the example presentations (Kavero, OpenRive, Upstand, dgrunner) to this
+ * browser's catalogs, once per example: a fresh Kavero shows them by default, and an
+ * example you delete stays deleted. Returns how many were added.
+ */
+export async function seedExampleCatalogs(): Promise<number> {
+  let seeded: string[];
+  try {
+    seeded = JSON.parse(localStorage.getItem(EXAMPLES_SEEDED) ?? "[]") as string[];
+  } catch {
+    return 0; // no storage (private window): don't add copies on every visit
+  }
+  const missing = EXAMPLE_DECKS.filter((d) => !seeded.includes(d.key));
+  if (!missing.length) return 0;
+  // Mark first, so another tab opening at the same moment doesn't add them twice.
+  try {
+    localStorage.setItem(EXAMPLES_SEEDED, JSON.stringify([...seeded, ...missing.map((d) => d.key)]));
+  } catch {
+    return 0;
+  }
+  // Newest first on the dashboard: save in reverse so the Kavero deck ends up on top.
+  for (const deck of [...missing].reverse()) await saveLocalCatalog(deck.build());
+  return missing.length;
+}
+
+/** Adds fresh copies of every example presentation (from the dashboard's empty state). */
+export async function addExampleCatalogs(): Promise<number> {
+  for (const deck of [...EXAMPLE_DECKS].reverse()) await saveLocalCatalog(deck.build());
+  return EXAMPLE_DECKS.length;
 }
 
 export async function renameLocalCatalog(id: string, title: string) {

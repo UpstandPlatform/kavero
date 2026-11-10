@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <!-- Kavero app icon: the header logo (two stacked slides with a K) on a dark rounded square. -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#262626"/>
+      <stop offset="1" stop-color="#0a0a0a"/>
+    </linearGradient>
+  </defs>
+  <rect x="32" y="32" width="960" height="960" rx="216" fill="url(#bg)"/>
+  <rect x="32.5" y="32.5" width="959" height="959" rx="215.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+  <!-- Logo, 24×24 viewBox scaled to ~640px and centred -->
+  <g transform="translate(512 512) scale(28) translate(-12 -10.5)">
+    <rect x="2" y="6" width="15" height="12" rx="3" fill="#fafafa" fill-opacity="0.32"/>
+    <rect x="7" y="3" width="15" height="12" rx="3" fill="#fafafa"/>
+    <path d="M12 6.5v5M12 9l3.2-2.5M12 9l3.2 2.5" stroke="#171717" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+  </g>
+</svg>
