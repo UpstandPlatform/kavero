@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.9.0](https://github.com/UpstandPlatform/kavero/compare/v0.8.0...v0.9.0) - 2026-11-10
+
+### Features
+
+- Implement extension host architecture with manifest validation and runtime services ([5515ced](https://github.com/UpstandPlatform/kavero/commit/5515ceda7673f0bd2997e523878d9975ccc089bc))
+
 ## [0.8.0](https://github.com/UpstandPlatform/kavero/compare/v0.7.0...v0.8.0) - 2026-11-10
 
 ### Features
