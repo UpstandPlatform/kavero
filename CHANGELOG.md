@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.5.0](https://github.com/UpstandPlatform/kavero/compare/v0.4.0...v0.5.0) - 2026-11-10
+
+### Features
+
+- Update development setup instructions and add setup script for local environment ([1e42abc](https://github.com/UpstandPlatform/kavero/commit/1e42abcd5148cff7f9631c40491e50445db24b08))
+
 ## [0.4.0](https://github.com/UpstandPlatform/kavero/compare/v0.3.0...v0.4.0) - 2026-11-10
 
 ### Features
