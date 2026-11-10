@@ -5,7 +5,6 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { CheckmarkCircle02Icon, Download04Icon, LayoutGridIcon, Plug01Icon, PuzzleIcon, Search01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { Badge } from "@Kavero/ui/components/badge";
 import { Button } from "@Kavero/ui/components/button";
-import { Card, CardContent, CardFooter } from "@Kavero/ui/components/card";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@Kavero/ui/components/dialog";
 import { Empty, EmptyDescription, EmptyHeader, EmptyMedia, EmptyTitle } from "@Kavero/ui/components/empty";
 import { Input } from "@Kavero/ui/components/input";
@@ -135,77 +134,69 @@ export function ExtensionStoreDialog({ extensions, selectedElementCount = 0, onA
 
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent style={{ width: "min(1180px, calc(100vw - 2rem))", maxWidth: "none" }} className="flex max-h-[min(90vh,860px)] w-full max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-[1180px]">
-        <DialogHeader className="gap-4 border-b px-5 py-4 sm:px-6">
-          <div className="flex min-w-0 items-start justify-between gap-4">
+      <DialogContent style={{ width: "min(1120px, calc(100vw - 2rem))", maxWidth: "none" }} className="@container/store flex max-h-[min(88dvh,800px)] min-h-[min(560px,88dvh)] w-full max-w-none flex-col gap-0 overflow-hidden p-0 sm:max-w-[1120px]">
+        <DialogHeader className="gap-4 border-b px-5 py-5 sm:px-7">
+          <div className="flex min-w-0 items-start justify-between gap-4 pe-8">
             <div className="min-w-0">
-              <DialogTitle className="flex items-center gap-2 text-lg"><HugeiconsIcon icon={PuzzleIcon} /> Extension store</DialogTitle>
-              <DialogDescription className="mt-1">Find tools for your canvas. Install once, then run plugins or apply effects to selected elements.</DialogDescription>
+              <DialogTitle className="flex items-center gap-2 text-lg"><HugeiconsIcon icon={PuzzleIcon} className="size-5 text-primary" /> Extension store</DialogTitle>
+              <DialogDescription className="mt-1 max-w-2xl">Discover plugins, widgets, and visual effects for your canvas. Install a tool once, then run it when you need it.</DialogDescription>
             </div>
-            <Badge variant="outline" className="shrink-0">Kavero curated</Badge>
+            <Badge variant="outline" className="hidden shrink-0 sm:inline-flex">Kavero curated</Badge>
           </div>
           <div className="relative">
             <HugeiconsIcon icon={Search01Icon} className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-            <Input aria-label="Search extensions" placeholder="Search plugins, widgets, effects, and integrations" value={search} onChange={(event) => setSearch(event.target.value)} className="h-10 rounded-xl ps-9" />
+            <Input aria-label="Search extensions" placeholder="Search tools by name, publisher, or category" value={search} onChange={(event) => setSearch(event.target.value)} className="h-11 rounded-xl bg-muted/40 ps-9" />
           </div>
-          <div className="flex min-w-0 flex-wrap items-center justify-between gap-3">
-            <div role="group" aria-label="Filter extension types" className="flex min-w-0 max-w-full items-center gap-1 overflow-x-auto rounded-xl bg-muted/50 p-1">
+          <div className="flex min-w-0 items-center gap-2">
+            <div role="group" aria-label="Filter extension types" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto rounded-xl bg-muted/40 p-1">
               {TYPE_TABS.map((tab) => (
                 <Button key={tab.value} type="button" size="sm" variant={activeType === tab.value ? "secondary" : "ghost"} aria-pressed={activeType === tab.value} onClick={() => setActiveType(tab.value)} className="h-8 shrink-0 gap-1.5 px-2.5 text-xs sm:px-3 sm:text-sm">
-                  {tab.label}
-                  <span className="text-[10px] text-muted-foreground">{tab.type ? extensions.filter((entry) => extensionTypes(entry.manifest).includes(tab.type!)).length : extensions.length}</span>
+                  {tab.label}<span className="text-[10px] text-muted-foreground">{tab.type ? extensions.filter((entry) => extensionTypes(entry.manifest).includes(tab.type!)).length : extensions.length}</span>
                 </Button>
               ))}
             </div>
-            <Button variant={installedOnly ? "secondary" : "outline"} size="sm" aria-pressed={installedOnly} onClick={() => setInstalledOnly((value) => !value)}>
+            <Button variant={installedOnly ? "secondary" : "outline"} size="sm" aria-pressed={installedOnly} onClick={() => setInstalledOnly((value) => !value)} className="shrink-0">
               <HugeiconsIcon icon={CheckmarkCircle02Icon} data-icon="inline-start" />
-              Installed only
+              <span className="hidden sm:inline">Installed</span>
+              <span className="sm:hidden">Mine</span>
             </Button>
           </div>
         </DialogHeader>
 
-        <div className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_minmax(0,1fr)] lg:grid-cols-[minmax(0,1fr)_320px] lg:grid-rows-1">
-          <section aria-label="Available extensions" className="flex min-h-0 min-w-0 flex-col border-b lg:border-b-0 lg:border-e">
-            <div className="flex items-center justify-between gap-3 px-5 py-3 text-xs text-muted-foreground sm:px-6">
-              <span>{filtered.length} {filtered.length === 1 ? "tool" : "tools"}</span>
-              <span>Verified packages from Kavero</span>
+        <div className="grid min-h-0 flex-1 grid-rows-[minmax(160px,0.8fr)_minmax(0,1.2fr)] @lg/store:grid-cols-[minmax(280px,0.9fr)_minmax(0,1.1fr)] @lg/store:grid-rows-1">
+          <section aria-label="Available extensions" className="flex min-h-0 min-w-0 flex-col border-b @lg/store:border-b-0 @lg/store:border-e">
+            <div className="flex items-center justify-between gap-3 px-5 py-3 sm:px-6">
+              <span className="text-sm font-medium">Browse tools <span className="ms-1 text-xs font-normal text-muted-foreground">{filtered.length}</span></span>
+              <span className="text-[11px] text-muted-foreground">Curated by Kavero</span>
             </div>
             <ScrollArea className="min-h-0 flex-1">
               {filtered.length ? (
-                <div className="grid gap-3 px-5 pb-5 sm:grid-cols-2 sm:px-6 xl:grid-cols-3">
+                <div role="group" aria-label="Extensions" className="grid gap-1 px-3 pb-4 sm:px-4">
                   {filtered.map((entry) => {
                     const { manifest } = entry;
                     const active = selected?.manifest.id === manifest.id;
                     const type = primaryType(manifest);
-                    const icon = typeIcon(type);
                     return (
-                      <Card key={manifest.id} size="sm" className={cn("transition-colors", active && "ring-2 ring-primary/50")}>
-                        <div className="grid min-h-0 flex-1">
-                          <button type="button" aria-pressed={active} onClick={() => setSelectedId(manifest.id)} className="flex min-h-0 flex-1 flex-col items-stretch gap-3 p-4 text-start outline-none focus-visible:ring-2 focus-visible:ring-ring">
-                            <span className="flex items-start justify-between gap-3">
-                              <span className={cn("grid size-11 shrink-0 place-items-center rounded-xl bg-muted", type.startsWith("shader") && "bg-primary/10 text-primary", type === "integration" && "bg-secondary text-secondary-foreground")}>
-                                <HugeiconsIcon icon={icon} />
-                              </span>
-                              {entry.installed && <Badge variant={entry.enabled ? "secondary" : "outline"}>{entry.enabled ? "Installed" : "Disabled"}</Badge>}
-                            </span>
-                            <span className="grid min-w-0 gap-1">
-                              <span className="truncate text-sm font-semibold">{manifest.name}</span>
-                              <span className="line-clamp-2 min-h-9 text-xs leading-relaxed text-muted-foreground">{manifest.description}</span>
-                            </span>
-                            <span className="flex flex-wrap gap-1.5">
-                              {extensionTypes(manifest).map((item) => <Badge key={item} variant="outline" className="text-[10px] font-normal">{EXTENSION_TYPE_LABELS[item]}</Badge>)}
-                              {manifest.categories?.slice(0, 1).map((category) => <Badge key={category} variant="ghost" className="text-[10px] font-normal">{category}</Badge>)}
-                            </span>
-                          </button>
-                        </div>
-                        <CardFooter className="justify-between gap-2 border-t py-3">
-                          <span className="truncate text-[11px] text-muted-foreground">By {manifest.publisher.name}</span>
-                          <Button size="sm" variant={entry.enabled ? "outline" : "default"} disabled={actionDisabled(entry)} onClick={() => void activate(entry)}>
-                            {primaryAction(entry).action === "install" && <HugeiconsIcon icon={Download04Icon} data-icon="inline-start" />}
-                            {primaryAction(entry).label}
-                          </Button>
-                        </CardFooter>
-                      </Card>
+                      <button key={manifest.id} type="button" aria-pressed={active} onClick={() => setSelectedId(manifest.id)} className={cn(
+                        "flex min-w-0 items-center gap-3 rounded-xl border border-transparent p-3 text-start transition-colors outline-none hover:bg-muted/60 focus-visible:ring-2 focus-visible:ring-ring",
+                        active && "border-primary/25 bg-primary/5 shadow-sm",
+                      )}>
+                        <span className={cn("grid size-11 shrink-0 place-items-center rounded-xl bg-muted text-foreground", type.startsWith("shader") && "bg-primary/10 text-primary", type === "integration" && "bg-secondary text-secondary-foreground")}>
+                          <HugeiconsIcon icon={typeIcon(type)} className="size-5" />
+                        </span>
+                        <span className="grid min-w-0 flex-1 gap-1">
+                          <span className="flex min-w-0 items-center gap-2">
+                            <span className="truncate text-sm font-semibold">{manifest.name}</span>
+                            {entry.updateAvailable && <Badge variant="secondary" className="shrink-0 px-1.5 py-0 text-[10px]">Update</Badge>}
+                          </span>
+                          <span className="truncate text-xs text-muted-foreground">{manifest.description}</span>
+                          <span className="flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                            <span className="truncate">{manifest.publisher.name}</span><span aria-hidden>·</span>
+                            <span className="truncate">{EXTENSION_TYPE_LABELS[type]}</span>
+                          </span>
+                        </span>
+                        {entry.installed && <span className={cn("shrink-0 rounded-full px-2 py-1 text-[10px]", entry.enabled ? "bg-primary/10 text-primary" : "bg-muted text-muted-foreground")}>{entry.enabled ? "Added" : "Off"}</span>}
+                      </button>
                     );
                   })}
                 </div>
@@ -222,20 +213,23 @@ export function ExtensionStoreDialog({ extensions, selectedElementCount = 0, onA
             </ScrollArea>
           </section>
 
-          <aside aria-label="Selected extension details" className="flex min-h-0 flex-col">
+          <aside aria-label="Selected extension details" className="flex min-h-0 min-w-0 flex-col bg-muted/10">
             {selected ? (
               <>
                 <ScrollArea className="min-h-0 flex-1">
-                  <div className="grid gap-5 p-5 sm:p-6">
-                    <div className="grid gap-3">
+                  <div className="mx-auto grid w-full max-w-xl gap-6 p-5 sm:p-8">
+                    <div className="grid gap-4">
                       <span className={cn("grid size-14 place-items-center rounded-2xl bg-muted", primaryType(selected.manifest).startsWith("shader") && "bg-primary/10 text-primary")}>
                         <HugeiconsIcon icon={typeIcon(primaryType(selected.manifest))} className="size-6" />
                       </span>
-                      <div className="grid gap-1">
-                        <h2 className="text-base font-semibold">{selected.manifest.name}</h2>
+                      <div className="grid gap-1.5">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h2 className="text-xl font-semibold tracking-tight">{selected.manifest.name}</h2>
+                          {selected.installed && <Badge variant={selected.enabled ? "secondary" : "outline"}>{selected.enabled ? "Installed" : "Disabled"}</Badge>}
+                        </div>
                         <p className="text-xs text-muted-foreground">By {selected.manifest.publisher.name} · Version {selected.manifest.version}</p>
                       </div>
-                      <p className="text-sm leading-relaxed text-muted-foreground">{selected.manifest.description}</p>
+                      <p className="max-w-prose text-sm leading-relaxed text-muted-foreground">{selected.manifest.description}</p>
                       <div className="flex flex-wrap gap-1.5">
                         {extensionTypes(selected.manifest).map((item) => <Badge key={item} variant="secondary">{EXTENSION_TYPE_LABELS[item]}</Badge>)}
                         {selected.manifest.license && <Badge variant="outline">{selected.manifest.license}</Badge>}
@@ -259,12 +253,12 @@ export function ExtensionStoreDialog({ extensions, selectedElementCount = 0, onA
                         {selected.manifest.capabilities.length === 0 && <li className="text-xs text-muted-foreground">No special access requested.</li>}
                       </ul>
                     </div>
-                    <div className="rounded-xl bg-muted/50 p-3 text-xs leading-relaxed text-muted-foreground">
-                      Kavero-reviewed code runs in the editor. External integrations use the connections you choose and never receive stored credentials directly.
+                    <div className="rounded-xl border bg-background/60 p-4 text-xs leading-relaxed text-muted-foreground">
+                      Only code bundled and approved by this Kavero deployment can run. External integrations use connections you choose; stored credentials stay on the server.
                     </div>
                   </div>
                 </ScrollArea>
-                <div className="grid gap-2 border-t p-5 sm:p-6">
+                <div className="grid gap-2 border-t bg-background/70 p-4 sm:p-5">
                   <Button className="w-full" disabled={actionDisabled(selected)} onClick={() => void activate(selected)}>
                     {primaryAction(selected).action === "install" && <HugeiconsIcon icon={Download04Icon} data-icon="inline-start" />}
                     {primaryAction(selected).label}
@@ -286,8 +280,8 @@ export function ExtensionStoreDialog({ extensions, selectedElementCount = 0, onA
           </aside>
         </div>
 
-        <footer className="flex flex-wrap items-center justify-between gap-2 border-t px-5 py-3 text-xs text-muted-foreground sm:px-6">
-          <span>Only code bundled and approved by this Kavero deployment can run.</span>
+        <footer className="flex items-center justify-between gap-3 border-t px-5 py-3 text-xs text-muted-foreground sm:px-6">
+          <span>{extensions.length} curated {extensions.length === 1 ? "tool" : "tools"} available</span>
           <Button variant="outline" size="sm" onClick={onClose}>Done</Button>
         </footer>
       </DialogContent>

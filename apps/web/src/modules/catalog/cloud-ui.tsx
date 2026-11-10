@@ -58,15 +58,29 @@ export function CloudOnlyList({ userId, localDocumentIds, onCount }: { userId: s
   const [items, setItems] = useState<CloudList | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
 
-  const refresh = useCallback(() => {
-    listCloudCatalogs().then(setItems, (e: Error) => setError(e.message));
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      setItems(await listCloudCatalogs());
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Unexpected response from the cloud catalog service.");
+    } finally {
+      setLoading(false);
+    }
   }, []);
-  useEffect(refresh, [refresh]);
+  useEffect(() => { void refresh(); }, [refresh]);
 
   const cloudOnly = (items ?? []).filter((c) => !localDocumentIds.has(c.documentId));
   useEffect(() => onCount?.(cloudOnly.length), [cloudOnly.length, onCount]);
-  if (error) return <p className="mt-8 text-xs text-destructive">Couldn’t load cloud catalogs: {error}</p>;
+  if (error) return (
+    <div role="alert" className="mt-8 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-destructive/25 bg-destructive/5 px-4 py-3">
+      <p className="min-w-0 flex-1 text-xs text-destructive">Couldn’t load cloud catalogs: {error}</p>
+      <Button variant="outline" size="sm" disabled={loading} onClick={() => void refresh()}>{loading ? "Retrying…" : "Retry"}</Button>
+    </div>
+  );
   if (!cloudOnly.length) return null;
 
   return (

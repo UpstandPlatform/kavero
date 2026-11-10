@@ -60,6 +60,37 @@ class ExtensionRenderBoundary extends Component<{ extensionId: string; kind: str
   }
 }
 
+/** Keeps one malformed catalog element from taking down an entire slide. */
+class ElementRenderBoundary extends Component<{
+  element: CatalogElement;
+  mode: "edit" | "present";
+  children: ReactNode;
+}, { failed: boolean; lastElement: CatalogElement }> {
+  state = { failed: false, lastElement: this.props.element };
+
+  static getDerivedStateFromProps(props: { element: CatalogElement }, state: { failed: boolean; lastElement: CatalogElement }) {
+    return props.element === state.lastElement ? null : { failed: false, lastElement: props.element };
+  }
+
+  static getDerivedStateFromError() {
+    return { failed: true };
+  }
+
+  componentDidCatch(error: Error) {
+    console.error(`[slide-element:${this.props.element.id}/${this.props.element.type}]`, error);
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children;
+    if (this.props.mode === "present") return null;
+    return (
+      <div className="grid size-full place-items-center border border-dashed border-destructive/40 bg-muted/40 p-2 text-center text-xs text-muted-foreground" title={`Element ${this.props.element.id} could not be rendered`}>
+        Element could not be rendered
+      </div>
+    );
+  }
+}
+
 const Ctx = createContext<RenderContext | null>(null);
 const useRender = () => {
   const c = useContext(Ctx);
@@ -249,9 +280,9 @@ function ElementFrame({ element, position: p, schedule, timeMs, highlighted = fa
     >
       {anim ? (
         <div style={{ width: "100%", height: "100%", opacity: anim.opacity, transform: anim.transform, filter: anim.filter, transformOrigin: "50% 50%" }}>
-          {body}
+          <ElementRenderBoundary element={element} mode={mode}>{body}</ElementRenderBoundary>
         </div>
-      ) : body}
+      ) : <ElementRenderBoundary element={element} mode={mode}>{body}</ElementRenderBoundary>}
     </div>
   );
 }
