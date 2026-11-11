@@ -4,9 +4,9 @@ import type { CatalogElement, CatalogSlide, ElementPosition } from "@Kavero/cata
 import type { Editor, EditorState } from "@Kavero/editor-core";
 import { SlideView, type ExtensionEffectRegistry, type ExtensionRendererRegistry } from "@Kavero/renderer";
 import { Textarea } from "@Kavero/ui/components/textarea";
-import { useEffect, useLayoutEffect, useRef, useState, type PointerEvent as RPointerEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type PointerEvent as RPointerEvent } from "react";
 
-import { useContextMenu } from "./context-menu";
+import { useContextMenu, type MenuItem } from "./context-menu";
 import type { EditorActions } from "./editor-actions";
 import { TooltipHint } from "@Kavero/ui/components/tooltip";
 import { canvasMenu, elementMenu } from "./editor-menus";
@@ -23,7 +23,10 @@ type Gesture =
   | { kind: "move"; startX: number; startY: number; starts: Record<string, ElementPosition>; moved: boolean }
   | { kind: "resize"; id: string; handle: Handle; startX: number; startY: number; start: ElementPosition }
   | { kind: "rotate"; id: string; cx: number; cy: number; start: ElementPosition }
+  | { kind: "pan"; startX: number; startY: number; scrollLeft: number; scrollTop: number }
   | { kind: "marquee"; x0: number; y0: number; x1: number; y1: number; additive: string[] };
+
+type PointerSample = { clientX: number; clientY: number; shiftKey: boolean; altKey: boolean };
 
 interface Guide { axis: "x" | "y"; at: number }
 
@@ -34,17 +37,19 @@ export interface CanvasProps {
   assetUrls: Record<string, string>;
   zoom: number | "fit";
   onFitScale: (scale: number) => void;
+  onZoomChange: (scale: number) => void;
   actions: EditorActions;
   annotationMode?: boolean;
   onAnnotateElement?: (slideId: string, elementId: string) => void;
   onAddElementsToChat?: (slideId: string, elementIds: string[]) => void;
+  getExtensionElementMenuItems?: (elements: readonly CatalogElement[]) => MenuItem[];
   onCancelAnnotation?: () => void;
   highlightedAnnotation?: { slideId: string; elementId: string } | null;
   extensionRenderers?: ExtensionRendererRegistry;
   extensionEffects?: ExtensionEffectRegistry;
 }
 
-export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, actions, annotationMode = false, onAnnotateElement, onAddElementsToChat, onCancelAnnotation, highlightedAnnotation, extensionRenderers, extensionEffects }: CanvasProps) {
+export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZoomChange, actions, annotationMode = false, onAnnotateElement, onAddElementsToChat, getExtensionElementMenuItems, onCancelAnnotation, highlightedAnnotation, extensionRenderers, extensionEffects }: CanvasProps) {
   const openMenu = useContextMenu();
   const run = useRun(editor);
   const doc = state.document;
@@ -52,17 +57,41 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
   const wrapRef = useRef<HTMLDivElement>(null);
   const slideRef = useRef<HTMLDivElement>(null);
   const [fit, setFit] = useState(0.5);
+  const scale = zoom === "fit" ? fit : zoom;
   const [gesture, setGesture] = useState<Gesture | null>(null);
   const [overrides, setOverrides] = useState<Record<string, Partial<ElementPosition>>>({});
+  const gestureRef = useRef<Gesture | null>(null);
+  const overridesRef = useRef<Record<string, Partial<ElementPosition>>>({});
+  const zoomTargetRef = useRef(scale);
+  const zoomAnchorRef = useRef<{ clientX: number; clientY: number; slideX: number; slideY: number; scale: number } | null>(null);
+  const pendingPointer = useRef<PointerSample | null>(null);
+  const moveFrame = useRef<number | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
   // Pointer capture during drags swallows native dblclick, so detect it ourselves.
   const lastDown = useRef<{ id: string; at: number } | null>(null);
 
-  const scale = zoom === "fit" ? fit : zoom;
-  const selected = new Set(state.selection);
-  const elements = [...slide.elements].sort((a, b) => a.zIndex - b.zIndex);
+  const selected = useMemo(() => new Set(state.selection), [state.selection]);
+  const elements = useMemo(() => [...slide.elements].sort((a, b) => a.zIndex - b.zIndex), [slide.elements]);
   const pos = (el: CatalogElement): ElementPosition => ({ ...el.position, ...overrides[el.id] });
+
+  function updateGesture(next: Gesture | null) {
+    gestureRef.current = next;
+    setGesture(next);
+  }
+
+  function updateOverrides(next: Record<string, Partial<ElementPosition>>) {
+    overridesRef.current = next;
+    setOverrides(next);
+  }
+
+  function pointerSample(e: RPointerEvent): PointerSample {
+    return { clientX: e.clientX, clientY: e.clientY, shiftKey: e.shiftKey, altKey: e.altKey };
+  }
+
+  useEffect(() => () => {
+    if (moveFrame.current !== null) cancelAnimationFrame(moveFrame.current);
+  }, []);
 
   useLayoutEffect(() => {
     const el = wrapRef.current;
@@ -77,6 +106,49 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
     return () => ro.disconnect();
   }, [W, H, onFitScale]);
 
+  useLayoutEffect(() => {
+    const anchor = zoomAnchorRef.current;
+    const viewport = wrapRef.current;
+    const slideElement = slideRef.current;
+    if (anchor && viewport && slideElement && Math.abs(anchor.scale - scale) < 0.0001) {
+      const rect = slideElement.getBoundingClientRect();
+      viewport.scrollLeft += rect.left + anchor.slideX * scale - anchor.clientX;
+      viewport.scrollTop += rect.top + anchor.slideY * scale - anchor.clientY;
+      zoomAnchorRef.current = null;
+    } else if (anchor) {
+      zoomAnchorRef.current = null;
+    }
+    zoomTargetRef.current = scale;
+  }, [scale]);
+
+  useEffect(() => {
+    const viewport = wrapRef.current;
+    if (!viewport) return;
+    const onWheel = (event: WheelEvent) => {
+      if (!event.ctrlKey && !event.metaKey) return;
+      event.preventDefault();
+      const slideElement = slideRef.current;
+      if (!slideElement || W <= 0) return;
+      const rect = slideElement.getBoundingClientRect();
+      const renderedScale = rect.width / W;
+      if (!Number.isFinite(renderedScale) || renderedScale <= 0) return;
+      const delta = event.deltaY * (event.deltaMode === 1 ? 16 : event.deltaMode === 2 ? viewport.clientHeight : 1);
+      const nextScale = Math.min(4, Math.max(0.1, zoomTargetRef.current * Math.exp(-delta * 0.0015)));
+      if (Math.abs(nextScale - zoomTargetRef.current) < 0.0001) return;
+      zoomTargetRef.current = nextScale;
+      zoomAnchorRef.current = {
+        clientX: event.clientX,
+        clientY: event.clientY,
+        slideX: (event.clientX - rect.left) / renderedScale,
+        slideY: (event.clientY - rect.top) / renderedScale,
+        scale: nextScale,
+      };
+      onZoomChange(nextScale);
+    };
+    viewport.addEventListener("wheel", onWheel, { passive: false });
+    return () => viewport.removeEventListener("wheel", onWheel);
+  }, [W, onZoomChange]);
+
   // Leave text editing when the slide or selection changes elsewhere.
   useEffect(() => {
     if (editingId && !slide.elements.some((e) => e.id === editingId)) setEditingId(null);
@@ -86,7 +158,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
     if (!annotationMode) return;
     if (document.activeElement instanceof HTMLTextAreaElement) document.activeElement.blur();
     setEditingId(null);
-    setGesture(null);
+    updateGesture(null);
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
@@ -112,8 +184,9 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
     const maxY = Math.max(...boxes.map((b) => b.y + b.height)) + dy;
     const targetsX = [0, W / 2, W];
     const targetsY = [0, H / 2, H];
+    const moving = new Set(ids);
     for (const el of slide.elements) {
-      if (ids.includes(el.id) || el.hidden) continue;
+      if (moving.has(el.id) || el.hidden) continue;
       const p = el.position;
       targetsX.push(p.x, p.x + p.width / 2, p.x + p.width);
       targetsY.push(p.y, p.y + p.height / 2, p.y + p.height);
@@ -171,7 +244,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
     for (const x of slide.elements) if (next.includes(x.id) && !x.locked) starts[x.id] = x.position;
     if (!Object.keys(starts).length) return;
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
-    setGesture({ kind: "move", startX: p.x, startY: p.y, starts, moved: false });
+    updateGesture({ kind: "move", startX: p.x, startY: p.y, starts, moved: false });
   }
 
   function onBackgroundDown(e: RPointerEvent) {
@@ -186,7 +259,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
     const p = toDoc(e);
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     if (!e.shiftKey) editor.select([]);
-    setGesture({ kind: "marquee", x0: p.x, y0: p.y, x1: p.x, y1: p.y, additive: e.shiftKey ? state.selection : [] });
+    updateGesture({ kind: "marquee", x0: p.x, y0: p.y, x1: p.x, y1: p.y, additive: e.shiftKey ? state.selection : [] });
   }
 
   function onHandleDown(e: RPointerEvent, el: CatalogElement, handle: Handle | "rotate") {
@@ -194,39 +267,60 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     const p = toDoc(e);
     const start = el.position;
-    if (handle === "rotate") setGesture({ kind: "rotate", id: el.id, cx: start.x + start.width / 2, cy: start.y + start.height / 2, start });
-    else setGesture({ kind: "resize", id: el.id, handle, startX: p.x, startY: p.y, start });
+    if (handle === "rotate") updateGesture({ kind: "rotate", id: el.id, cx: start.x + start.width / 2, cy: start.y + start.height / 2, start });
+    else updateGesture({ kind: "resize", id: el.id, handle, startX: p.x, startY: p.y, start });
   }
 
   function onPointerMove(e: RPointerEvent) {
-    if (!gesture) return;
-    const p = toDoc(e);
-    switch (gesture.kind) {
+    if (!gestureRef.current) return;
+    pendingPointer.current = pointerSample(e);
+    if (moveFrame.current !== null) return;
+    moveFrame.current = requestAnimationFrame(() => {
+      moveFrame.current = null;
+      const sample = pendingPointer.current;
+      pendingPointer.current = null;
+      if (sample) applyPointerMove(sample);
+    });
+  }
+
+  function applyPointerMove(sample: PointerSample) {
+    const activeGesture = gestureRef.current;
+    if (!activeGesture) return;
+    if (activeGesture.kind === "pan") {
+      const viewport = wrapRef.current;
+      if (viewport) {
+        viewport.scrollLeft = activeGesture.scrollLeft - (sample.clientX - activeGesture.startX);
+        viewport.scrollTop = activeGesture.scrollTop - (sample.clientY - activeGesture.startY);
+      }
+      return;
+    }
+    const p = toDoc(sample);
+    switch (activeGesture.kind) {
       case "move": {
-        const ids = Object.keys(gesture.starts);
-        let dx = p.x - gesture.startX, dy = p.y - gesture.startY;
-        if (!gesture.moved && Math.hypot(dx, dy) * scale < 3) return;
-        if (e.shiftKey) Math.abs(dx) > Math.abs(dy) ? (dy = 0) : (dx = 0);
-        const snapped = e.altKey ? { dx, dy, guides: [] } : snapMove(ids, gesture.starts, dx, dy);
+        const ids = Object.keys(activeGesture.starts);
+        let dx = p.x - activeGesture.startX, dy = p.y - activeGesture.startY;
+        if (!activeGesture.moved && Math.hypot(dx, dy) * scale < 3) return;
+        if (sample.shiftKey) Math.abs(dx) > Math.abs(dy) ? (dy = 0) : (dx = 0);
+        const snapped = sample.altKey ? { dx, dy, guides: [] } : snapMove(ids, activeGesture.starts, dx, dy);
         setGuides(snapped.guides);
         const o: typeof overrides = {};
-        for (const id of ids) o[id] = { x: Math.round(gesture.starts[id]!.x + snapped.dx), y: Math.round(gesture.starts[id]!.y + snapped.dy) };
-        setOverrides(o);
-        if (!gesture.moved) setGesture({ ...gesture, moved: true });
+        for (const id of ids) o[id] = { x: Math.round(activeGesture.starts[id]!.x + snapped.dx), y: Math.round(activeGesture.starts[id]!.y + snapped.dy) };
+        updateOverrides(o);
+        if (!activeGesture.moved) updateGesture({ ...activeGesture, moved: true });
         break;
       }
       case "resize": {
-        const { start: s, handle } = gesture;
+        const { start: s, handle } = activeGesture;
         const [hx, hy] = HANDLES[handle];
         const th = (s.rotation * Math.PI) / 180;
-        const wdx = p.x - gesture.startX, wdy = p.y - gesture.startY;
+        const wdx = p.x - activeGesture.startX, wdy = p.y - activeGesture.startY;
         // Pointer delta in the element's own (unrotated) frame.
         const ldx = wdx * Math.cos(th) + wdy * Math.sin(th);
         const ldy = -wdx * Math.sin(th) + wdy * Math.cos(th);
         let w = Math.max(8, s.width + hx * ldx);
         let h = Math.max(8, s.height + hy * ldy);
-        const el = slide.elements.find((x) => x.id === gesture.id);
-        const keepRatio = hx !== 0 && hy !== 0 && (e.shiftKey || el?.type === "image");
+        const el = slide.elements.find((x) => x.id === activeGesture.id);
+        const keepRatio = hx !== 0 && hy !== 0 && (sample.shiftKey || el?.type === "image");
         if (keepRatio && s.width > 0 && s.height > 0) {
           const r = s.width / s.height;
           if (w / h > r) h = w / r; else w = h * r;
@@ -235,22 +329,22 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
         const lcx = (hx * (w - s.width)) / 2, lcy = (hy * (h - s.height)) / 2;
         const cx = s.x + s.width / 2 + lcx * Math.cos(th) - lcy * Math.sin(th);
         const cy = s.y + s.height / 2 + lcx * Math.sin(th) + lcy * Math.cos(th);
-        setOverrides({ [gesture.id]: { x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), width: Math.round(w), height: Math.round(h) } });
+        updateOverrides({ [activeGesture.id]: { x: Math.round(cx - w / 2), y: Math.round(cy - h / 2), width: Math.round(w), height: Math.round(h) } });
         break;
       }
       case "rotate": {
-        let deg = (Math.atan2(p.y - gesture.cy, p.x - gesture.cx) * 180) / Math.PI + 90;
+        let deg = (Math.atan2(p.y - activeGesture.cy, p.x - activeGesture.cx) * 180) / Math.PI + 90;
         deg = ((deg % 360) + 360) % 360;
-        const step = e.shiftKey ? 15 : 0;
+        const step = sample.shiftKey ? 15 : 0;
         if (step) deg = Math.round(deg / step) * step;
         else for (const a of [0, 90, 180, 270, 360]) if (Math.abs(deg - a) < 3) deg = a % 360;
         if (deg > 180) deg -= 360;
-        setOverrides({ [gesture.id]: { rotation: Math.round(deg) } });
+        updateOverrides({ [activeGesture.id]: { rotation: Math.round(deg) } });
         break;
       }
       case "marquee": {
-        const g = { ...gesture, x1: p.x, y1: p.y };
-        setGesture(g);
+        const g = { ...activeGesture, x1: p.x, y1: p.y };
+        updateGesture(g);
         const [ax, bx] = [Math.min(g.x0, g.x1), Math.max(g.x0, g.x1)];
         const [ay, by] = [Math.min(g.y0, g.y1), Math.max(g.y0, g.y1)];
         const hit = slide.elements
@@ -262,15 +356,33 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
     }
   }
 
-  function onPointerUp() {
-    if (!gesture) return;
-    if (gesture.kind !== "marquee" && Object.keys(overrides).length) {
-      const commands = Object.entries(overrides).map(([elementId, position]) => ({ type: "element.move" as const, elementId, position }));
+  function finishGesture(finalSample?: PointerSample) {
+    if (moveFrame.current !== null) cancelAnimationFrame(moveFrame.current);
+    moveFrame.current = null;
+    pendingPointer.current = null;
+    if (!gestureRef.current) return;
+    if (finalSample) applyPointerMove(finalSample);
+    const activeGesture = gestureRef.current;
+    const finalOverrides = overridesRef.current;
+    if (activeGesture && activeGesture.kind !== "marquee" && Object.keys(finalOverrides).length) {
+      const commands = Object.entries(finalOverrides).map(([elementId, position]) => ({ type: "element.move" as const, elementId, position }));
       run(commands.length === 1 ? commands[0]! : { type: "batch", commands });
     }
-    setOverrides({});
+    updateOverrides({});
     setGuides([]);
-    setGesture(null);
+    updateGesture(null);
+  }
+
+  function onPointerUp(e: RPointerEvent) { finishGesture(pointerSample(e)); }
+
+  function onPanPointerDown(e: RPointerEvent<HTMLDivElement>) {
+    if (e.button !== 1) return;
+    const viewport = wrapRef.current;
+    if (!viewport) return;
+    e.preventDefault();
+    e.stopPropagation();
+    e.currentTarget.setPointerCapture(e.pointerId);
+    updateGesture({ kind: "pan", startX: e.clientX, startY: e.clientY, scrollLeft: viewport.scrollLeft, scrollTop: viewport.scrollTop });
   }
 
   const editingEl = editingId ? slide.elements.find((e) => e.id === editingId) : undefined;
@@ -278,7 +390,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
   const marquee = gesture?.kind === "marquee" ? gesture : null;
 
   return (
-    <div ref={wrapRef} className={`relative h-full w-full overflow-auto bg-muted/40 ${annotationMode ? "cursor-crosshair" : ""}`} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp}>
+    <div ref={wrapRef} className={`relative h-full w-full overflow-auto bg-muted/40 ${gesture?.kind === "pan" ? "cursor-grabbing" : annotationMode ? "cursor-crosshair" : ""}`} onPointerDownCapture={onPanPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onAuxClick={(e) => { if (e.button === 1) e.preventDefault(); }}>
       {annotationMode && (
         <div className="pointer-events-none absolute top-3 left-1/2 z-20 -translate-x-1/2 rounded-full border bg-background/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-md backdrop-blur">
           Select slide elements to attach to chat · Esc to finish
@@ -322,10 +434,12 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, acti
                       ? state.selection
                       : el.groupId ? slide.elements.filter((x) => x.groupId === el.groupId).map((x) => x.id) : [el.id];
                     if (!selected.has(el.id)) editor.select(contextElementIds);
+                    const contextElements = slide.elements.filter((element) => contextElementIds.includes(element.id));
                     const p = toDoc(e);
                     openMenu(e, elementMenu(actions, {
                       at: { x: Math.round(p.x), y: Math.round(p.y) },
                       onAddToChat: () => onAddElementsToChat?.(slide.id, contextElementIds),
+                      extensionItems: getExtensionElementMenuItems?.(contextElements),
                     }));
                   }}
                   className={annotationMode ? "outline-2 outline-primary/40 hover:outline-primary" : isAnnotationHighlighted ? "outline-2 outline-primary" : isSel ? "outline-2 outline-sky-500" : "hover:outline-1 hover:outline-sky-400"}

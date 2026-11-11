@@ -2,9 +2,11 @@ import { AiCredentialService } from "@Kavero/api/services/ai-credential-service"
 import { ChatConversationService, mergeChatMessages } from "@Kavero/api/services/chat-conversation-service";
 import { AiService } from "@Kavero/api/services/ai-service";
 import { SecretBox } from "@Kavero/api/services/secret-box";
+import { audit } from "@Kavero/api/services/audit-service";
 import { providerFromEnv, type AiEnv, type LlmProvider } from "@Kavero/ai";
 import { PAGE_PRESETS, TEMPLATES, parseCatalogDocument, productSchema, type CatalogDocument } from "@Kavero/catalog-engine";
 import { outline } from "@Kavero/mcp-server";
+import { createResilientRateLimiter } from "@Kavero/redis";
 import { convertToModelMessages, createIdGenerator, stepCountIs, streamText, tool, type ToolSet, type UIMessage, validateUIMessages } from "ai";
 import { z } from "zod";
 
@@ -20,16 +22,7 @@ const chatStore = new ChatConversationService(db);
 
 // Chat turns per user per minute (each can also run a generation or an edit, which have their own limit).
 const LIMIT = 20;
-const hits = ((globalThis as { __kaveroChatHits?: Map<string, { n: number; resetAt: number }> }).__kaveroChatHits ??= new Map());
-function limited(userId: string) {
-  const now = Date.now();
-  const h = hits.get(userId);
-  if (!h || h.resetAt < now) {
-    hits.set(userId, { n: 1, resetAt: now + 60_000 });
-    return false;
-  }
-  return ++h.n > LIMIT;
-}
+const chatRateLimiter = createResilientRateLimiter({ namespace: "chat", maxRequests: LIMIT, windowMs: 60_000 });
 
 const bodySchema = z.object({
   messages: z.array(z.custom<UIMessage>((value) => {
@@ -41,6 +34,7 @@ const bodySchema = z.object({
   })).min(1).max(120),
   mode: z.enum(["landing", "editor"]),
   scopeId: z.string().min(1).max(120).regex(/^[A-Za-z0-9_-]+$/),
+  conversationId: z.string().uuid(),
   expectedRevision: z.number().int().positive().nullable(),
   /** Editor only: the open catalog and where the user is. */
   context: z.object({
@@ -54,9 +48,23 @@ const bodySchema = z.object({
 const fail = (status: number, error: string) => Response.json({ error }, { status });
 
 /** Each request has one of two disjoint tool maps, while persisted UIMessage uses the default empty tool map. */
-function validateChatMessages(messages: unknown, tools: ToolSet) {
+function validateChatMessages(messages: unknown, tools?: ToolSet) {
   // Keep the concrete schemas at runtime; the cast only bridges AI SDK's compile-time generic mismatch here.
-  return validateUIMessages({ messages, tools: tools as never });
+  return validateUIMessages({ messages, ...(tools ? { tools: tools as never } : {}) });
+}
+
+/** Drop an outdated transcript prefix while keeping the newest valid sequence. */
+async function recoverChatMessages(messages: unknown, tools?: ToolSet): Promise<UIMessage[]> {
+  if (!Array.isArray(messages) || messages.length === 0) return [];
+  const bounded = messages.slice(-120);
+  for (let start = 0; start < bounded.length; start += 1) {
+    try {
+      return await validateChatMessages(bounded.slice(start), tools);
+    } catch {
+      // Tool definitions and message shapes can change between app versions.
+    }
+  }
+  throw new Error("No valid message sequence was found.");
 }
 
 const scopeSchema = z.object({
@@ -70,15 +78,58 @@ function requestScope(url: URL) {
   return parsed.data;
 }
 
+function firstUserMessage(messages: unknown[]) {
+  for (const raw of messages) {
+    if (!raw || typeof raw !== "object" || !("role" in raw) || raw.role !== "user" || !("parts" in raw) || !Array.isArray(raw.parts)) continue;
+    const text = raw.parts
+      .flatMap((part) => part && typeof part === "object" && "type" in part && part.type === "text" && "text" in part && typeof part.text === "string" ? [part.text] : [])
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (text) return text.slice(0, 96);
+  }
+  return "Untitled chat";
+}
+
 /** Load only the signed-in user's conversation for the requested landing/catalog scope. */
 export async function GET(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
   if (!session) return fail(401, "Sign in to load this conversation.");
-  const scope = requestScope(new URL(request.url));
+  const url = new URL(request.url);
+  if (url.searchParams.get("history") === "1") {
+    const mode = z.enum(["landing", "editor"]).safeParse(url.searchParams.get("mode"));
+    if (!mode.success) return fail(400, "Invalid chat history mode.");
+    try {
+      const items = await chatStore.list(session.user.id, mode.data, 50);
+      return Response.json({
+        items: items.map((item) => ({
+          id: item.id,
+          mode: item.mode,
+          scopeId: item.scopeId,
+          title: firstUserMessage(item.messages),
+          catalogTitle: item.catalogTitle,
+          updatedAt: item.updatedAt.toISOString(),
+        })),
+      }, { headers: { "Cache-Control": "private, no-store" } });
+    } catch {
+      return fail(503, "Chat history couldn't be loaded right now.");
+    }
+  }
+  const scope = requestScope(url);
   if (!scope) return fail(400, "Invalid chat scope.");
+  const requestedId = url.searchParams.get("conversationId");
+  if (requestedId !== null && !z.string().uuid().safeParse(requestedId).success) return fail(400, "Invalid conversation id.");
   try {
-    const conversation = await chatStore.load(session.user.id, scope.mode, scope.scopeId);
-    return Response.json(conversation, { headers: { "Cache-Control": "private, no-store" } });
+    const conversation = await chatStore.load(session.user.id, scope.mode, scope.scopeId, requestedId ?? undefined);
+    // Older app versions could leave malformed UI parts in the durable transcript.
+    // Return the latest valid message sequence so the client can open and repair it.
+    let messages: UIMessage[] = [];
+    try {
+      messages = await recoverChatMessages(conversation.messages);
+    } catch {
+      // An entirely invalid transcript is recoverable by starting a fresh turn.
+    }
+    return Response.json({ ...conversation, conversationId: conversation.conversationId ?? requestedId ?? crypto.randomUUID(), messages }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
     return fail(503, "The conversation couldn't be loaded right now.");
   }
@@ -88,12 +139,32 @@ export async function GET(request: Request) {
 export async function DELETE(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
   if (!session) return fail(401, "Sign in to clear this conversation.");
-  const scope = requestScope(new URL(request.url));
+  const url = new URL(request.url);
+  const historyId = url.searchParams.get("historyId");
+  if (historyId !== null) {
+    const parsedId = z.string().uuid().safeParse(historyId);
+    if (!parsedId.success) return fail(400, "Invalid chat history item.");
+    try {
+      const deleted = await chatStore.delete(session.user.id, parsedId.data);
+      if (!deleted) return fail(404, "That chat was not found.");
+      await audit(db, { userId: session.user.id, area: "ai", action: "ai:chat_delete", target: deleted.id, outcome: "ok", details: { mode: deleted.mode, scopeId: deleted.scopeId } });
+      return Response.json({ deleted: true }, { headers: { "Cache-Control": "private, no-store" } });
+    } catch {
+      await audit(db, { userId: session.user.id, area: "ai", action: "ai:chat_delete", target: parsedId.data, outcome: "error" });
+      return fail(503, "That chat couldn't be deleted right now.");
+    }
+  }
+  const scope = requestScope(url);
   if (!scope) return fail(400, "Invalid chat scope.");
+  const conversationId = url.searchParams.get("conversationId");
+  if (!conversationId || !z.string().uuid().safeParse(conversationId).success) return fail(400, "Invalid conversation id.");
   try {
-    const revision = await chatStore.clear(session.user.id, scope.mode, scope.scopeId);
+    const revision = await chatStore.clear(session.user.id, scope.mode, scope.scopeId, conversationId);
+    if (revision === undefined) return fail(404, "That conversation was not found.");
+    await audit(db, { userId: session.user.id, area: "ai", action: "ai:chat_clear", target: scope.scopeId, outcome: "ok", details: { mode: scope.mode, conversationId } });
     return Response.json({ revision }, { headers: { "Cache-Control": "private, no-store" } });
   } catch {
+    await audit(db, { userId: session.user.id, area: "ai", action: "ai:chat_clear", target: scope.scopeId, outcome: "error", details: { mode: scope.mode } });
     return fail(503, "The conversation couldn't be cleared right now.");
   }
 }
@@ -103,13 +174,13 @@ export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
   if (!session) return fail(401, "Sign in to chat with your AI model.");
   const userId = session.user.id;
-  if (limited(userId)) return fail(429, "Too many messages — wait a minute and try again.");
+  if (!(await chatRateLimiter.limit(userId)).allowed) return fail(429, "Too many messages — wait a minute and try again.");
 
   const body = await request.json().catch(() => null);
   if (!body || new TextEncoder().encode(JSON.stringify(body)).byteLength > 12 * 1024 * 1024) return fail(413, "This chat request is too large.");
   const parsed = bodySchema.safeParse(body);
   if (!parsed.success) return fail(400, "Invalid chat request.");
-  const { messages, mode, scopeId, context } = parsed.data;
+  const { messages, mode, scopeId, conversationId, context } = parsed.data;
 
   const personal = await new AiCredentialService(db, secretBox, { allowLocal: process.env.NODE_ENV !== "production", appUrl: ENV.BETTER_AUTH_URL }).provider(userId).catch(() => null);
   const provider: LlmProvider | null = personal ?? serverProvider;
@@ -133,24 +204,25 @@ export async function POST(request: Request) {
 
   let validatedMessages: UIMessage[];
   try {
-    const stored = await chatStore.load(userId, mode, scopeId);
+    const stored = await chatStore.load(userId, mode, scopeId, conversationId);
     if (stored.revision !== parsed.data.expectedRevision) {
       return fail(409, "This conversation changed in another tab. Reload the chat and send your message again.");
     }
-    const storedMessages = await validateChatMessages(stored.messages as UIMessage[], tools);
-    const incomingMessages = await validateChatMessages(messages, tools);
+    const storedMessages = stored.exists ? await recoverChatMessages(stored.messages, tools) : [];
+    const incomingMessages = await recoverChatMessages(messages, tools);
+    if (incomingMessages.at(-1)?.id !== currentMessage.id) throw new Error("The latest message could not be recovered.");
     // Import browser-only history on first save; later writes must use the revision returned by GET.
     const merged = stored.exists
       ? mergeChatMessages(storedMessages, incomingMessages)
       : mergeChatMessages([], incomingMessages);
-    validatedMessages = await validateChatMessages(merged, tools);
+    validatedMessages = await recoverChatMessages(merged, tools);
   } catch {
-    return fail(400, "The saved conversation contains an invalid message.");
+    return fail(400, "Your saved chat has an outdated message we couldn't repair. Start a new chat and try again.");
   }
 
   let chatRevision: number;
   try {
-    const savedRevision = await chatStore.beginTurn(userId, mode, scopeId, parsed.data.expectedRevision, validatedMessages);
+    const savedRevision = await chatStore.beginTurn(userId, mode, scopeId, conversationId, parsed.data.expectedRevision, validatedMessages);
     if (savedRevision === undefined) return fail(409, "This conversation changed in another tab. Reload the chat and send your message again.");
     chatRevision = savedRevision;
   } catch {
@@ -165,13 +237,19 @@ export async function POST(request: Request) {
     stopWhen: stepCountIs(4),
   });
 
+  let streamErrored = false;
   const response = result.toUIMessageStreamResponse({
     originalMessages: validatedMessages,
     generateMessageId: createIdGenerator({ prefix: "msg", size: 16 }),
     onEnd: async ({ messages: completedMessages }) => {
-      await chatStore.saveIfRevision(userId, mode, scopeId, chatRevision, completedMessages);
+      const saved = await chatStore.saveIfRevision(userId, mode, scopeId, conversationId, chatRevision, completedMessages);
+      if (!streamErrored) await audit(db, { userId, area: "ai", action: "ai:chat_turn", target: scopeId, outcome: saved ? "ok" : "error", details: { mode, saved } });
     },
-    onError: (e) => (e instanceof Error ? e.message : "The AI model failed to answer.").slice(0, 300),
+    onError: (e) => {
+      streamErrored = true;
+      void audit(db, { userId, area: "ai", action: "ai:chat_turn", target: scopeId, outcome: "error", details: { mode } });
+      return (e instanceof Error ? e.message : "The AI model failed to answer.").slice(0, 300);
+    },
   });
   // Continue the model stream after a browser disconnect so the database callback can save the full answer.
   void Promise.resolve(result.consumeStream()).catch((error: unknown) => console.error("Chat stream consumption failed", error));
@@ -283,9 +361,21 @@ function editorTools(ai: AiService, userId: string, doc: CatalogDocument, curren
       execute: async ({ instruction, slideId }) => {
         const target = slideId && doc.slides.some((s) => s.id === slideId) ? slideId : currentSlideId ?? doc.slides[0]!.id;
         const r = await ai.edit(userId, doc, target, instruction);
-        return { slideId: target, instruction, summary: r!.summary, commands: r!.commands };
+        return {
+          slideId: target,
+          baseRevision: doc.revision,
+          instruction,
+          summary: r!.summary,
+          commands: r!.commands,
+          skipped: r!.skipped,
+        };
       },
-      toModelOutput: ({ output }) => ({ type: "text", value: `Proposed for slide ${output.slideId}: ${output.summary}. Waiting for the user to apply it.` }),
+      toModelOutput: ({ output }) => ({
+        type: "text",
+        value: output.commands.length
+          ? `Proposed for slide ${output.slideId}: ${output.summary}. Waiting for the user to apply it.`
+          : `No applicable changes could be prepared for slide ${output.slideId}. ${output.skipped.slice(0, 8).join("; ") || "The plan contained no operations."} Ask the user to clarify the request and try a different edit.`,
+      }),
     }),
   };
 }

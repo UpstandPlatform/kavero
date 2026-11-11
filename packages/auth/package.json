@@ -11,6 +11,7 @@
   "dependencies": {
     "@better-auth/api-key": "1.7.12",
     "@Kavero/db": "workspace:*",
+    "@Kavero/redis": "workspace:*",
     "@better-auth/core": "1.7.12",
     "@better-auth/drizzle-adapter": "1.7.12",
     "better-auth": "catalog:",

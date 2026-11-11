@@ -18,6 +18,7 @@ services:
       CORS_ORIGIN: http://localhost:3001
       DATABASE_URL: postgresql://postgres:${POSTGRES_PASSWORD:-password}@postgres:5432/Kavero
       KAVERO_STORAGE_DIR: /data/storage
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379}
       # Exports render through the app itself; use its address inside the container.
       KAVERO_RENDER_URL: http://127.0.0.1:3001
     volumes:
@@ -80,9 +81,35 @@ services:
       retries: 5
     restart: unless-stopped
 
+  redis:
+    image: redis:7.4-alpine
+    command:
+      [
+        "redis-server",
+        "--appendonly",
+        "yes",
+        "--appendfsync",
+        "everysec",
+        "--maxmemory",
+        "256mb",
+        "--maxmemory-policy",
+        "noeviction",
+      ]
+    ports:
+      - "127.0.0.1:6379:6379"
+    volumes:
+      - Kavero_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
 volumes:
   Kavero_postgres_data:
   Kavero_storage_data:
+  Kavero_redis_data:
 
 # BuildKit makes these available only while install/build commands run.
 secrets:

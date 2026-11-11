@@ -1,8 +1,7 @@
 /**
- * End-to-end: personal AI keys (Settings → AI).
- * Saves keys for a throwaway account, checks they are never returned, and runs
- * "Test connection" against a fake OpenAI-compatible server on 127.0.0.1.
- *
+ * End-to-end: multiple personal AI providers (Settings → AI).
+ * A fake OpenAI-compatible server covers model discovery, capabilities, save-time
+ * connection verification, failed-update rollback, and key secrecy.
  * Needs the Kavero dev server (http://localhost:3001) with its database.
  * Run: `bun e2e/ai-keys.ts`
  */
@@ -12,13 +11,21 @@ const BASE = process.env.KAVERO_URL ?? "http://localhost:3001";
 const results: [string, boolean, string?][] = [];
 const check = (name: string, ok: boolean, info?: string) => results.push([name, !!ok, info]);
 
-// Fake OpenAI-compatible model server: records requests, answers with the requested JSON.
-const seen: { auth: string | null; body: { model?: string; response_format?: { type?: string } } }[] = [];
+const seen: { auth: string | null; body: { model?: string } }[] = [];
+let failCompletion = false;
 const fake = Bun.serve({
   hostname: "127.0.0.1",
   port: 0,
   async fetch(req) {
-    if (new URL(req.url).pathname !== "/v1/chat/completions") return new Response("not found", { status: 404 });
+    const path = new URL(req.url).pathname;
+    if (path === "/v1/models" && req.method === "GET") {
+      return Response.json({ data: [
+        { id: "fake-model-1", name: "Fake Vision Model", architecture: { input_modalities: ["text", "image"], output_modalities: ["text"] }, supported_parameters: ["tools", "response_format"], context_length: 32_768 },
+        { id: "fake-model-2", name: "Fake Text Model", architecture: { input_modalities: ["text"], output_modalities: ["text"] }, supported_parameters: ["tools"], context_length: 16_384 },
+      ] });
+    }
+    if (path !== "/v1/chat/completions") return new Response("not found", { status: 404 });
+    if (failCompletion) return Response.json({ error: { message: "intentional test failure" } }, { status: 500 });
     seen.push({ auth: req.headers.get("authorization"), body: (await req.json()) as never });
     return Response.json({ model: "fake-model-1", choices: [{ message: { content: '{"ok":true,"word":"kavero"}' }, finish_reason: "stop" }], usage: { prompt_tokens: 5, completion_tokens: 5 } });
   },
@@ -43,44 +50,36 @@ const code = (r: { error?: { data?: { code?: string } } }) => r.error?.data?.cod
 
 const user = await signUp("aikey");
 const other = await signUp("aikey-other");
-const SECRET = `sk-ant-test-${crypto.randomUUID()}`;
+const SECRET = `local-secret-${crypto.randomUUID()}`;
 
-check("signed-out can't read keys", code(await trpc("", "ai.credential.get", null)) === "UNAUTHORIZED");
-check("no key yet", (await trpc(user.cookie, "ai.credential.get", null)).data === null);
-check("key required for Claude", code(await trpc(user.cookie, "ai.credential.set", { provider: "anthropic" }, true)) === "BAD_REQUEST");
-check("model required for OpenRouter", code(await trpc(user.cookie, "ai.credential.set", { provider: "openrouter", apiKey: "sk-or-test-123456" }, true)) === "BAD_REQUEST");
-check("odd model ids rejected", code(await trpc(user.cookie, "ai.credential.set", { provider: "openrouter", apiKey: "sk-or-test-123456", model: "a b<script>" }, true)) === "BAD_REQUEST");
+check("signed-out cannot list providers", code(await trpc("", "ai.credential.list", null)) === "UNAUTHORIZED");
+check("no providers yet", (await trpc(user.cookie, "ai.credential.list", null)).data?.length === 0);
+check("models are searchable through provider metadata", (await trpc(user.cookie, "ai.credential.models", { provider: "openai-compatible", baseUrl: fakeUrl })).data?.length === 2);
+const models = (await trpc(user.cookie, "ai.credential.models", { provider: "openai-compatible", baseUrl: fakeUrl })).data;
+const visionModel = models?.find((entry: { id: string }) => entry.id === "fake-model-1");
+check("vision and context capabilities are precise", visionModel?.capabilities.inputModalities.includes("image") && visionModel.capabilities.maxInputTokens === 32_768 && visionModel.capabilities.source === "provider");
+check("missing model is rejected", code(await trpc(user.cookie, "ai.credential.set", { provider: "openai-compatible", baseUrl: fakeUrl }, true)) === "BAD_REQUEST");
+check("bad server URL is rejected", code(await trpc(user.cookie, "ai.credential.set", { provider: "openai-compatible", model: "fake-model-1", baseUrl: "file:///etc/passwd" }, true)) === "BAD_REQUEST");
+check("provider selection fails when it has not been added", code(await trpc(user.cookie, "ai.credential.setDefault", { provider: "openai" }, true)) === "NOT_FOUND");
+check("validation failures do not create providers", (await trpc(user.cookie, "ai.credential.list", null)).data?.length === 0);
 
-const saved = await trpc(user.cookie, "ai.credential.set", { provider: "anthropic", apiKey: SECRET }, true);
-check("Claude key saved", saved.data?.provider === "anthropic" && saved.data?.hasKey === true);
-check("only the last 4 characters come back", saved.data?.keyHint === SECRET.slice(-4) && !saved.raw.includes(SECRET.slice(0, 20)));
-const got = await trpc(user.cookie, "ai.credential.get", null);
-check("get never returns the key", !got.raw.includes(SECRET.slice(0, 20)) && !("apiKey" in (got.data ?? {})) && !("encryptedKey" in (got.data ?? {})));
+const saved = await trpc(user.cookie, "ai.credential.set", { provider: "openai-compatible", apiKey: SECRET, model: "fake-model-1", baseUrl: fakeUrl }, true);
+check("provider is tested and saved", saved.data?.provider === "openai-compatible" && saved.data?.hasKey === true && saved.data?.connection?.ok === true);
+check("only the last four key characters come back", saved.data?.keyHint === SECRET.slice(-4) && !saved.raw.includes(SECRET.slice(0, 16)));
+check("test request used the selected model and key", seen.at(-1)?.body.model === "fake-model-1" && seen.at(-1)?.auth === `Bearer ${SECRET}`);
 const status = (await trpc(user.cookie, "ai.status", null)).data;
-check("status uses the personal key", status?.source === "personal" && status?.model === "claude-opus-5-5", JSON.stringify(status));
-check("other users are unaffected", (await trpc(other.cookie, "ai.credential.get", null)).data === null && (await trpc(other.cookie, "ai.status", null)).data?.source !== "personal");
+check("personal default is used", status?.source === "personal" && status?.model === "fake-model-1" && status.capabilities?.inputModalities.includes("image"));
+check("other users stay isolated", (await trpc(other.cookie, "ai.credential.list", null)).data?.length === 0 && (await trpc(other.cookie, "ai.status", null)).data?.source !== "personal");
 
-const modelOnly = await trpc(user.cookie, "ai.credential.set", { provider: "anthropic", model: "claude-sonnet-5-5" }, true);
-check("model change keeps the stored key", modelOnly.data?.hasKey === true && modelOnly.data?.model === "claude-sonnet-5-5");
-check("switching provider needs a new key", code(await trpc(user.cookie, "ai.credential.set", { provider: "openrouter", model: "anthropic/claude-sonnet" }, true)) === "BAD_REQUEST");
+failCompletion = true;
+const failedUpdate = await trpc(user.cookie, "ai.credential.set", { provider: "openai-compatible", apiKey: "replacement-secret-123", model: "fake-model-2", baseUrl: fakeUrl }, true);
+failCompletion = false;
+check("failed save-time test is rejected", code(failedUpdate) === "BAD_REQUEST");
+const unchanged = (await trpc(user.cookie, "ai.credential.list", null)).data?.[0];
+check("failed test leaves stored provider unchanged", unchanged?.model === "fake-model-1" && unchanged.keyHint === SECRET.slice(-4));
 
-const or = await trpc(user.cookie, "ai.credential.set", { provider: "openrouter", apiKey: "sk-or-test-abcdef123456", model: "anthropic/claude-sonnet" }, true);
-check("OpenRouter key saved", or.data?.provider === "openrouter" && or.data?.label === "OpenRouter" && or.data?.keyHint === "3456");
-
-const local = await trpc(user.cookie, "ai.credential.set", { provider: "openai-compatible", model: "llama-test", baseUrl: fakeUrl }, true);
-check("OpenAI-compatible server saved (no key)", local.data?.provider === "openai-compatible" && local.data?.baseUrl === fakeUrl, JSON.stringify(local.error ?? ""));
-const t = await trpc(user.cookie, "ai.credential.test", null, true);
-check("test connection succeeds", t.data?.ok === true && t.data?.model === "fake-model-1", JSON.stringify(t.error ?? t.data));
-check("request reached the server with the chosen model", seen.at(-1)?.body.model === "llama-test");
-
-const keyed = await trpc(user.cookie, "ai.credential.set", { provider: "openai-compatible", apiKey: "local-secret-key-99", model: "llama-test", baseUrl: fakeUrl }, true);
-await trpc(user.cookie, "ai.credential.test", null, true);
-check("key sent as a bearer token", keyed.data?.hasKey === true && seen.at(-1)?.auth === "Bearer local-secret-key-99");
-
-check("bad server URL rejected", code(await trpc(user.cookie, "ai.credential.set", { provider: "openai-compatible", model: "x", baseUrl: "file:///etc/passwd" }, true)) === "BAD_REQUEST");
-check("remove", (await trpc(user.cookie, "ai.credential.remove", null, true)).data?.ok === true);
-check("removed key is gone", (await trpc(user.cookie, "ai.credential.get", null)).data === null && (await trpc(user.cookie, "ai.status", null)).data?.source !== "personal");
-check("test without a key → NOT_FOUND", code(await trpc(user.cookie, "ai.credential.test", null, true)) === "NOT_FOUND");
+check("remove provider", (await trpc(user.cookie, "ai.credential.remove", { provider: "openai-compatible" }, true)).data?.length === 0);
+check("removed default no longer overrides server AI", (await trpc(user.cookie, "ai.status", null)).data?.source !== "personal");
 
 fake.stop(true);
 for (const [name, ok, info] of results) console.log(ok ? "PASS" : "FAIL", name, ok ? "" : (info ?? ""));

@@ -82,6 +82,7 @@ export interface CatalogRepository {
   /** Update (or clear, with null) the cloud link without touching the document. */
   setCloudLink(id: string, link: CloudLink | null, syncedRevision?: number): Promise<void>;
   putAsset(asset: StoredAsset): Promise<void>;
+  removeAsset(id: string): Promise<void>;
   getAsset(id: string): Promise<StoredAsset | null>;
   listAssets(catalogId: string): Promise<StoredAsset[]>;
 }
@@ -162,6 +163,9 @@ export class MemoryCatalogRepository implements CatalogRepository {
   }
   async putAsset(asset: StoredAsset) {
     this.assets.set(asset.id, asset);
+  }
+  async removeAsset(id: string) {
+    this.assets.delete(id);
   }
   async getAsset(id: string) {
     return this.assets.get(id) ?? null;

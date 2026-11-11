@@ -26,7 +26,7 @@ It's local-first: open it and start working, no account needed. Sign in to sync 
 
 ## Quick start
 
-Requirements: [Bun](https://bun.sh) 1.4.2+ and Docker with Compose (for Postgres). Chrome or Chromium is needed for PDF/video export.
+Requirements: [Bun](https://bun.sh) 1.4.2+ and Docker with Compose (for Postgres and Redis). Chrome or Chromium is needed for PDF/video export.
 
 ```bash
 bun run setup  # install dependencies, create local config, start Postgres and apply migrations
@@ -80,7 +80,7 @@ docs/             guides
 | `bun run dev:desktop` | Desktop app against the dev server |
 | `bun run build` | Build everything |
 | `bun run check-types` | Typecheck all packages |
-| `bun run db:start` / `db:stop` | Start/stop Postgres (Docker) |
+| `bun run db:start` / `db:stop` | Start/stop Postgres and Redis (Docker) |
 | `bun run db:generate` / `db:migrate` | Create/apply migrations |
 | `bun run test` | Unit tests |
 | `bun run make-admin <email>` | Make an account a server admin (recovery) |

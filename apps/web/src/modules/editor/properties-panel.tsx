@@ -2,7 +2,7 @@
 
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, AlignEndHorizontalIcon, AlignEndVerticalIcon, AlignHorizontalCenterIcon, AlignHorizontalDistributeCenterIcon, AlignStartHorizontalIcon, AlignStartVerticalIcon, AlignVerticalCenterIcon, AlignVerticalDistributeCenterIcon, ArrowDown01Icon, ArrowDownToLineIcon, ArrowUp01Icon, ArrowUpToLineIcon, Cancel01Icon, Delete02Icon, LockIcon, PencilIcon, ReplaceIcon, SquareUnlock01Icon, Tag01Icon, TextAlignCenterIcon, TextAlignLeftIcon, TextAlignRightIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
-import { cardDisplay, documentDirection, resolveToken, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
+import { cardDisplay, createSlideLayoutElements, documentDirection, resolveToken, SLIDE_LAYOUTS, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand } from "@Kavero/editor-core";
 import { Button } from "@Kavero/ui/components/button";
 import { Checkbox } from "@Kavero/ui/components/checkbox";
@@ -10,17 +10,19 @@ import { Input } from "@Kavero/ui/components/input";
 import { InputGroup, InputGroupAddon, InputGroupInput } from "@Kavero/ui/components/input-group";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectSeparator, SelectTrigger, SelectValue } from "@Kavero/ui/components/select";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
+import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "@Kavero/ui/components/popover";
 import { ColorPicker } from "@Kavero/ui/components/color-picker";
 import { TooltipHint } from "@Kavero/ui/components/tooltip";
-import { Textarea } from "@Kavero/ui/components/textarea";
+import { SlideView } from "@Kavero/renderer";
 import { useEffect, useState, type ReactNode } from "react";
 
-import { matchMorph, slideDurationMs } from "@Kavero/animation-engine";
+import { slideDurationMs } from "@Kavero/animation-engine";
 
 import { kbd } from "./editor-actions";
 import { FontPicker, type AddFont } from "./font-picker";
 import { ProductThumb, productPrice, type ProductUi } from "./product-picker";
 import { useRun } from "./use-catalog-editor";
+import { CodeEditor } from "@/components/code-editor";
 
 const FONTS = ["Inter", "Playfair Display", "Space Grotesk", "DM Serif Display", "Montserrat", "Lora", "Poppins", "Roboto", "Georgia", "Arial"];
 
@@ -121,30 +123,42 @@ function ColorInput({ doc, value, onChange, label }: { doc: CatalogDocument; val
   );
 }
 
-export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetUrls, productUi }: {
+export interface ExtensionDesignPropertyContent {
+  id: string;
+  extensionId: string;
+  title: string;
+  content: ReactNode;
+}
+
+export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetUrls, productUi, extensionProperties = [] }: {
   editor: Editor; doc: CatalogDocument; slide: CatalogSlide; selection: string[]; addFont: AddFont; assetUrls: Record<string, string>; productUi: ProductUi;
+  extensionProperties?: ExtensionDesignPropertyContent[];
 }) {
   const run = useRun(editor);
   const [fontPickerFor, setFontPickerFor] = useState<string | null>(null);
   const rtl = documentDirection(doc) === "rtl";
   const catalogFonts = [...new Set(doc.assets.filter((a) => a.kind === "font" && a.family).map((a) => a.family!))].sort();
   const selected = slide.elements.filter((e) => selection.includes(e.id));
+  const visibleExtensionProperties = extensionProperties.filter((section) => section.content !== null && section.content !== undefined);
 
-  if (selected.length === 0) return <SlideProperties doc={doc} slide={slide} run={run} />;
+  if (selected.length === 0) return <SlideProperties doc={doc} slide={slide} run={run} extensionProperties={visibleExtensionProperties} />;
   if (selected.length > 1) {
     return (
-      <Section title={`${selected.length} elements`}>
-        <AlignTools elements={selected} run={run} doc={doc} />
-        <div className="flex gap-1">
-          <Button variant="outline" size="sm" onClick={() => run({ type: "element.group", elementIds: selected.map((e) => e.id) })}>Group</Button>
-          {selected[0]?.groupId && selected.every((e) => e.groupId === selected[0]!.groupId) && (
-            <Button variant="outline" size="sm" onClick={() => run({ type: "element.ungroup", groupId: selected[0]!.groupId! })}>Ungroup</Button>
-          )}
-          <Button variant="destructive" size="sm" onClick={() => run({ type: "batch", commands: selected.map((e) => ({ type: "element.delete", elementId: e.id })) })}>
-            <HugeiconsIcon icon={Delete02Icon} /> Delete
-          </Button>
-        </div>
-      </Section>
+      <div>
+        <Section title={`${selected.length} elements`}>
+          <AlignTools elements={selected} run={run} doc={doc} />
+          <div className="flex gap-1">
+            <Button variant="outline" size="sm" onClick={() => run({ type: "element.group", elementIds: selected.map((e) => e.id) })}>Group</Button>
+            {selected[0]?.groupId && selected.every((e) => e.groupId === selected[0]!.groupId) && (
+              <Button variant="outline" size="sm" onClick={() => run({ type: "element.ungroup", groupId: selected[0]!.groupId! })}>Ungroup</Button>
+            )}
+            <Button variant="destructive" size="sm" onClick={() => run({ type: "batch", commands: selected.map((e) => ({ type: "element.delete", elementId: e.id })) })}>
+              <HugeiconsIcon icon={Delete02Icon} /> Delete
+            </Button>
+          </div>
+        </Section>
+        <ExtensionDesignProperties properties={visibleExtensionProperties} />
+      </div>
     );
   }
 
@@ -253,8 +267,8 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
 
       {el.type === "html" && (
         <Section title="HTML & CSS">
-          <CodeField key={`${el.id}-html`} label="HTML" value={el.content.html} rows={8} onCommit={(html) => update({ content: { html } })} />
-          <CodeField key={`${el.id}-css`} label="CSS" value={el.content.css} rows={6} onCommit={(css) => update({ content: { css } })} />
+          <CodeEditor key={`${el.id}-html`} label="HTML" language="html" value={el.content.html} rows={8} onCommit={(html) => update({ content: { html } })} />
+          <CodeEditor key={`${el.id}-css`} label="CSS" language="css" value={el.content.css} rows={6} onCommit={(css) => update({ content: { css } })} />
           <Field label="Background"><ColorInput doc={doc} value={el.style.background ?? "#ffffff"} label="Element background" onChange={(background) => update({ style: { background } })} /></Field>
           <p className="text-[11px] leading-relaxed text-muted-foreground">
             Theme colors are CSS variables, e.g. <code>var(--kv-primary)</code> and fonts <code>var(--kv-heading)</code>. Scripts, forms and embedded frames are removed; images must use https or data URLs.
@@ -262,7 +276,7 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
         </Section>
       )}
 
-      <AnimationProperties el={el} run={run} />
+      <ExtensionDesignProperties properties={visibleExtensionProperties} />
     </div>
   );
 }
@@ -457,15 +471,11 @@ function ProductProperties({ doc, el, run, update, assetUrls, ui }: {
   );
 }
 
-const TRANSITIONS = [["none", "None"], ["fade", "Fade"], ["morph", "Morph"], ["slide", "Slide"], ["push", "Push"], ["zoom", "Zoom"], ["wipe", "Wipe"], ["flip", "Flip"]] as const;
-
-function SlideProperties({ doc, slide, run }: { doc: CatalogDocument; slide: CatalogSlide; run: (c: EditorCommand) => unknown }) {
-  const slideIndex = doc.slides.findIndex((s) => s.id === slide.id);
-  const prevSlide = slideIndex > 0 ? doc.slides[slideIndex - 1] : undefined;
-  const morphCount = slide.transition?.type === "morph" && prevSlide ? matchMorph(prevSlide, slide).length : 0;
+function SlideProperties({ doc, slide, run, extensionProperties }: { doc: CatalogDocument; slide: CatalogSlide; run: (c: EditorCommand) => unknown; extensionProperties: ExtensionDesignPropertyContent[] }) {
   const bg = slide.background;
   return (
     <div>
+      <SlideLayoutSection doc={doc} slide={slide} run={run} />
       <Section title="Slide">
         <Field label="Name">
           <Input key={slide.id} defaultValue={slide.name} onBlur={(e) => e.target.value.trim() && e.target.value !== slide.name && run({ type: "slide.update", slideId: slide.id, changes: { name: e.target.value.trim() } })} />
@@ -473,31 +483,6 @@ function SlideProperties({ doc, slide, run }: { doc: CatalogDocument; slide: Cat
         <Field label="Background">
           <ColorInput doc={doc} value={bg.kind === "color" ? bg.color : "#ffffff"} label="Slide background" onChange={(color) => run({ type: "slide.update", slideId: slide.id, changes: { background: { kind: "color", color } } })} />
         </Field>
-        <Field label="Transition">
-          <SimpleSelect
-            size="sm"
-            aria-label="Transition"
-            value={slide.transition?.type ?? "none"}
-            onValueChange={(v) => run({ type: "slide.setTransition", slideId: slide.id, transition: v === "none" ? null : { type: v as never, ...(v === "morph" ? { durationMs: 900 } : {}) } })}
-            options={TRANSITIONS.map(([value, label]) => ({ value, label }))}
-          />
-        </Field>
-        {slide.transition?.type === "morph" && (
-          <p className="-mt-1 text-xs text-muted-foreground">
-            {slideIndex === 0
-              ? "Morph plays when arriving from the previous slide — this is the first slide."
-              : `Elements also on the previous slide move into place (${morphCount} matched). Duplicate a slide or copy elements across to match more.`}
-          </p>
-        )}
-        {slide.transition && slide.transition.type !== "none" && (
-          <div className="grid grid-cols-2 gap-2">
-            <Field compact label="Time"><NumberInput value={slide.transition.durationMs / 1000} min={0.1} max={10} step={0.1} suffix="s" onCommit={(v) => run({ type: "slide.setTransition", slideId: slide.id, transition: { durationMs: Math.round(v * 1000) } })} /></Field>
-            {slide.transition.type !== "morph" && slide.transition.type !== "fade" && <Field compact label="From">
-              <SimpleSelect size="sm" aria-label="From" value={slide.transition.direction ?? "left"} onValueChange={(v) => run({ type: "slide.setTransition", slideId: slide.id, transition: { direction: v as never } })}
-                options={["left", "right", "up", "down"].map((d) => ({ value: d, label: d }))} />
-            </Field>}
-          </div>
-        )}
         <Field label="Duration">
           <NumberInput
             value={(slide.durationMs ?? slideDurationMs(slide)) / 1000}
@@ -516,68 +501,63 @@ function SlideProperties({ doc, slide, run }: { doc: CatalogDocument; slide: Cat
       <p className="px-3 py-3 text-[11px] text-muted-foreground">
         {doc.settings.width}×{doc.settings.height}px. Select an element to edit it. Shift-click or drag across the slide to select several.
       </p>
+      <ExtensionDesignProperties properties={extensionProperties} />
     </div>
   );
 }
 
-/** Multi-line code box that commits on blur so typing stays one undo step. */
-function CodeField({ label, value, rows, onCommit }: { label: string; value: string; rows: number; onCommit: (v: string) => void }) {
+function SlideLayoutSection({ doc, slide, run }: { doc: CatalogDocument; slide: CatalogSlide; run: (command: EditorCommand) => unknown }) {
+  const [open, setOpen] = useState(false);
+  const scale = Math.min(106 / doc.settings.width, 60 / doc.settings.height);
   return (
-    <label className="grid gap-1 text-xs">
-      <span className="text-muted-foreground">{label}</span>
-      <Textarea
-        defaultValue={value}
-        rows={rows}
-        spellCheck={false}
-        onBlur={(e) => e.target.value !== value && onCommit(e.target.value)}
-        className="field-sizing-fixed min-h-16 resize-y font-mono text-xs leading-snug"
-      />
-    </label>
+    <div className="border-b px-3 py-2">
+      <Popover open={open} onOpenChange={setOpen}>
+        <PopoverTrigger render={<Button size="sm" variant="outline" className="w-full justify-between" aria-label="Choose slide layout" />}>
+          <span>Layout</span><span className="truncate text-muted-foreground">{SLIDE_LAYOUTS.find((layout) => layout.id === slide.layoutId)?.name ?? "Choose a layout"}</span>
+        </PopoverTrigger>
+        <PopoverContent side="left" align="start" className="w-[24rem] gap-2 p-3">
+          <PopoverHeader>
+            <PopoverTitle>Slide layout</PopoverTitle>
+            <PopoverDescription>Arrange editable title, text, and media placeholders on this slide.</PopoverDescription>
+          </PopoverHeader>
+          <div className="grid max-h-[min(26rem,70vh)] grid-cols-3 gap-2 overflow-y-auto p-0.5">
+            {SLIDE_LAYOUTS.map((layout) => {
+              const previewSlide: CatalogSlide = {
+                id: `preview_slide_${layout.id}`,
+                name: layout.name,
+                background: { kind: "color", color: "token:background" },
+                layoutId: layout.id,
+                elements: createSlideLayoutElements(layout.id, doc.settings.width, doc.settings.height, (index) => `preview_${layout.id}_${index}`),
+              };
+              return (
+                <button
+                  key={layout.id}
+                  type="button"
+                  aria-pressed={slide.layoutId === layout.id}
+                  aria-label={`Apply ${layout.name} layout`}
+                  title={layout.description}
+                  onClick={() => { run({ type: "slide.applyLayout", slideId: slide.id, layoutId: layout.id }); setOpen(false); }}
+                  className="group min-w-0 rounded-lg border p-1.5 text-start transition-colors hover:border-primary/60 aria-pressed:border-primary aria-pressed:bg-primary/5"
+                >
+                  <div className="flex aspect-video items-center justify-center overflow-hidden rounded-md bg-muted/40" style={{ aspectRatio: `${doc.settings.width}/${doc.settings.height}` }}>
+                    <SlideView doc={doc} slide={previewSlide} scale={scale} mode="edit" />
+                  </div>
+                  <span className="mt-1.5 block truncate text-[10px] font-medium">{layout.name}</span>
+                </button>
+              );
+            })}
+          </div>
+        </PopoverContent>
+      </Popover>
+    </div>
   );
 }
 
-const PRESETS = ["fade", "slide", "scale", "bounce", "rotate", "blur", "float", "pulse"] as const;
-
-function AnimationProperties({ el, run }: { el: CatalogElement; run: (c: EditorCommand) => unknown }) {
-  const [category, setCategory] = useState<"entrance" | "exit" | "emphasis">("entrance");
-  const [preset, setPreset] = useState<(typeof PRESETS)[number]>("fade");
-  const [trigger, setTrigger] = useState<"on-enter" | "after-previous" | "with-previous">("after-previous");
-  const [direction, setDirection] = useState<"left" | "right" | "up" | "down">("up");
-  const [duration, setDuration] = useState(0.6);
-  const [delay, setDelay] = useState(0);
-  return (
-    <Section title="Animation">
-      {el.animations.length === 0 && <p className="text-[11px] text-muted-foreground">No animations yet. They play in Preview, on published sites and in video exports.</p>}
-      {el.animations.map((a, i) => (
-        <div key={a.id} className="flex items-center gap-2 text-xs">
-          <span className="tabular-nums text-muted-foreground">{i + 1}</span>
-          <span className="flex-1 truncate capitalize">{a.category} · {a.preset}{a.direction && a.preset === "slide" ? ` ${a.direction}` : ""}</span>
-          <span className="tabular-nums text-muted-foreground">{(a.durationMs / 1000).toFixed(1)}s</span>
-          <Button variant="ghost" size="icon-xs" title="Remove animation" onClick={() => run({ type: "element.removeAnimation", elementId: el.id, animationId: a.id })}><HugeiconsIcon icon={Delete02Icon} /></Button>
-        </div>
-      ))}
-      <div className="grid grid-cols-2 gap-1">
-        <SimpleSelect size="sm" aria-label="Animation type" value={category} onValueChange={(v) => setCategory(v as never)}
-          options={[{ value: "entrance", label: "Entrance" }, { value: "exit", label: "Exit" }, { value: "emphasis", label: "Emphasis" }]} />
-        <SimpleSelect size="sm" aria-label="Effect" value={preset} onValueChange={setPreset} options={PRESETS.map((p) => ({ value: p, label: p }))} />
-        <SimpleSelect size="sm" aria-label="Start" value={trigger} onValueChange={setTrigger}
-          options={[{ value: "on-enter", label: "With slide" }, { value: "after-previous", label: "After previous" }, { value: "with-previous", label: "With previous" }]} />
-        <SimpleSelect size="sm" aria-label="Direction" value={direction} onValueChange={setDirection} disabled={preset !== "slide"}
-          options={(["up", "down", "left", "right"] as const).map((d) => ({ value: d, label: d }))} />
-        <Field compact label="Time"><NumberInput value={duration} min={0.1} max={30} step={0.1} suffix="s" onCommit={setDuration} /></Field>
-        <Field compact label="Delay"><NumberInput value={delay} min={0} max={30} step={0.1} suffix="s" onCommit={setDelay} /></Field>
-      </div>
-      <Button
-        variant="outline"
-        size="sm"
-        onClick={() => run({
-          type: "element.addAnimation",
-          elementId: el.id,
-          animation: { category, preset, trigger, direction: preset === "slide" ? direction : undefined, durationMs: Math.round(duration * 1000), delayMs: Math.round(delay * 1000), easing: category === "exit" ? "ease-in" : "ease-out" },
-        })}
-      >
-        Add animation
-      </Button>
+function ExtensionDesignProperties({ properties }: { properties: ExtensionDesignPropertyContent[] }) {
+  if (!properties.length) return null;
+  return <>{properties.map((property) => (
+    <Section key={property.id} title={property.title}>
+      {property.content}
     </Section>
-  );
+  ))}</>;
 }

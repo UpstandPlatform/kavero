@@ -7,7 +7,7 @@ import type { MenuItem } from "./context-menu";
 import { hasClipboard, kbd, type EditorActions } from "./editor-actions";
 
 /** Right-click on one or more selected elements. */
-export function elementMenu(a: EditorActions, opts: { onRename?: () => void; onAddToChat?: () => void; at?: { x: number; y: number } } = {}): MenuItem[] {
+export function elementMenu(a: EditorActions, opts: { onRename?: () => void; onAddToChat?: () => void; extensionItems?: MenuItem[]; at?: { x: number; y: number } } = {}): MenuItem[] {
   const els = a.selected();
   const many = els.length > 1;
   const allLocked = els.every((e) => e.locked);
@@ -65,6 +65,7 @@ export function elementMenu(a: EditorActions, opts: { onRename?: () => void; onA
     { label: "Hide", icon: <HugeiconsIcon icon={ViewOffIcon} />, shortcut: kbd("Ctrl+Shift+H"), onSelect: () => a.toggleHide() },
     ...(opts.onRename && !many ? [{ label: "Rename…", icon: <HugeiconsIcon icon={PencilIcon} />, onSelect: opts.onRename } as MenuItem] : []),
     { label: "Select all of this type", icon: <HugeiconsIcon icon={SquareIcon} />, onSelect: () => a.selectSameType() },
+    ...(opts.extensionItems?.length ? [{ type: "separator" } as MenuItem, ...opts.extensionItems] : []),
   ];
 }
 

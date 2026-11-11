@@ -6,19 +6,28 @@ export const CURRENT_SCHEMA_VERSION = 1;
 const id = z.string().min(1);
 const color = z.string().min(1); // hex, rgb() or a theme token like "token:primary"
 /** Links viewers can follow: never javascript:, data: or other schemes. */
-const linkUrl = z.url().refine((u) => /^(https?|mailto|tel):/i.test(u), { message: "Links must use https, http, mailto or tel" });
+const linkUrl = z.url().refine((u) => /^(https?|mailto|tel):/i.test(u), {
+  message: "Links must use https, http, mailto or tel",
+});
 /** Media the renderer (and headless Chrome on the server) loads itself: https only. */
-const mediaUrl = z.url().refine((u) => /^https:/i.test(u), { message: "Media URLs must use https" });
+const mediaUrl = z
+  .url()
+  .refine((u) => /^https:/i.test(u), { message: "Media URLs must use https" });
 /** Page size bounds keep exports (Chrome viewports, PDF pages) reasonable. */
 const pageSize = z.number().min(100).max(10_000);
 
 const forbiddenJsonKeys = new Set(["__proto__", "prototype", "constructor"]);
-const safeJsonKey = z.string().min(1).max(128).refine((key) => !forbiddenJsonKeys.has(key), "Reserved object key.");
+const safeJsonKey = z
+  .string()
+  .min(1)
+  .max(128)
+  .refine((key) => !forbiddenJsonKeys.has(key), "Reserved object key.");
 const MAX_EXTENSION_MAP_CHARACTERS = 250_000;
 
 /** Limits untrusted extension JSON so deeply nested or oversized values cannot exhaust the parser or editor. */
 function isJsonMap(value: unknown): boolean {
-  if (typeof value !== "object" || value === null || Array.isArray(value)) return false;
+  if (typeof value !== "object" || value === null || Array.isArray(value))
+    return false;
   const stack: { value: unknown; depth: number }[] = [{ value, depth: 0 }];
   const seen = new WeakSet<object>();
   let nodes = 0;
@@ -36,7 +45,11 @@ function isJsonMap(value: unknown): boolean {
       }
       if (typeof current === "string") {
         characters += current.length;
-        if (current.length > 100_000 || characters > MAX_EXTENSION_MAP_CHARACTERS) return false;
+        if (
+          current.length > 100_000 ||
+          characters > MAX_EXTENSION_MAP_CHARACTERS
+        )
+          return false;
         continue;
       }
       if (typeof current !== "object") return false;
@@ -44,13 +57,20 @@ function isJsonMap(value: unknown): boolean {
       seen.add(current);
       if (Array.isArray(current)) {
         if (current.length > 10_000) return false;
-        for (const item of current) stack.push({ value: item, depth: entry.depth + 1 });
+        for (const item of current)
+          stack.push({ value: item, depth: entry.depth + 1 });
         continue;
       }
       const prototype = Object.getPrototypeOf(current);
       if (prototype !== Object.prototype && prototype !== null) return false;
       const keys = Reflect.ownKeys(current);
-      if (keys.length > 5_000 || keys.some((key) => typeof key !== "string" || forbiddenJsonKeys.has(key))) return false;
+      if (
+        keys.length > 5_000 ||
+        keys.some(
+          (key) => typeof key !== "string" || forbiddenJsonKeys.has(key),
+        )
+      )
+        return false;
       for (const key of keys as string[]) {
         const descriptor = Object.getOwnPropertyDescriptor(current, key);
         if (!descriptor || !("value" in descriptor)) return false;
@@ -65,19 +85,38 @@ function isJsonMap(value: unknown): boolean {
   }
 }
 
-const jsonMap = z.record(safeJsonKey, z.unknown()).refine(
-  isJsonMap,
-  `Extension data must be plain JSON and stay within ${MAX_EXTENSION_MAP_CHARACTERS.toLocaleString()} characters and 32 levels of nesting.`,
-);
+const jsonMap = z
+  .record(safeJsonKey, z.unknown())
+  .refine(
+    isJsonMap,
+    `Extension data must be plain JSON and stay within ${MAX_EXTENSION_MAP_CHARACTERS.toLocaleString()} characters and 32 levels of nesting.`,
+  );
 
 const extensionIdPattern = /^[a-z0-9]+(?:[.-][a-z0-9]+)+$/;
-export const extensionIdSchema = z.string().min(3).max(128).regex(extensionIdPattern, "Use a reverse-domain extension id.");
-export const extensionDataKeySchema = z.string().min(1).max(128).refine(
-  (key) => key.split(/[.:/]/).every((part) => part.length > 0 && !forbiddenJsonKeys.has(part)),
-  "Extension keys cannot use reserved object names or empty path segments.",
-);
+export const extensionIdSchema = z
+  .string()
+  .min(3)
+  .max(128)
+  .regex(extensionIdPattern, "Use a reverse-domain extension id.");
+export const extensionDataKeySchema = z
+  .string()
+  .min(1)
+  .max(128)
+  .refine(
+    (key) =>
+      key
+        .split(/[.:/]/)
+        .every((part) => part.length > 0 && !forbiddenJsonKeys.has(part)),
+    "Extension keys cannot use reserved object names or empty path segments.",
+  );
 
-export const easingSchema = z.enum(["linear", "ease-in", "ease-out", "ease-in-out", "spring"]);
+export const easingSchema = z.enum([
+  "linear",
+  "ease-in",
+  "ease-out",
+  "ease-in-out",
+  "spring",
+]);
 export const directionSchema = z.enum(["left", "right", "up", "down"]);
 
 export const springSchema = z.object({
@@ -89,7 +128,16 @@ export const springSchema = z.object({
 // ---- Animation (declarative data only, never code) ----
 
 export const slideTransitionSchema = z.object({
-  type: z.enum(["none", "fade", "slide", "push", "zoom", "wipe", "flip", "morph"]),
+  type: z.enum([
+    "none",
+    "fade",
+    "slide",
+    "push",
+    "zoom",
+    "wipe",
+    "flip",
+    "morph",
+  ]),
   durationMs: z.number().int().min(0).max(10_000).default(500),
   delayMs: z.number().int().min(0).default(0),
   easing: easingSchema.default("ease-in-out"),
@@ -101,12 +149,33 @@ export const elementAnimationSchema = z.object({
   id,
   category: z.enum(["entrance", "exit", "emphasis", "motion-path"]),
   preset: z.enum([
-    "fade", "slide", "scale", "bounce", "rotate", "blur", "float", "pulse", "custom",
+    "appear",
+    "fade",
+    "slide",
+    "scale",
+    "bounce",
+    "rotate",
+    "spin",
+    "flip",
+    "zoom",
+    "grow",
+    "shrink",
+    "rise",
+    "blur",
+    "float",
+    "pulse",
+    "custom",
   ]),
-  trigger: z.enum(["on-enter", "after-previous", "with-previous", "on-click"]).default("on-enter"),
+  trigger: z
+    .enum(["on-enter", "after-previous", "with-previous", "on-click"])
+    .default("on-enter"),
   startMs: z.number().int().min(0).default(0),
   durationMs: z.number().int().min(1).max(60_000).default(600),
   delayMs: z.number().int().min(0).default(0),
+  /** Stable order across all animated objects on the slide. Missing values retain legacy stacking order. */
+  order: z.number().int().nonnegative().optional(),
+  /** Split text entrance/exit into one separately sequenced animation per paragraph. */
+  byParagraph: z.boolean().optional(),
   easing: easingSchema.default("ease-out"),
   direction: directionSchema.optional(),
   // motion-path / custom: points relative to the element's origin
@@ -114,13 +183,19 @@ export const elementAnimationSchema = z.object({
 });
 
 /** A serializable reference to a trusted extension effect; no shader source is stored in a catalog. */
-export const elementEffectSchema = z.object({
-  id,
-  extensionId: extensionIdSchema,
-  effectId: z.string().min(1).max(96).regex(/^[a-z0-9][a-z0-9._-]*$/),
-  type: z.enum(["shader-effect", "shader-fill"]),
-  parameters: jsonMap.default({}),
-}).strict();
+export const elementEffectSchema = z
+  .object({
+    id,
+    extensionId: extensionIdSchema,
+    effectId: z
+      .string()
+      .min(1)
+      .max(96)
+      .regex(/^[a-z0-9][a-z0-9._-]*$/),
+    type: z.enum(["shader-effect", "shader-fill"]),
+    parameters: jsonMap.default({}),
+  })
+  .strict();
 
 // ---- Elements (discriminated union on `type`) ----
 
@@ -143,6 +218,11 @@ const elementBase = {
   groupId: id.optional(),
   /** Identity shared by copies of an element (duplicated slides, copy/paste) so Morph can match them. */
   morphKey: z.string().max(100).optional(),
+  /** Slot created by a slide layout. Reapplying a layout replaces only these elements. */
+  layoutSlot: z.enum([
+    "title", "subtitle", "body", "left-column", "right-column", "caption",
+    "section-title", "section-description", "number", "media",
+  ]).optional(),
   animations: z.array(elementAnimationSchema).default([]),
   effects: z.array(elementEffectSchema).max(8).default([]),
 };
@@ -154,7 +234,9 @@ export const textStyleSchema = z.object({
   lineHeight: z.number().positive().default(1.3),
   letterSpacing: z.number().default(0),
   /** "start"/"end" follow the text direction (right in RTL catalogs). */
-  align: z.enum(["start", "end", "left", "center", "right", "justify"]).default("start"),
+  align: z
+    .enum(["start", "end", "left", "center", "right", "justify"])
+    .default("start"),
   /** "auto" picks the direction per paragraph from its first strong character; force "ltr" for e.g. phone numbers in RTL text. */
   direction: z.enum(["auto", "ltr", "rtl"]).default("auto"),
   color: color.default("token:text"),
@@ -162,9 +244,26 @@ export const textStyleSchema = z.object({
   italic: z.boolean().default(false),
 });
 
+/**
+ * Older AI integrations sometimes persisted text as `{ body: string }`.
+ * Unwrap that known shape while validating so legacy catalogs can still open.
+ */
+const catalogText = z.preprocess((value) => {
+  if (
+    typeof value === "object" &&
+    value !== null &&
+    !Array.isArray(value) &&
+    "body" in value
+  ) {
+    const body = (value as { body?: unknown }).body;
+    if (typeof body === "string") return body;
+  }
+  return value;
+}, z.string());
+
 /** Rich text as runs; no HTML stored in the document. */
 export const textRunSchema = z.object({
-  text: z.string(),
+  text: catalogText,
   bold: z.boolean().optional(),
   italic: z.boolean().optional(),
   underline: z.boolean().optional(),
@@ -183,29 +282,44 @@ export const imageElementSchema = z.object({
   ...elementBase,
   type: z.literal("image"),
   content: z.object({ assetId: id, alt: z.string().default("") }),
-  style: z.object({
-    fit: z.enum(["cover", "contain", "fill"]).default("cover"),
-    crop: z.object({ x: z.number(), y: z.number(), width: z.number(), height: z.number() }).optional(),
-    borderRadius: z.number().min(0).default(0),
-    filters: z.object({
-      brightness: z.number().default(1),
-      contrast: z.number().default(1),
-      saturate: z.number().default(1),
-      grayscale: z.number().min(0).max(1).default(0),
-    }).optional(),
-  }).default({ fit: "cover", borderRadius: 0 }),
+  style: z
+    .object({
+      fit: z.enum(["cover", "contain", "fill"]).default("cover"),
+      crop: z
+        .object({
+          x: z.number(),
+          y: z.number(),
+          width: z.number(),
+          height: z.number(),
+        })
+        .optional(),
+      borderRadius: z.number().min(0).default(0),
+      filters: z
+        .object({
+          brightness: z.number().default(1),
+          contrast: z.number().default(1),
+          saturate: z.number().default(1),
+          grayscale: z.number().min(0).max(1).default(0),
+        })
+        .optional(),
+    })
+    .default({ fit: "cover", borderRadius: 0 }),
 });
 
 export const shapeElementSchema = z.object({
   ...elementBase,
   type: z.literal("shape"),
-  content: z.object({ shape: z.enum(["rect", "ellipse", "triangle", "line", "arrow"]) }),
-  style: z.object({
-    fill: color.default("token:primary"),
-    stroke: color.optional(),
-    strokeWidth: z.number().min(0).default(0),
-    borderRadius: z.number().min(0).default(0),
-  }).default({ fill: "token:primary", strokeWidth: 0, borderRadius: 0 }),
+  content: z.object({
+    shape: z.enum(["rect", "ellipse", "triangle", "line", "arrow"]),
+  }),
+  style: z
+    .object({
+      fill: color.default("token:primary"),
+      stroke: color.optional(),
+      strokeWidth: z.number().min(0).default(0),
+      borderRadius: z.number().min(0).default(0),
+    })
+    .default({ fill: "token:primary", strokeWidth: 0, borderRadius: 0 }),
 });
 
 export const productRefSchema = z.object({
@@ -256,7 +370,9 @@ export const CARD_DISPLAY_DEFAULTS = {
 } as const;
 
 export type ProductCardStyle = z.infer<typeof productCardStyleSchema>;
-export const productGridStyleSchema = productCardStyleSchema.extend({ gap: z.number().min(0).default(16) });
+export const productGridStyleSchema = productCardStyleSchema.extend({
+  gap: z.number().min(0).default(16),
+});
 
 /** Card display options with defaults applied. */
 export function cardDisplay(style: Partial<ProductCardStyle>) {
@@ -289,15 +405,23 @@ export const productElementSchema = z.object({
 export const productGridElementSchema = z.object({
   ...elementBase,
   type: z.literal("product-grid"),
-  content: z.object({ products: z.array(productRefSchema), columns: z.number().int().min(1).max(8).default(3) }),
-  style: productGridStyleSchema.default({ ...productCardStyleSchema.parse({}), gap: 16 }),
+  content: z.object({
+    products: z.array(productRefSchema),
+    columns: z.number().int().min(1).max(8).default(3),
+  }),
+  style: productGridStyleSchema.default({
+    ...productCardStyleSchema.parse({}),
+    gap: 16,
+  }),
 });
 
 export const iconElementSchema = z.object({
   ...elementBase,
   type: z.literal("icon"),
-  content: z.object({ name: z.string() }),
-  style: z.object({ color: color.default("token:text") }).default({ color: "token:text" }),
+  content: z.object({ name: catalogText }),
+  style: z
+    .object({ color: color.default("token:text") })
+    .default({ color: "token:text" }),
 });
 
 /** A versioned extension-owned element. Its plugin payload is JSON data only. */
@@ -305,7 +429,11 @@ export const extensionElementSchema = z.object({
   ...elementBase,
   type: z.literal("extension"),
   extensionId: extensionIdSchema,
-  kind: z.string().min(1).max(96).regex(/^[a-z0-9][a-z0-9._-]*$/),
+  kind: z
+    .string()
+    .min(1)
+    .max(96)
+    .regex(/^[a-z0-9][a-z0-9._-]*$/),
   elementVersion: z.number().int().min(1).default(1),
   content: jsonMap.default({}),
   style: jsonMap.default({}),
@@ -314,17 +442,35 @@ export const extensionElementSchema = z.object({
 export const videoElementSchema = z.object({
   ...elementBase,
   type: z.literal("video"),
-  content: z.object({ assetId: id.optional(), url: mediaUrl.optional(), posterAssetId: id.optional() }),
-  style: z.object({ autoplay: z.boolean().default(false), loop: z.boolean().default(false), muted: z.boolean().default(true) })
+  content: z.object({
+    assetId: id.optional(),
+    url: mediaUrl.optional(),
+    posterAssetId: id.optional(),
+  }),
+  style: z
+    .object({
+      autoplay: z.boolean().default(false),
+      loop: z.boolean().default(false),
+      muted: z.boolean().default(true),
+    })
     .default({ autoplay: false, loop: false, muted: true }),
 });
 
 export const buttonElementSchema = z.object({
   ...elementBase,
   type: z.literal("button"),
-  content: z.object({ label: z.string(), href: linkUrl }),
-  style: z.object({ background: color.default("token:primary"), color: color.default("token:on-primary"), borderRadius: z.number().default(6) })
-    .default({ background: "token:primary", color: "token:on-primary", borderRadius: 6 }),
+  content: z.object({ label: catalogText, href: linkUrl }),
+  style: z
+    .object({
+      background: color.default("token:primary"),
+      color: color.default("token:on-primary"),
+      borderRadius: z.number().default(6),
+    })
+    .default({
+      background: "token:primary",
+      color: "token:on-primary",
+      borderRadius: 6,
+    }),
 });
 
 /**
@@ -335,8 +481,15 @@ export const htmlElementSchema = z.object({
   ...elementBase,
   type: z.literal("html"),
   content: z.object({
-    html: z.string().max(100_000).transform((v) => sanitizeHtml(v)),
-    css: z.string().max(50_000).default("").transform((v) => sanitizeCss(v)),
+    html: z
+      .string()
+      .max(100_000)
+      .transform((v) => sanitizeHtml(v)),
+    css: z
+      .string()
+      .max(50_000)
+      .default("")
+      .transform((v) => sanitizeCss(v)),
   }),
   style: z.object({ background: color.optional() }).default({}),
 });
@@ -358,40 +511,80 @@ export const catalogElementSchema = z.discriminatedUnion("type", [
 
 export const slideBackgroundSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("color"), color }),
-  z.object({ kind: z.literal("image"), assetId: id, fit: z.enum(["cover", "contain"]).default("cover") }),
-  z.object({ kind: z.literal("gradient"), from: color, to: color, angle: z.number().default(180) }),
+  z.object({
+    kind: z.literal("image"),
+    assetId: id,
+    fit: z.enum(["cover", "contain"]).default("cover"),
+  }),
+  z.object({
+    kind: z.literal("gradient"),
+    from: color,
+    to: color,
+    angle: z.number().default(180),
+  }),
 ]);
 
 export const catalogSlideSchema = z.object({
   id,
   name: z.string(),
-  background: slideBackgroundSchema.default({ kind: "color", color: "token:background" }),
+  layoutId: z.enum([
+    "title-slide", "section-header", "title-body", "title-two-columns", "title-only",
+    "one-column-text", "main-point", "section-title-description", "caption", "big-number", "blank",
+  ]).optional(),
+  background: slideBackgroundSchema.default({
+    kind: "color",
+    color: "token:background",
+  }),
   elements: z.array(catalogElementSchema).default([]),
   transition: slideTransitionSchema.optional(),
   durationMs: z.number().int().positive().optional(),
 });
 
 /** Assets are references only; binaries live in IndexedDB / object storage. */
-export const catalogAssetSchema = z.object({
-  id,
-  kind: z.enum(["image", "video", "font"]),
-  mimeType: z.string(),
-  name: z.string(),
-  uri: z.string(), // "local://<hash>" or "https://..." or "s3://..."
-  width: z.number().int().optional(),
-  height: z.number().int().optional(),
-  bytes: z.number().int().nonnegative().optional(),
-  hash: z.string().optional(),
-  /** Font assets: the CSS family name text elements refer to, plus the face this file provides. */
-  family: z.string().optional(),
-  fontWeight: z.number().int().min(1).max(1000).optional(),
-  fontStyle: z.enum(["normal", "italic"]).optional(),
-  /** Where the font came from; "local" fonts are copied from the user's computer. */
-  fontSource: z.enum(["local", "upload", "google"]).optional(),
-}).refine((a) => a.kind !== "font" || !!a.family, { message: "Font assets need a family name", path: ["family"] });
+export const catalogAssetSchema = z
+  .object({
+    id,
+    kind: z.enum(["image", "video", "font"]),
+    mimeType: z.string(),
+    name: z.string(),
+    uri: z.string(), // "local://<hash>" or "https://..." or "s3://..."
+    width: z.number().int().optional(),
+    height: z.number().int().optional(),
+    bytes: z.number().int().nonnegative().optional(),
+    hash: z.string().optional(),
+    /** Source and license details for media imported from external libraries. */
+    attribution: z.object({
+      provider: z.string().max(80),
+      /** Provider item id used to resolve media again without persisting a transient CDN URL. */
+      providerAssetId: z.string().max(200).optional(),
+      creator: z.string().max(300).optional(),
+      creatorUrl: linkUrl.optional(),
+      license: z.string().max(100).optional(),
+      licenseUrl: linkUrl.optional(),
+      sourceUrl: linkUrl.optional(),
+    }).optional(),
+    /** Font assets: the CSS family name text elements refer to, plus the face this file provides. */
+    family: z.string().optional(),
+    fontWeight: z.number().int().min(1).max(1000).optional(),
+    fontStyle: z.enum(["normal", "italic"]).optional(),
+    /** Where the font came from; "local" fonts are copied from the user's computer. */
+    fontSource: z.enum(["local", "upload", "google"]).optional(),
+  })
+  .refine((a) => a.kind !== "font" || !!a.family, {
+    message: "Font assets need a family name",
+    path: ["family"],
+  });
 
-export const PRODUCT_AVAILABILITY = ["in-stock", "out-of-stock", "pre-order", "limited"] as const;
-export const AVAILABILITY_LABELS: Record<(typeof PRODUCT_AVAILABILITY)[number], string> = {
+export const PRODUCT_AVAILABILITY = [
+  "in-stock",
+  "out-of-stock",
+  "pre-order",
+  "limited",
+] as const;
+export const AVAILABILITY_LABELS: Record<
+  (typeof PRODUCT_AVAILABILITY)[number],
+  string
+> = {
   "in-stock": "In stock",
   "out-of-stock": "Out of stock",
   "pre-order": "Pre-order",
@@ -401,38 +594,45 @@ export const AVAILABILITY_LABELS: Record<(typeof PRODUCT_AVAILABILITY)[number], 
 /** Everything except id and name is optional, so catalogs saved before a field existed stay valid. */
 export const productSchema = z.object({
   id,
-  name: z.string(),
+  name: catalogText,
   /** Short tagline under the name. */
-  subtitle: z.string().max(200).optional(),
-  description: z.string().optional(),
-  sku: z.string().optional(),
-  brand: z.string().max(100).optional(),
+  subtitle: catalogText.pipe(z.string().max(200)).optional(),
+  description: catalogText.optional(),
+  sku: catalogText.optional(),
+  brand: catalogText.pipe(z.string().max(100)).optional(),
   price: z.number().optional(),
   /** Original price, shown struck through to signal a discount. */
   compareAtPrice: z.number().nonnegative().optional(),
   currency: z.string().length(3).optional(),
   /** Shown after the price, e.g. "per m²" or "/ kg". */
-  unit: z.string().max(30).optional(),
+  unit: catalogText.pipe(z.string().max(30)).optional(),
   /** Short label over the photo, e.g. "New", "Sale". */
-  badge: z.string().max(30).optional(),
+  badge: catalogText.pipe(z.string().max(30)).optional(),
   availability: z.enum(PRODUCT_AVAILABILITY).optional(),
   rating: z.number().min(0).max(5).optional(),
   /** First image is the primary one. */
   imageAssetIds: z.array(id).default([]),
   url: linkUrl.optional(),
-  category: z.string().optional(),
+  category: catalogText.optional(),
   /** Search keywords; not shown on cards. */
   tags: z.array(z.string().max(50)).max(30).optional(),
   /** Specs as label → value, in display order. */
-  attributes: z.record(z.string(), z.string()).default({}),
+  attributes: z.record(z.string(), catalogText).default({}),
   source: z.string().optional(),
 });
 
 /** Plugin-owned catalog data is persisted in versioned, namespaced JSON. */
 export const catalogExtensionSchema = z.object({
-  version: z.string().max(80).regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/),
+  version: z
+    .string()
+    .max(80)
+    .regex(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/),
   enabled: z.boolean().default(false),
-  grantedCapabilities: z.array(z.string().min(1).max(64)).max(32).refine((values) => new Set(values).size === values.length).default([]),
+  grantedCapabilities: z
+    .array(z.string().min(1).max(64))
+    .max(32)
+    .refine((values) => new Set(values).size === values.length)
+    .default([]),
   settings: jsonMap.default({}),
   data: jsonMap.default({}),
 });
@@ -457,59 +657,108 @@ function jsonCharacterCount(value: unknown, stopAt: number): number {
   return characters;
 }
 
-export const catalogDocumentSchema = z.object({
-  id,
-  schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
-  revision: z.number().int().nonnegative().default(0),
-  metadata: z.object({
-    title: z.string().min(1),
-    description: z.string().optional(),
-    author: z.string().optional(),
-    language: z.string().default("en"),
-    currency: z.string().length(3).default("USD"),
-  }),
-  settings: z.object({
-    width: pageSize,
-    height: pageSize,
-    unit: z.enum(["px"]).default("px"),
-    background: color.default("token:background"),
-  }),
-  theme: z.object({
-    colors: z.record(z.string(), z.string()),
-    fonts: z.record(z.string(), z.string()),
-  }),
-  slides: z.array(catalogSlideSchema).min(1, { message: "A catalog needs at least one slide" }),
-  assets: z.array(catalogAssetSchema).default([]),
-  products: z.array(productSchema).default([]),
-  extensions: z.record(extensionIdSchema, catalogExtensionSchema).refine((value) => Object.keys(value).length <= 32, "A catalog can have at most 32 extensions.").default({}),
-}).superRefine((document, ctx) => {
-  let totalCharacters = 0;
-  let extensionElements = 0;
-  const add = (value: unknown, path: (string | number)[]) => {
-    const remaining = MAX_TOTAL_EXTENSION_CHARACTERS - totalCharacters;
-    totalCharacters += jsonCharacterCount(value, remaining);
-    if (totalCharacters > MAX_TOTAL_EXTENSION_CHARACTERS) {
-      ctx.addIssue({ code: "custom", path, message: `Extension data in a catalog cannot exceed ${MAX_TOTAL_EXTENSION_CHARACTERS.toLocaleString()} characters in total.` });
-      return false;
-    }
-    return true;
-  };
-  for (const [extensionId, state] of Object.entries(document.extensions)) {
-    if (!add(state.settings, ["extensions", extensionId, "settings"]) || !add(state.data, ["extensions", extensionId, "data"])) return;
-  }
-  for (const [slideIndex, slide] of document.slides.entries()) {
-    for (const [elementIndex, element] of slide.elements.entries()) {
-      if (element.effects.length && !add(element.effects, ["slides", slideIndex, "elements", elementIndex, "effects"])) return;
-      if (element.type !== "extension") continue;
-      extensionElements += 1;
-      if (extensionElements > 2_000) {
-        ctx.addIssue({ code: "custom", path: ["slides", slideIndex, "elements", elementIndex], message: "A catalog cannot contain more than 2,000 extension elements." });
-        return;
+export const catalogDocumentSchema = z
+  .object({
+    id,
+    schemaVersion: z.literal(CURRENT_SCHEMA_VERSION),
+    revision: z.number().int().nonnegative().default(0),
+    metadata: z.object({
+      title: z.string().min(1),
+      description: z.string().optional(),
+      author: z.string().optional(),
+      language: z.string().default("en"),
+      currency: z.string().length(3).default("USD"),
+    }),
+    settings: z.object({
+      width: pageSize,
+      height: pageSize,
+      unit: z.enum(["px"]).default("px"),
+      background: color.default("token:background"),
+    }),
+    theme: z.object({
+      colors: z.record(z.string(), z.string()),
+      fonts: z.record(z.string(), z.string()),
+    }),
+    slides: z
+      .array(catalogSlideSchema)
+      .min(1, { message: "A catalog needs at least one slide" }),
+    assets: z.array(catalogAssetSchema).default([]),
+    products: z.array(productSchema).default([]),
+    extensions: z
+      .record(extensionIdSchema, catalogExtensionSchema)
+      .refine(
+        (value) => Object.keys(value).length <= 32,
+        "A catalog can have at most 32 extensions.",
+      )
+      .default({}),
+  })
+  .superRefine((document, ctx) => {
+    let totalCharacters = 0;
+    let extensionElements = 0;
+    const add = (value: unknown, path: (string | number)[]) => {
+      const remaining = MAX_TOTAL_EXTENSION_CHARACTERS - totalCharacters;
+      totalCharacters += jsonCharacterCount(value, remaining);
+      if (totalCharacters > MAX_TOTAL_EXTENSION_CHARACTERS) {
+        ctx.addIssue({
+          code: "custom",
+          path,
+          message: `Extension data in a catalog cannot exceed ${MAX_TOTAL_EXTENSION_CHARACTERS.toLocaleString()} characters in total.`,
+        });
+        return false;
       }
-      if (!add(element.content, ["slides", slideIndex, "elements", elementIndex, "content"]) || !add(element.style, ["slides", slideIndex, "elements", elementIndex, "style"])) return;
+      return true;
+    };
+    for (const [extensionId, state] of Object.entries(document.extensions)) {
+      if (
+        !add(state.settings, ["extensions", extensionId, "settings"]) ||
+        !add(state.data, ["extensions", extensionId, "data"])
+      )
+        return;
     }
-  }
-});
+    for (const [slideIndex, slide] of document.slides.entries()) {
+      for (const [elementIndex, element] of slide.elements.entries()) {
+        if (
+          element.effects.length &&
+          !add(element.effects, [
+            "slides",
+            slideIndex,
+            "elements",
+            elementIndex,
+            "effects",
+          ])
+        )
+          return;
+        if (element.type !== "extension") continue;
+        extensionElements += 1;
+        if (extensionElements > 2_000) {
+          ctx.addIssue({
+            code: "custom",
+            path: ["slides", slideIndex, "elements", elementIndex],
+            message:
+              "A catalog cannot contain more than 2,000 extension elements.",
+          });
+          return;
+        }
+        if (
+          !add(element.content, [
+            "slides",
+            slideIndex,
+            "elements",
+            elementIndex,
+            "content",
+          ]) ||
+          !add(element.style, [
+            "slides",
+            slideIndex,
+            "elements",
+            elementIndex,
+            "style",
+          ])
+        )
+          return;
+      }
+    }
+  });
 
 export type SlideTransition = z.infer<typeof slideTransitionSchema>;
 export type ElementAnimation = z.infer<typeof elementAnimationSchema>;

@@ -89,9 +89,9 @@ const pubStatus = (await trpc(owner.cookie, "publication.status", { catalogId })
 check("daily views counted", pubStatus?.daily?.at(-1)?.views === 3 && pubStatus.daily.length === 30, JSON.stringify(pubStatus?.daily?.at(-1)));
 
 // ---------- MCP: generate + exports, with workspace ----------
-const token = (await trpc(editor.cookie, "integrations.tokens.create", { name: "Agent", scopes: ["catalogs:read", "catalogs:write"], expiresInDays: 1 }, true)).data.token;
+const apiKey = (await trpc(editor.cookie, "integrations.apiKeys.create", { name: "Agent", scopes: ["catalogs:read", "catalogs:write", "workspaces:write", "ai:generate", "exports:read"], expiresInDays: 1 }, true)).data.key;
 const mcp = new Client({ name: "e2e", version: "1" });
-await mcp.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+await mcp.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), { requestInit: { headers: { Authorization: `Bearer ${apiKey}` } } }));
 const tools = (await mcp.listTools()).tools.map((t) => t.name);
 check("MCP exposes 29 tools", tools.length === 29 && tools.includes("catalog_generate") && tools.includes("catalog_export_pptx"), String(tools.length));
 // eslint-disable-next-line @typescript-eslint/no-explicit-any

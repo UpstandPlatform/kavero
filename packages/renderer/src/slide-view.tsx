@@ -146,16 +146,19 @@ export const SlideView = memo(function SlideView({
   const schedule = useMemo(() => (timeMs === undefined ? null : scheduleSlide(slide)), [slide, timeMs === undefined]);
   const { width: W, height: H } = doc.settings;
   const color = (v: string) => resolveToken(doc, v);
+  const assetUris = useMemo(() => new Map(doc.assets.filter((asset) => asset.attribution?.provider !== "GIPHY").map((asset) => [asset.id, asset.uri])), [doc.assets]);
+  const resolveCatalogAsset = (id: string) => resolveAsset(id) ?? assetUris.get(id);
   const bg = slide.background;
   const background: CSSProperties =
     bg.kind === "color" ? { background: color(bg.color) }
     : bg.kind === "gradient" ? { background: `linear-gradient(${bg.angle}deg, ${color(bg.from)}, ${color(bg.to)})` }
-    : { backgroundImage: `url("${resolveAsset(bg.assetId) ?? ""}")`, backgroundSize: bg.fit, backgroundPosition: "center" };
+    : { backgroundImage: `url("${resolveCatalogAsset(bg.assetId) ?? ""}")`, backgroundSize: bg.fit, backgroundPosition: "center" };
 
-  const elements = [...slide.elements].sort((a, b) => a.zIndex - b.zIndex);
+  const elements = useMemo(() => [...slide.elements].sort((a, b) => a.zIndex - b.zIndex), [slide]);
+  const renderContext = useMemo(() => ({ doc, resolveAsset: resolveCatalogAsset, mode, extensionRenderers, extensionEffects }), [doc, resolveAsset, assetUris, mode, extensionRenderers, extensionEffects]);
 
   return (
-    <Ctx.Provider value={{ doc, resolveAsset, mode, extensionRenderers, extensionEffects }}>
+    <Ctx.Provider value={renderContext}>
       <div className={className} style={{ width: W * scale, height: H * scale, overflow: "hidden", position: "relative" }}>
         <div
           data-slide-id={slide.id}
@@ -239,7 +242,10 @@ export function MorphView({ doc, from, to, progress, scale = 1, resolveAsset = (
   );
 }
 
-function ElementFrame({ element, position: p, schedule, timeMs, highlighted = false }: {
+const samePosition = (a: ElementPosition, b: ElementPosition) =>
+  a.x === b.x && a.y === b.y && a.width === b.width && a.height === b.height && a.rotation === b.rotation;
+
+const ElementFrame = memo(function ElementFrame({ element, position: p, schedule, timeMs, highlighted = false }: {
   element: CatalogElement;
   position: ElementPosition;
   schedule: ScheduledAnimation[] | null;
@@ -262,7 +268,7 @@ function ElementFrame({ element, position: p, schedule, timeMs, highlighted = fa
         <Renderer element={element} effect={effect} context={effectContext}>{children}</Renderer>
       </ExtensionRenderBoundary>
     );
-  }, <ElementBody element={element} />);
+  }, <ElementBody element={element} schedule={schedule} timeMs={timeMs} />);
   return (
     <div
       data-element-id={element.id}
@@ -285,9 +291,13 @@ function ElementFrame({ element, position: p, schedule, timeMs, highlighted = fa
       ) : <ElementRenderBoundary element={element} mode={mode}>{body}</ElementRenderBoundary>}
     </div>
   );
-}
+}, (previous, next) => previous.element === next.element
+  && samePosition(previous.position, next.position)
+  && previous.schedule === next.schedule
+  && previous.timeMs === next.timeMs
+  && previous.highlighted === next.highlighted);
 
-export function ElementBody({ element: el }: { element: CatalogElement }) {
+export const ElementBody = memo(function ElementBody({ element: el, schedule, timeMs }: { element: CatalogElement; schedule?: ScheduledAnimation[] | null; timeMs?: number }) {
   const { doc, resolveAsset, mode, extensionRenderers } = useRender();
   const color = (v: string) => resolveToken(doc, v);
   const fill: CSSProperties = { width: "100%", height: "100%" };
@@ -311,7 +321,18 @@ export function ElementBody({ element: el }: { element: CatalogElement }) {
           {el.content.paragraphs.map((runs, i) => (
             // dir="auto": each paragraph takes its direction from its own first strong letter,
             // so mixed Persian/Latin lines lay out correctly without control characters.
-            <p key={i} dir={s.direction === "auto" ? "auto" : s.direction} style={{ margin: 0, minHeight: "1em" }}>
+            <p
+              key={i}
+              dir={s.direction === "auto" ? "auto" : s.direction}
+              style={{
+                margin: 0,
+                minHeight: "1em",
+                ...(schedule && timeMs !== undefined && el.animations.some((animation) => animation.byParagraph)
+                  ? stateToCss(elementStateAt(schedule, el.id, timeMs, i))
+                  : {}),
+                transformOrigin: "50% 50%",
+              }}
+            >
               {runs.map((r, j) => {
                 const style: CSSProperties = {
                   fontWeight: r.bold ? 700 : undefined, fontStyle: r.italic ? "italic" : undefined,
@@ -404,7 +425,7 @@ export function ElementBody({ element: el }: { element: CatalogElement }) {
     case "html":
       return <HtmlBlock html={el.content.html} css={el.content.css} background={el.style.background ? color(el.style.background) : undefined} interactive={mode === "present"} />;
   }
-}
+});
 
 const clamp = (lines: number): CSSProperties => ({ display: "-webkit-box", WebkitBoxOrient: "vertical", WebkitLineClamp: lines, overflow: "hidden", overflowWrap: "anywhere" });
 

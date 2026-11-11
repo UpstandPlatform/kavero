@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { requireCatalog } from "@Kavero/api/services/access";
 import { PublicationService } from "@Kavero/api/services/publication-service";
+import { createResilientRateLimiter } from "@Kavero/redis";
 
 import { auth, db } from "@/services";
 
@@ -50,31 +51,14 @@ export async function resolveAccess(slug: string, headers: Headers, cookie: (nam
   }
 }
 
-// ---------- Password brute-force guard (in memory, per server process) ----------
+// ---------- Password brute-force guard (Redis-backed, with bounded local fallback) ----------
 
 const WINDOW_MS = 15 * 60_000;
 /** Failed attempts allowed per client per publication, and per publication from everyone together. */
 const PER_CLIENT = 10;
 const PER_PUBLICATION = 100;
-const MAX_KEYS = 50_000;
-
-type Bucket = { n: number; until: number };
-const g = globalThis as unknown as { __kaveroUnlockFailures?: Map<string, Bucket> };
-const failures = (g.__kaveroUnlockFailures ??= new Map());
-
-function prune(now: number) {
-  for (const [k, b] of failures) if (b.until <= now) failures.delete(k);
-  // Still too many (e.g. a spray of fake IPs): drop the oldest client buckets, never the per-publication ones.
-  for (const k of failures.keys()) {
-    if (failures.size <= MAX_KEYS) break;
-    if (!k.startsWith("pub:")) failures.delete(k);
-  }
-}
-
-const count = (key: string, now: number) => {
-  const b = failures.get(key);
-  return b && b.until > now ? b.n : 0;
-};
+const publicationFailures = createResilientRateLimiter({ namespace: "publication-unlock", maxRequests: PER_PUBLICATION, windowMs: WINDOW_MS });
+const clientFailures = createResilientRateLimiter({ namespace: "publication-unlock-client", maxRequests: PER_CLIENT, windowMs: WINDOW_MS });
 
 /**
  * Client address for rate limiting. X-Forwarded-For is only trusted behind a
@@ -89,23 +73,17 @@ export function clientIp(headers: Headers): string | null {
   return chain[chain.length - Math.floor(hops)] ?? null;
 }
 
-function keys(pubId: string, ip: string | null) {
-  return ip ? [`pub:${pubId}`, `ip:${pubId}:${ip}`] : [`pub:${pubId}`];
-}
-
 /** False while this client (or the publication as a whole) has too many recent failures. */
-export function attemptAllowed(pubId: string, ip: string | null): boolean {
-  const now = Date.now();
-  if (count(`pub:${pubId}`, now) >= PER_PUBLICATION) return false;
-  return !ip || count(`ip:${pubId}:${ip}`, now) < PER_CLIENT;
+export async function attemptAllowed(pubId: string, ip: string | null): Promise<boolean> {
+  const publication = await publicationFailures.getRemaining("pub:" + pubId);
+  if (publication.remaining <= 0) return false;
+  if (!ip) return true;
+  return (await clientFailures.getRemaining("ip:" + pubId + ":" + ip)).remaining > 0;
 }
 
-export function recordFailure(pubId: string, ip: string | null) {
-  const now = Date.now();
-  if (failures.size > MAX_KEYS) prune(now);
-  for (const key of keys(pubId, ip)) {
-    const b = failures.get(key);
-    if (!b || b.until <= now) failures.set(key, { n: 1, until: now + WINDOW_MS });
-    else b.n += 1;
-  }
+export async function recordFailure(pubId: string, ip: string | null) {
+  await Promise.all([
+    publicationFailures.limit("pub:" + pubId),
+    ...(ip ? [clientFailures.limit("ip:" + pubId + ":" + ip)] : []),
+  ]);
 }

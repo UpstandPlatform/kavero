@@ -3,8 +3,10 @@
 import { HugeiconsIcon } from "@hugeicons/react";
 import { Delete02Icon, Key02Icon, Loading02Icon, Refresh01Icon, ScrollIcon, SparklesIcon, UserGroupIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
+import { Badge } from "@Kavero/ui/components/badge";
 import { Input } from "@Kavero/ui/components/input";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@Kavero/ui/components/table";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -189,28 +191,67 @@ function ConnectionsTab() {
 
 // ---------- Activity ----------
 
-type AuditRow = Awaited<ReturnType<ReturnType<typeof api>["integrations"]["audit"]["query"]>>[number];
+type AuditPage = Awaited<ReturnType<ReturnType<typeof api>["integrations"]["audit"]["query"]>>;
+type AuditRow = AuditPage["rows"][number];
+
+const AUDIT_AREAS = [
+  ["", "All areas"], ["catalogs", "Catalogs"], ["assets", "Images and fonts"], ["exports", "Previews and exports"],
+  ["publication", "Published sites"], ["workspace", "Workspaces"], ["ai", "AI"], ["api_keys", "API keys"],
+  ["integrations", "Connected services"], ["admin", "Admin"], ["auth", "Sign-in and accounts"], ["account", "Account"],
+] as const;
 
 function ActivityTab() {
-  const [rows, setRows] = useState<AuditRow[] | null>(null);
-  useEffect(() => void api().integrations.audit.query().then(setRows), []);
-  if (!rows) return <p className="text-xs text-muted-foreground">Loading…</p>;
-  if (!rows.length) return <p className="text-xs text-muted-foreground">No API or agent activity yet.</p>;
+  const [area, setArea] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [page, setPage] = useState<AuditPage | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async (append = false, cursor?: AuditPage["nextCursor"]) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const next = await api().integrations.audit.query({ limit: 50, area: area ? area as AuditRow["area"] : undefined, outcome: outcome ? outcome as "ok" | "denied" | "error" : undefined, before: append ? cursor?.before : undefined, beforeId: append ? cursor?.beforeId : undefined });
+      setPage((current) => append && current ? { ...next, rows: [...current.rows, ...next.rows] } : next);
+    } catch (cause) {
+      const message = (cause as Error).message;
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [area, outcome]);
+
+  useEffect(() => { setPage(null); void load(); }, [load]);
+
+  const rows = page?.rows ?? [];
+  const areaLabel = (value: string) => AUDIT_AREAS.find(([key]) => key === value)?.[1] ?? value;
+  if (!page && loading) return <p className="text-xs text-muted-foreground">Loading activity…</p>;
   return (
-    <div className={surface.table}>
-      <table className="w-full text-xs">
-        <thead className={surface.thead}><tr><th className="px-3 py-2 text-start font-medium">When</th><th className="px-3 py-2 text-start font-medium">Action</th><th className="px-3 py-2 text-start font-medium">Target</th><th className="px-3 py-2 text-start font-medium">Result</th></tr></thead>
-        <tbody className="divide-y">
-          {rows.map((r) => (
-            <tr key={r.id}>
-              <td className="px-3 py-2 whitespace-nowrap text-muted-foreground">{new Date(r.createdAt).toLocaleString()}</td>
-              <td className="px-3 py-2 font-mono">{r.action}</td>
-              <td className="max-w-48 truncate px-3 py-2 font-mono text-muted-foreground">{r.target ?? ""}</td>
-              <td className={`px-3 py-2 ${r.outcome === "ok" ? "" : "text-destructive"}`}>{r.outcome}</td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div className="grid gap-4 text-xs">
+      <div className="flex flex-wrap gap-2">
+        <SimpleSelect aria-label="Filter activity by area" className="w-52" value={area} onValueChange={setArea} options={AUDIT_AREAS.map(([value, label]) => ({ value, label }))} />
+        <SimpleSelect aria-label="Filter activity by result" className="w-40" value={outcome} onValueChange={setOutcome} options={[{ value: "", label: "Any result" }, { value: "ok", label: "Succeeded" }, { value: "denied", label: "Denied" }, { value: "error", label: "Failed" }]} />
+      </div>
+      {error && <div className="flex items-center gap-2 text-destructive"><span>{error}</span><Button size="sm" variant="outline" onClick={() => void load()}>Retry</Button></div>}
+      {page && rows.length === 0 && <p className="text-muted-foreground">No activity matches these filters yet.</p>}
+      {rows.length > 0 && <div className={surface.table}>
+        <Table>
+          <TableHeader className={surface.thead}><TableRow><TableHead>When</TableHead><TableHead>Area</TableHead><TableHead>Activity</TableHead><TableHead>Target</TableHead><TableHead>Result</TableHead></TableRow></TableHeader>
+          <TableBody>
+            {rows.map((row: AuditRow) => (
+              <TableRow key={row.id}>
+                <TableCell className="whitespace-nowrap text-muted-foreground">{new Date(row.createdAt).toLocaleString()}</TableCell>
+                <TableCell><Badge variant="outline">{areaLabel(row.area)}</Badge></TableCell>
+                <TableCell><span className="font-medium">{row.action.replace(/[:_]/g, " · ")}</span><span className="ms-2 text-muted-foreground">via {row.channel}</span></TableCell>
+                <TableCell className="max-w-48 truncate font-mono text-muted-foreground">{row.target ?? "—"}</TableCell>
+                <TableCell><Badge variant={row.outcome === "ok" ? "secondary" : "destructive"}>{row.outcome}</Badge></TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>}
+      {page?.hasMore && <Button variant="outline" className="justify-self-center" disabled={loading} onClick={() => void load(true, page.nextCursor)}>{loading ? "Loading…" : "Load more activity"}</Button>}
     </div>
   );
 }

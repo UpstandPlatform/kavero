@@ -7,6 +7,7 @@ import type { Context } from "../context";
 import { protectedProcedure, publicProcedure, router } from "../index";
 import { AiCredentialService } from "../services/ai-credential-service";
 import { AiService } from "../services/ai-service";
+import { audit } from "../services/audit-service";
 
 const generateInput = z.object({
   brief: z.string().max(4000),
@@ -20,7 +21,12 @@ const generateInput = z.object({
 const credentialInput = z.object({
   provider: z.enum(["anthropic", "openrouter", "openai", "openai-compatible"]),
   apiKey: z.string().max(400).optional(),
-  model: z.string().max(120).optional(),
+  model: z.string().max(160),
+  baseUrl: z.string().max(2000).optional(),
+});
+const providerModelInput = z.object({
+  provider: z.enum(["anthropic", "openrouter", "openai", "openai-compatible"]),
+  apiKey: z.string().max(400).optional(),
   baseUrl: z.string().max(2000).optional(),
 });
 
@@ -42,25 +48,62 @@ export async function resolveAi(ctx: Context, userId: string | undefined): Promi
 export const aiRouter = router({
   status: publicProcedure.query(async ({ ctx }) => {
     const { provider, source } = await resolveAi(ctx, ctx.session?.user.id);
-    return { configured: !!provider, source, provider: provider?.id ?? null, model: provider?.model ?? null };
+    const selected = ctx.session?.user.id && ctx.secretBox ? await credentials(ctx).defaultModel(ctx.session.user.id) : null;
+    return { configured: !!provider, source, provider: provider?.id ?? null, model: provider?.model ?? null, capabilities: source === "personal" ? selected?.capabilities ?? null : null };
   }),
   generate: protectedProcedure.input(generateInput).mutation(async ({ ctx, input }) => {
-    const { provider } = await resolveAi(ctx, ctx.session.user.id);
-    return new AiService(ctx.db, provider).generate(ctx.session.user.id, input);
+    try {
+      const { provider } = await resolveAi(ctx, ctx.session.user.id);
+      const result = await new AiService(ctx.db, provider).generate(ctx.session.user.id, input);
+      await audit(ctx.db, { userId: ctx.session.user.id, action: "ai:catalog_generate", target: result.document.metadata.title, outcome: "ok", details: { source: result.source, model: result.model } });
+      return result;
+    } catch (error) {
+      await audit(ctx.db, { userId: ctx.session.user.id, action: "ai:catalog_generate", outcome: "error" });
+      throw error;
+    }
   }),
   edit: protectedProcedure
     .input(z.object({ document: z.unknown(), slideId: z.string().max(100), instruction: z.string().min(1).max(2000) }))
     .mutation(async ({ ctx, input }) => {
-      const { provider } = await resolveAi(ctx, ctx.session.user.id);
-      return new AiService(ctx.db, provider).edit(ctx.session.user.id, input.document, input.slideId, input.instruction);
+      try {
+        const { provider } = await resolveAi(ctx, ctx.session.user.id);
+        const result = await new AiService(ctx.db, provider).edit(ctx.session.user.id, input.document, input.slideId, input.instruction);
+        await audit(ctx.db, { userId: ctx.session.user.id, action: "ai:slide_edit", target: input.slideId, outcome: "ok", details: { model: result.model } });
+        return result;
+      } catch (error) {
+        await audit(ctx.db, { userId: ctx.session.user.id, action: "ai:slide_edit", target: input.slideId, outcome: "error" });
+        throw error;
+      }
     }),
   history: protectedProcedure.query(({ ctx }) => new AiService(ctx.db, null).history(ctx.session.user.id)),
 
   /** Personal AI key (Settings → AI). The key itself is never returned. */
   credential: router({
-    get: protectedProcedure.query(({ ctx }) => credentials(ctx).get(ctx.session.user.id)),
-    set: protectedProcedure.input(credentialInput).mutation(({ ctx, input }) => credentials(ctx).set(ctx.session.user.id, input)),
-    remove: protectedProcedure.mutation(({ ctx }) => credentials(ctx).remove(ctx.session.user.id)),
-    test: protectedProcedure.mutation(({ ctx }) => credentials(ctx).test(ctx.session.user.id)),
+    list: protectedProcedure.query(({ ctx }) => credentials(ctx).list(ctx.session.user.id)),
+    models: protectedProcedure.input(providerModelInput).query(({ ctx, input }) => credentials(ctx).models(ctx.session.user.id, input)),
+    set: protectedProcedure.input(credentialInput).mutation(async ({ ctx, input }) => {
+      try {
+        return await credentials(ctx).set(ctx.session.user.id, input);
+      } catch (error) {
+        await audit(ctx.db, { userId: ctx.session.user.id, action: "ai:provider_save", target: input.provider, outcome: "error" });
+        throw error;
+      }
+    }),
+    setDefault: protectedProcedure.input(z.object({ provider: z.enum(["anthropic", "openrouter", "openai", "openai-compatible"]) })).mutation(async ({ ctx, input }) => {
+      try {
+        return await credentials(ctx).setDefault(ctx.session.user.id, input.provider);
+      } catch (error) {
+        await audit(ctx.db, { userId: ctx.session.user.id, action: "ai:provider_default", target: input.provider, outcome: "error" });
+        throw error;
+      }
+    }),
+    remove: protectedProcedure.input(z.object({ provider: z.enum(["anthropic", "openrouter", "openai", "openai-compatible"]) })).mutation(async ({ ctx, input }) => {
+      try {
+        return await credentials(ctx).remove(ctx.session.user.id, input.provider);
+      } catch (error) {
+        await audit(ctx.db, { userId: ctx.session.user.id, action: "ai:provider_remove", target: input.provider, outcome: "error" });
+        throw error;
+      }
+    }),
   }),
 });

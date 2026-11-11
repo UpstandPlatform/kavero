@@ -11,30 +11,34 @@ Both go through the same services as the web app: the same validation, permissio
 
 ## 1. Connect an agent to Kavero
 
-### Create a token
+### Create an API key
 
-Sign in → **Settings → API tokens & AI agents** → name it (e.g. "Claude"), pick permissions and an expiry → **Create token**. Copy it immediately; only a hash is stored.
+Sign in → **Settings → API keys** → name it (e.g. "Claude"), choose permissions and an expiry → **Create API key**. Copy it immediately; only a hash is stored.
 
 | Permission | Allows |
 | --- | --- |
-| `catalogs:read` | list, get, preview, export |
-| `catalogs:write` | create, edit, import products and images, generate |
+| `catalogs:read` | list, get and preview catalogs |
+| `catalogs:write` | create, edit and import products |
 | `catalogs:delete` | delete catalogs |
+| `assets:write` | import images and fonts |
+| `exports:read` | render previews and export files |
+| `ai:generate` | generate catalogs with AI |
+| `workspaces:write` | create catalogs in a team workspace |
 | `publish` | publish and unpublish websites |
 
-Give each agent its own token with only what it needs. Revoke tokens in the same screen; every call (including refused ones) shows in **Settings → Activity**.
+Give each agent its own API key with only what it needs. Revoke keys in the same screen; every call (including refused ones) shows in **Settings → Activity**.
 
 ### Configure the client
 
-> **Desktop app:** Kavero's own server runs on your computer, so use `http://127.0.0.1:41731/api/mcp` (the default port) with a token from the app's Settings — no account or deployment needed. Keep the app open while the agent works; links it returns (`kavero://editor/…`) open the catalog in the app.
+> **Desktop app:** Kavero's own server runs on your computer, so use `http://127.0.0.1:41731/api/mcp` (the default port) with an API key from the app's Settings — no account or deployment needed. Keep the app open while the agent works; links it returns (`kavero://editor/…`) open the catalog in the app.
 
 
-The server uses **Streamable HTTP** at `https://<your-kavero>/api/mcp` (locally `http://localhost:3001/api/mcp`) with `Authorization: Bearer <token>`.
+The server uses **Streamable HTTP** at `https://<your-kavero>/api/mcp` (locally `http://localhost:3001/api/mcp`) with `Authorization: Bearer <api-key>`.
 
 Claude Code:
 
 ```bash
-claude mcp add --transport http kavero http://localhost:3001/api/mcp --header "Authorization: Bearer kv_your_token"
+claude mcp add --transport http kavero http://localhost:3001/api/mcp --header "Authorization: Bearer kv_your_api_key"
 ```
 
 Generic MCP client config (Cursor, other clients):
@@ -51,7 +55,7 @@ Generic MCP client config (Cursor, other clients):
 }
 ```
 
-Limits: 120 requests per minute per token; exported files up to 25 MB.
+Limits: 120 requests per minute per API key; exported files up to 25 MB.
 
 ### Agent skills
 
@@ -59,7 +63,7 @@ Limits: 120 requests per minute per token; exported files up to 25 MB.
 
 - [`kavero-catalogs`](../skills/kavero-catalogs/SKILL.md) — standard catalog structures, layouts, typography, products, RTL, QA.
 - [`kavero-animations`](../skills/kavero-animations/SKILL.md) — tasteful animations and transitions.
-- [`kavero-quickstart`](../skills/kavero-quickstart/SKILL.md) — connecting an agent (token, scopes, client config), choosing a template and page size, the end-to-end flow.
+- [`kavero-quickstart`](../skills/kavero-quickstart/SKILL.md) — connecting an agent (API key, scopes, client config), choosing a template and page size, the end-to-end flow.
 - [`kavero-morph`](../skills/kavero-morph/SKILL.md) — Morph ("magic move") sequences: matching elements with `morphKey`/`name`, timing, worked recipes.
 - [`kavero-product-sources`](../skills/kavero-product-sources/SKILL.md) — importing products and images, field mapping from stores and spreadsheets, large catalogs.
 - [`kavero-publish-export`](../skills/kavero-publish-export/SKILL.md) — previews, PDF and PowerPoint exports, publishing websites, and what's editor-only (MP4, HTML file, JPG zip).
@@ -222,7 +226,7 @@ Every create/generate/get result has an `editorUrl`. Opening it while signed in 
 
 ## 4. Product sources (MCP connections)
 
-**Settings → MCP connections → Connect**: a name, the server URL, transport (Streamable HTTP, or SSE for older servers) and authentication (none, bearer token, or a custom header such as `X-API-Key`). Kavero tests the connection and lists its tools. Secrets are encrypted at rest and never sent back to the browser.
+**Settings → MCP connections → Connect**: a name, the server URL, transport (Streamable HTTP, or SSE for older servers) and authentication (none, bearer credential, or a custom header such as `X-API-Key`). Kavero tests the connection and lists its tools. Secrets are encrypted at rest and never sent back to the browser.
 
 Then in the editor, **Import products** → choose the source and tool → adjust the JSON arguments → **Fetch products** → review → **Add to catalog** (with images, and optionally new product slides). **Generate with AI** can use the same sources.
 
@@ -234,7 +238,7 @@ Local (stdio) MCP servers need the desktop app's companion, which isn't availabl
 
 ## Security notes
 
-- Tokens are scoped and expiring; store them like passwords. A leaked token can be revoked instantly.
+- API keys are scoped and expiring; store them like passwords. A leaked key can be revoked instantly.
 - Deleting requires the `catalogs:delete` permission **and** `confirm: true` — agents should ask the user first.
-- Agents act with the token owner's workspace roles: a viewer's token can't edit workspace catalogs.
+- Agents act with the API key owner's workspace roles: a viewer's key can't edit workspace catalogs.
 - HTML from agents is sanitized and rendered in a sandbox; it can't run scripts.

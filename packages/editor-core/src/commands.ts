@@ -21,6 +21,7 @@ import {
   type Product,
   type SlideTransition,
 } from "@Kavero/catalog-engine";
+import { createSlideLayoutElements, type SlideLayoutId } from "@Kavero/catalog-engine";
 
 /** Distributive Omit so each union member keeps its own shape. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -35,6 +36,7 @@ export type EditorCommand =
   | { type: "slide.move"; slideId: string; toIndex: number }
   | { type: "slide.duplicate"; slideId: string }
   | { type: "slide.setTransition"; slideId: string; transition: Partial<SlideTransition> | null }
+  | { type: "slide.applyLayout"; slideId: string; layoutId: SlideLayoutId }
   | { type: "element.add"; slideId: string; element: NewElement }
   | { type: "element.update"; elementId: string; changes: Record<string, unknown> }
   | { type: "element.move"; elementId: string; position: Partial<ElementPosition> }
@@ -45,9 +47,12 @@ export type EditorCommand =
   | { type: "element.group"; elementIds: string[] }
   | { type: "element.ungroup"; groupId: string }
   | { type: "element.addAnimation"; elementId: string; animation: Omit<Partial<ElementAnimation>, "id"> & Pick<ElementAnimation, "category" | "preset"> }
+  | { type: "element.updateAnimation"; elementId: string; animationId: string; changes: Partial<Omit<ElementAnimation, "id">> }
+  | { type: "element.setAnimationOrder"; elementId: string; animationId: string; toIndex: number }
   | { type: "element.removeAnimation"; elementId: string; animationId: string }
   | { type: "asset.add"; asset: CatalogAsset }
-  | { type: "asset.remove"; assetId: string }
+  /** Removes an asset; with removeFromSlides, also removes placements and product references. */
+  | { type: "asset.remove"; assetId: string; removeFromSlides?: boolean }
   | { type: "product.upsert"; product: Omit<Partial<Product>, "id"> & { id?: string; name: string } }
   /** Fails while the product is on a slide, unless `removeFromSlides` also deletes its cards and drops it from grids. */
   | { type: "product.delete"; productId: string; removeFromSlides?: boolean }
@@ -122,11 +127,28 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
       };
       break;
     case "slide.add": {
-      const slide = catalogSlideSchema.parse({ ...createBlankSlide(), ...cmd.slide, id: cmd.slide?.id ?? createId("sld") });
+      const slideInput = { ...createBlankSlide(), ...cmd.slide, id: cmd.slide?.id ?? createId("sld") };
+      // Legacy and third-party slide builders may omit element ids. Repair those ids
+      // at the command boundary so every inserted element can be selected and edited.
+      const usedElementIds = new Set(doc.slides.flatMap((existing) => existing.elements.map((element) => element.id)));
+      const elements = Array.isArray(slideInput.elements)
+        ? slideInput.elements.map((element) => {
+            if (!isPlainObject(element)) return element;
+            const id = element.id;
+            if (typeof id === "string" && id.length > 0 && !usedElementIds.has(id)) {
+              usedElementIds.add(id);
+              return element;
+            }
+            const nextId = createId("el");
+            usedElementIds.add(nextId);
+            return { ...element, id: nextId };
+          })
+        : slideInput.elements;
+      const slide = catalogSlideSchema.parse({ ...slideInput, elements });
       if (doc.slides.some((s) => s.id === slide.id)) throw new CommandError(`Slide id "${slide.id}" already exists`);
       const index = cmd.index ?? doc.slides.length;
       doc.slides.splice(Math.max(0, Math.min(index, doc.slides.length)), 0, slide);
-      created.push(slide.id);
+      created.push(slide.id, ...slide.elements.flatMap((element) => [element.id, ...element.animations.map((animation) => animation.id), ...element.effects.map((effect) => effect.id)]));
       break;
     }
     case "slide.update": {
@@ -172,6 +194,40 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
       const slide = findSlide(doc, cmd.slideId);
       if (cmd.transition === null) delete slide.transition;
       else slide.transition = slideTransitionSchema.parse({ ...slide.transition, ...cmd.transition });
+      break;
+    }
+    case "slide.applyLayout": {
+      const slide = findSlide(doc, cmd.slideId);
+      const currentSlots = slide.elements.filter((element) => element.layoutSlot);
+      const retained = slide.elements.filter((element) => !element.layoutSlot);
+      const nextLayout = createSlideLayoutElements(cmd.layoutId, doc.settings.width, doc.settings.height);
+      const used = new Set<string>();
+      const laidOut = nextLayout.map((template) => {
+        const previous = currentSlots.find((element) => element.layoutSlot === template.layoutSlot && !used.has(element.id));
+        if (!previous) return template;
+        used.add(previous.id);
+        return {
+          ...template,
+          id: previous.id,
+          content: previous.content,
+          style: previous.style,
+          animations: previous.animations,
+          effects: previous.effects,
+          name: previous.name,
+          opacity: previous.opacity,
+          hidden: previous.hidden,
+          locked: previous.locked,
+        } as CatalogElement;
+      });
+      // Content from slots that are absent in the new layout stays on the slide as a regular element.
+      const unmatchedSlots = currentSlots.filter((element) => !used.has(element.id)).map((element) => {
+        const { layoutSlot: _layoutSlot, ...contentElement } = element;
+        return contentElement as CatalogElement;
+      });
+      slide.layoutId = cmd.layoutId;
+      slide.elements = [...retained, ...unmatchedSlots, ...laidOut];
+      normalizeZ(slide);
+      created.push(...laidOut.filter((element) => !used.has(element.id)).map((element) => element.id));
       break;
     }
     case "element.add": {
@@ -238,10 +294,33 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
       for (const s of doc.slides) for (const e of s.elements) if (e.groupId === cmd.groupId) delete e.groupId;
       break;
     case "element.addAnimation": {
-      const { element } = findElement(doc, cmd.elementId);
-      const anim = elementAnimationSchema.parse({ ...cmd.animation, id: createId("anim") });
+      const { slide, element } = findElement(doc, cmd.elementId);
+      const order = Math.max(-1, ...slide.elements.flatMap((item) => item.animations.map((animation) => animation.order ?? item.zIndex * 100 + item.animations.indexOf(animation)))) + 1;
+      const anim = elementAnimationSchema.parse({ ...cmd.animation, order: cmd.animation.order ?? order, id: createId("anim") });
       element.animations.push(anim);
       created.push(anim.id);
+      break;
+    }
+    case "element.updateAnimation": {
+      const { element } = findElement(doc, cmd.elementId);
+      const index = element.animations.findIndex((animation) => animation.id === cmd.animationId);
+      if (index < 0) throw new CommandError(`Animation "${cmd.animationId}" not found`);
+      const current = element.animations[index]!;
+      element.animations[index] = elementAnimationSchema.parse(deepMerge(current as Record<string, unknown>, cmd.changes));
+      break;
+    }
+    case "element.setAnimationOrder": {
+      const { slide } = findElement(doc, cmd.elementId);
+      const animations = slide.elements.flatMap((element) => element.animations.map((animation, index) => ({ element, animation, index, fallback: element.zIndex * 100 + index })));
+      const ordered = animations.sort((a, b) => (a.animation.order ?? a.fallback) - (b.animation.order ?? b.fallback));
+      const from = ordered.findIndex(({ element, animation }) => element.id === cmd.elementId && animation.id === cmd.animationId);
+      if (from < 0) throw new CommandError(`Animation "${cmd.animationId}" not found`);
+      const [item] = ordered.splice(from, 1);
+      ordered.splice(Math.max(0, Math.min(cmd.toIndex, ordered.length)), 0, item!);
+      ordered.forEach(({ element, animation }, order) => {
+        const animationIndex = element.animations.findIndex((candidate) => candidate.id === animation.id);
+        element.animations[animationIndex] = elementAnimationSchema.parse({ ...animation, order });
+      });
       break;
     }
     case "element.removeAnimation": {
@@ -257,8 +336,20 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
       break;
     }
     case "asset.remove": {
-      const used = JSON.stringify(doc.slides).includes(`"${cmd.assetId}"`) || doc.products.some((p) => p.imageAssetIds.includes(cmd.assetId));
-      if (used) throw new CommandError("Asset is still in use");
+      const imageElements = doc.slides.flatMap((slide) => slide.elements.filter((element) => JSON.stringify(element.content).includes(`"${cmd.assetId}"`)));
+      const backgroundSlides = doc.slides.filter((slide) => slide.background.kind === "image" && slide.background.assetId === cmd.assetId);
+      const productUses = doc.products.some((product) => product.imageAssetIds.includes(cmd.assetId));
+      const used = imageElements.length > 0 || backgroundSlides.length > 0 || productUses;
+      if (used && !cmd.removeFromSlides) throw new CommandError("Asset is still in use");
+      if (cmd.removeFromSlides) {
+        for (const slide of doc.slides) {
+          slide.elements = slide.elements.filter((element) => !JSON.stringify(element.content).includes(`"${cmd.assetId}"`));
+          if (slide.background.kind === "image" && slide.background.assetId === cmd.assetId) {
+            slide.background = { kind: "color", color: "token:background" };
+          }
+        }
+        for (const product of doc.products) product.imageAssetIds = product.imageAssetIds.filter((id) => id !== cmd.assetId);
+      }
       doc.assets = doc.assets.filter((a) => a.id !== cmd.assetId);
       break;
     }

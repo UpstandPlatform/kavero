@@ -34,25 +34,42 @@ export interface ScheduledAnimation {
   animation: ElementAnimation;
   startMs: number;
   endMs: number;
+  clickIndex?: number;
+  paragraphIndex?: number;
 }
 
 /**
- * Resolve triggers into absolute times within a slide. Animations are ordered by
- * element stacking order, then by their order on the element.
- * on-click is treated as after-previous for linear playback (video, autoplay).
+ * Resolve triggers into absolute times within a slide. Explicit sequence order is
+ * respected, with stacking order kept for older catalogs. Timed playback treats
+ * each click trigger as the next step in the animation sequence.
  */
 export function scheduleSlide(slide: CatalogSlide): ScheduledAnimation[] {
   const out: ScheduledAnimation[] = [];
   let prevStart = 0;
   let prevEnd = 0;
-  const elements = [...slide.elements].sort((a, b) => a.zIndex - b.zIndex);
-  for (const el of elements) {
-    for (const a of el.animations) {
+  let clickIndex = 0;
+  const animations = slide.elements.flatMap((element) => element.animations.map((animation, index) => ({
+    element,
+    animation,
+    fallback: element.zIndex * 100 + index,
+  }))).sort((a, b) => (a.animation.order ?? a.fallback) - (b.animation.order ?? b.fallback));
+  for (const { element: el, animation: a } of animations) {
+    const paragraphCount = a.byParagraph && el.type === "text" ? Math.max(1, el.content.paragraphs.length) : 1;
+    for (let paragraphIndex = 0; paragraphIndex < paragraphCount; paragraphIndex += 1) {
       let start: number;
-      if (a.trigger === "with-previous") start = prevStart + a.delayMs;
-      else if (a.trigger === "after-previous" || a.trigger === "on-click") start = prevEnd + a.delayMs;
-      else start = a.startMs + a.delayMs;
-      const s: ScheduledAnimation = { elementId: el.id, animation: a, startMs: start, endMs: start + a.durationMs };
+      const trigger = paragraphCount > 1 && paragraphIndex > 0 && a.trigger === "on-click" ? "on-click" : a.trigger;
+      if (trigger === "with-previous") start = prevStart + a.delayMs;
+      else if (trigger === "after-previous" || trigger === "on-click") start = prevEnd + a.delayMs;
+      else start = a.startMs + a.delayMs + (paragraphCount > 1 ? paragraphIndex * (a.durationMs + a.delayMs) : 0);
+      if (trigger === "on-click") clickIndex += 1;
+      const s: ScheduledAnimation = {
+        elementId: el.id,
+        animation: a,
+        startMs: start,
+        endMs: start + a.durationMs,
+        ...(trigger === "on-click" ? { clickIndex } : {}),
+        ...(paragraphCount > 1 ? { paragraphIndex } : {}),
+      };
       out.push(s);
       prevStart = s.startMs;
       prevEnd = Math.max(prevEnd, s.endMs);
@@ -61,12 +78,25 @@ export function scheduleSlide(slide: CatalogSlide): ScheduledAnimation[] {
   return out;
 }
 
+/** The next timeline boundary that must wait for a presenter click. */
+export function nextClickStart(schedule: readonly ScheduledAnimation[], completedClickSteps: number): number | undefined {
+  return schedule
+    .filter((animation) => animation.clickIndex === completedClickSteps + 1)
+    .reduce<number | undefined>((next, animation) => next === undefined ? animation.startMs : Math.min(next, animation.startMs), undefined);
+}
+
+/** Keep click-triggered animations hidden until the presenter advances the step. */
+export function gateClickTimeline(schedule: readonly ScheduledAnimation[], elapsedMs: number, completedClickSteps: number): number {
+  const next = nextClickStart(schedule, completedClickSteps);
+  return next === undefined ? elapsedMs : Math.min(elapsedMs, next);
+}
+
 export const DEFAULT_SLIDE_MS = 4000;
 
 /** How long a slide stays on screen in playback/video. */
 export function slideDurationMs(slide: CatalogSlide): number {
-  if (slide.durationMs) return slide.durationMs;
   const lastAnim = Math.max(0, ...scheduleSlide(slide).map((s) => s.endMs));
+  if (slide.durationMs) return Math.max(slide.durationMs, lastAnim + (lastAnim > 0 ? 250 : 0));
   return Math.max(DEFAULT_SLIDE_MS, lastAnim + 1500);
 }
 
@@ -95,15 +125,22 @@ function dirVector(dir: ElementAnimation["direction"], distance: number) {
 /** The "hidden" end of an entrance (start) or exit (end). */
 function offState(a: ElementAnimation): Partial<VisualState> {
   switch (a.preset) {
+    case "appear":
     case "fade": return { opacity: 0 };
     case "slide": {
       // Entrances come in from the opposite side of where they're heading.
       const v = dirVector(a.direction, 120);
       return a.category === "entrance" ? { opacity: 0, x: -v.x, y: -v.y } : { opacity: 0, x: v.x, y: v.y };
     }
-    case "scale": return { opacity: 0, scale: 0.6 };
+    case "scale":
+    case "zoom": return { opacity: 0, scale: 0.3 };
+    case "grow": return { opacity: 0, scale: 0.1 };
+    case "shrink": return { opacity: 0, scale: 1.5 };
     case "bounce": return { opacity: 0, scale: 0.3 };
-    case "rotate": return { opacity: 0, rotate: -90, scale: 0.8 };
+    case "rotate":
+    case "spin": return { opacity: 0, rotate: -180, scale: 0.8 };
+    case "flip": return { opacity: 0, rotate: -90, scale: 0.75 };
+    case "rise": return { opacity: 0, y: 80 };
     case "blur": return { opacity: 0, blur: 24 };
     case "float": return { opacity: 0, y: 40 };
     default: return { opacity: 0 };
@@ -142,7 +179,11 @@ function animationState(s: ScheduledAnimation, t: number): VisualState {
         case "pulse": return { ...IDENTITY, scale: 1 + 0.12 * wave };
         case "bounce": return { ...IDENTITY, y: -Math.abs(Math.sin(p * Math.PI * 3)) * 40 * (1 - p) };
         case "float": return { ...IDENTITY, y: -20 * Math.sin(p * Math.PI * 2) };
-        case "rotate": return { ...IDENTITY, rotate: 360 * e };
+        case "rotate":
+        case "spin": return { ...IDENTITY, rotate: 360 * e };
+        case "flip": return { ...IDENTITY, rotate: 180 * Math.sin(p * Math.PI) };
+        case "grow": return { ...IDENTITY, scale: 1 + 0.24 * wave };
+        case "shrink": return { ...IDENTITY, scale: 1 - 0.18 * wave };
         case "blur": return { ...IDENTITY, blur: 8 * wave };
         case "fade": return { ...IDENTITY, opacity: 1 - 0.6 * wave };
         default: return { ...IDENTITY, scale: 1 + 0.08 * wave };
@@ -159,9 +200,22 @@ function animationState(s: ScheduledAnimation, t: number): VisualState {
 }
 
 /** Combined visual state of one element at slide-local time t (ms). */
-export function elementStateAt(schedule: ScheduledAnimation[], elementId: string, t: number): VisualState {
+export function elementStateAt(schedule: ScheduledAnimation[], elementId: string, t: number, paragraphIndex?: number): VisualState {
   let state = IDENTITY;
-  for (const s of schedule) if (s.elementId === elementId) state = compose(state, animationState(s, t));
+  const elementAnimations = schedule.filter((animation) => animation.elementId === elementId
+    && (paragraphIndex === undefined ? animation.paragraphIndex === undefined : animation.paragraphIndex === paragraphIndex));
+  const firstEntrance = elementAnimations.find((animation) => animation.animation.category === "entrance");
+  for (const s of schedule) {
+    if (s.elementId !== elementId) continue;
+    if (!elementAnimations.includes(s)) continue;
+    if (s.animation.category === "entrance" && t < s.startMs) {
+      const earlierEntranceHasStarted = elementAnimations.some((previous) =>
+        previous.animation.category === "entrance" && previous !== s && previous.startMs < s.startMs && t >= previous.startMs,
+      );
+      if (earlierEntranceHasStarted || s !== firstEntrance) continue;
+    }
+    state = compose(state, animationState(s, t));
+  }
   return state;
 }
 
@@ -195,8 +249,8 @@ export interface Timeline {
 export function buildTimeline(doc: CatalogDocument): Timeline {
   let t = 0;
   const segments = doc.slides.map((slide, i) => {
-    const d = slideDurationMs(slide);
     const transition = i > 0 && slide.transition && slide.transition.type !== "none" ? slide.transition : undefined;
+    const d = Math.max(slideDurationMs(slide), transition ? transition.delayMs + transition.durationMs : 0);
     const seg = { slideIndex: i, startMs: t, endMs: t + d, transition };
     t += d;
     return seg;
@@ -261,9 +315,12 @@ export function transitionStyles(type: SlideTransition["type"], p: number, direc
       return { outgoing: {}, incoming: { clipPath: clip, zIndex: 1 } };
     }
     case "flip":
+      {
+        const axis = direction === "up" || direction === "down" ? "X" : "Y";
       return p < 0.5
-        ? { outgoing: { transform: `perspective(2000px) rotateY(${(p * 180).toFixed(2)}deg)`, zIndex: 1 }, incoming: { opacity: 0 } }
-        : { outgoing: { opacity: 0 }, incoming: { transform: `perspective(2000px) rotateY(${((p - 1) * 180).toFixed(2)}deg)`, zIndex: 1 } };
+        ? { outgoing: { transform: `perspective(2000px) rotate${axis}(${(p * 180).toFixed(2)}deg)`, zIndex: 1 }, incoming: { opacity: 0 } }
+        : { outgoing: { opacity: 0 }, incoming: { transform: `perspective(2000px) rotate${axis}(${((p - 1) * 180).toFixed(2)}deg)`, zIndex: 1 } };
+      }
     case "none":
       return { outgoing: { opacity: 0 }, incoming: {} };
   }

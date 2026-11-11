@@ -31,8 +31,8 @@ async function sql(query: string) {
 
 const mcp = new Client({ name: "kavero-fonts-e2e", version: "1.0.0" });
 try {
-  const token = (await trpc("integrations.tokens.create", { name: "Fonts", scopes: ["catalogs:read", "catalogs:write", "publish"], expiresInDays: 1 }, true)).token as string;
-  await mcp.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), { requestInit: { headers: { Authorization: `Bearer ${token}` } } }));
+  const apiKey = (await trpc("integrations.apiKeys.create", { name: "Fonts", scopes: ["catalogs:read", "catalogs:write", "assets:write", "publish"], expiresInDays: 1 }, true)).key as string;
+  await mcp.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), { requestInit: { headers: { Authorization: `Bearer ${apiKey}` } } }));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const call = async (name: string, args: Record<string, unknown>): Promise<{ error: boolean; data: any; text: string }> => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -124,7 +124,7 @@ try {
   check("font_list after removal", !final.families.some((f: { family: string; files: unknown[] }) => f.family === "Vazirmatn" && f.files.length));
 
   // Read-only tokens can list but not add
-  const ro = (await trpc("integrations.tokens.create", { name: "RO", scopes: ["catalogs:read"], expiresInDays: 1 }, true)).token as string;
+  const ro = (await trpc("integrations.apiKeys.create", { name: "RO", scopes: ["catalogs:read"], expiresInDays: 1 }, true)).key as string;
   const roClient = new Client({ name: "ro", version: "1.0.0" });
   await roClient.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), { requestInit: { headers: { Authorization: `Bearer ${ro}` } } }));
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

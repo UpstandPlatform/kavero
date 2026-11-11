@@ -124,6 +124,13 @@ export class IndexedDbCatalogRepository implements CatalogRepository {
     await done(tx);
   }
 
+  async removeAsset(id: string): Promise<void> {
+    const db = await this.db();
+    const tx = db.transaction(ASSETS, "readwrite");
+    tx.objectStore(ASSETS).delete(id);
+    await done(tx);
+  }
+
   async getAsset(id: string): Promise<StoredAsset | null> {
     const db = await this.db();
     return ((await req(db.transaction(ASSETS).objectStore(ASSETS).get(id))) as StoredAsset | undefined) ?? null;

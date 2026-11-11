@@ -15,6 +15,7 @@
     "@Kavero/catalog-engine": "workspace:*",
     "@Kavero/db": "workspace:*",
     "@Kavero/editor-core": "workspace:*",
+    "@Kavero/redis": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.32.2",
     "@trpc/client": "catalog:",
     "@trpc/server": "catalog:",

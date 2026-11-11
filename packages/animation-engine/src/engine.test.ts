@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { createCatalog, createBlankSlide, type CatalogSlide } from "@Kavero/catalog-engine";
-import { buildTimeline, elementStateAt, frameAt, scheduleSlide, slideDurationMs, transitionStyles } from "./index";
+import { buildTimeline, elementStateAt, frameAt, gateClickTimeline, nextClickStart, scheduleSlide, slideDurationMs, transitionStyles } from "./index";
 
 const anim = (over: Record<string, unknown>) => ({ id: Math.random().toString(), category: "entrance", preset: "fade", trigger: "on-enter", startMs: 0, durationMs: 1000, delayMs: 0, easing: "linear", ...over }) as never;
 
@@ -33,6 +33,17 @@ test("exit hides after finishing", () => {
   const sched = scheduleSlide(slideWith([[anim({ category: "exit", preset: "scale" })]]));
   expect(elementStateAt(sched, "e0", 0).opacity).toBe(1);
   expect(elementStateAt(sched, "e0", 1000).opacity).toBe(0);
+});
+
+test("click-triggered animations pause at each click boundary", () => {
+  const sched = scheduleSlide(slideWith([[anim({ trigger: "on-click", durationMs: 500 })], [anim({ trigger: "on-click", durationMs: 800, delayMs: 100 })]]));
+  expect(sched.map((entry) => entry.clickIndex)).toEqual([1, 2]);
+  expect(nextClickStart(sched, 0)).toBe(0);
+  expect(gateClickTimeline(sched, 450, 0)).toBe(0);
+  expect(gateClickTimeline(sched, 450, 1)).toBe(450);
+  expect(nextClickStart(sched, 1)).toBe(600);
+  expect(gateClickTimeline(sched, 900, 1)).toBe(600);
+  expect(gateClickTimeline(sched, 900, 2)).toBe(900);
 });
 
 test("timeline and transitions", () => {

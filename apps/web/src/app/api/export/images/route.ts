@@ -3,7 +3,7 @@ import { renderSlideImages } from "@Kavero/export-chromium";
 import { zipSync } from "fflate";
 import { z } from "zod";
 
-import { canExport, exportAssetsSchema, exportFailed, readExportBody, renderOrigin } from "@/modules/export/access";
+import { auditExport, canExport, exportAssetsSchema, exportFailed, readExportBody, renderOrigin } from "@/modules/export/access";
 
 export const runtime = "nodejs";
 
@@ -51,10 +51,12 @@ export async function POST(request: Request) {
       files[name] = [bytes, { level: 0 }];
     });
     const zip = zipSync(files);
+    await auditExport(request, "images", doc.document.metadata.title, "ok", { slides: slides.length, width: parsed.data.width });
     return new Response(new Blob([zip as BlobPart], { type: "application/zip" }), {
       headers: { "Content-Disposition": attachmentHeader(safeFileName(doc.document.metadata.title, "zip")), "Cache-Control": "no-store" },
     });
   } catch (e) {
+    await auditExport(request, "images", doc.document.metadata.title, "error", { slides: slides.length });
     return exportFailed(e, "Image export");
   }
 }

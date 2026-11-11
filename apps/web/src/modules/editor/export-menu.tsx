@@ -38,6 +38,7 @@ export async function collectAssets(doc: CatalogDocument, kinds: ("image" | "fon
     if (!kinds.includes(a.kind)) continue;
     const stored = await localCatalogs().getAsset(a.id);
     if (stored) out[a.id] = await blobToDataUrl(new Blob([stored.blob], { type: a.mimeType }));
+    else if (a.attribution?.provider !== "GIPHY" && /^https:\/\//i.test(a.uri)) out[a.id] = a.uri;
   }
   return out;
 }

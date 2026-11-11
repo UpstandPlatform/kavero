@@ -15,6 +15,7 @@ import {
 import { Input } from "@Kavero/ui/components/input";
 import { RadioGroup, RadioGroupItem } from "@Kavero/ui/components/radio-group";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@Kavero/ui/components/table";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { toast } from "sonner";
@@ -32,7 +33,8 @@ type Api = ReturnType<typeof api>;
 type Overview = Awaited<ReturnType<Api["admin"]["overview"]["query"]>>;
 type UserRow = Awaited<ReturnType<Api["admin"]["users"]["list"]["query"]>>["users"][number];
 type SiteRow = Awaited<ReturnType<Api["admin"]["sites"]["list"]["query"]>>["sites"][number];
-type ActivityRow = Awaited<ReturnType<Api["admin"]["activity"]["query"]>>[number];
+type ActivityPage = Awaited<ReturnType<Api["admin"]["activity"]["query"]>>;
+type ActivityRow = ActivityPage["rows"][number];
 type Tab = "overview" | "users" | "sites" | "activity" | "settings";
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "overview", label: "Overview", icon: <HugeiconsIcon icon={DashboardCircleIcon} /> },
@@ -89,7 +91,7 @@ export function AdminPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-6xl px-4 py-8">
+    <div className="mx-auto w-full max-w-4xl px-4 py-8">
       <h1 className="mb-1 flex items-center gap-2 text-2xl font-semibold tracking-tight"><HugeiconsIcon icon={Shield01Icon} className="size-6" /> Admin</h1>
       <p className="mb-6 text-sm text-muted-foreground">Manage accounts, sign-ups and published sites on this Kavero server.</p>
       <PageTabs label="Admin" tabs={TABS} value={tab} onChange={(id) => { setTab(id); history.replaceState(null, "", `#${id}`); }} />
@@ -297,7 +299,7 @@ function SuspendForm({ user, onClose, onDone }: { user: UserRow; onClose: () => 
       }}
     >
       <p className="font-medium">Suspend {user.email}</p>
-      <p className="text-xs text-muted-foreground">They are signed out, can&apos;t sign in, their API tokens stop working and their published sites go offline until the suspension is lifted.</p>
+      <p className="text-xs text-muted-foreground">They are signed out, can&apos;t sign in, their API keys stop working and their published sites go offline until the suspension is lifted.</p>
       <div className="grid gap-3 sm:grid-cols-[1fr_160px]">
         <label className="grid gap-1.5 text-xs">Reason (shown to admins)<Input value={reason} onChange={(e) => setReason(e.target.value)} maxLength={500} placeholder="Optional" /></label>
         <label className="grid gap-1.5 text-xs">For
@@ -372,35 +374,76 @@ function SitesTab() {
 
 // ---------- Activity ----------
 
-const FILTERS = [["", "Everything"], ["admin:", "Admin actions"], ["mcp:", "MCP / AI agents"]] as const;
+const ACTIVITY_AREAS = [
+  ["", "All areas"], ["catalogs", "Catalogs"], ["assets", "Images and fonts"], ["exports", "Previews and exports"],
+  ["publication", "Published sites"], ["workspace", "Workspaces"], ["ai", "AI"], ["api_keys", "API keys"],
+  ["integrations", "Connected services"], ["admin", "Admin"], ["auth", "Sign-in and accounts"], ["account", "Account"],
+] as const;
 
 function ActivityTab() {
-  const [filter, setFilter] = useState("");
-  const [rows, setRows] = useState<ActivityRow[] | null>(null);
+  const [area, setArea] = useState("");
+  const [outcome, setOutcome] = useState("");
+  const [actor, setActor] = useState("");
+  const [actorFilter, setActorFilter] = useState("");
+  const [page, setPage] = useState<ActivityPage | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   useEffect(() => {
-    setRows(null);
-    api().admin.activity.query({ limit: 100, action: filter || undefined }).then(setRows).catch((e) => toast.error(errMsg(e)));
-  }, [filter]);
+    const timer = window.setTimeout(() => setActorFilter(actor.trim()), 350);
+    return () => window.clearTimeout(timer);
+  }, [actor]);
+  const load = useCallback(async (append = false, cursor?: ActivityPage["nextCursor"]) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const next = await api().admin.activity.query({
+        limit: 50,
+        area: area ? area as ActivityRow["area"] : undefined,
+        outcome: outcome ? outcome as "ok" | "denied" | "error" : undefined,
+        actor: actorFilter || undefined,
+        before: append ? cursor?.before : undefined,
+        beforeId: append ? cursor?.beforeId : undefined,
+      });
+      setPage((current) => append && current ? { ...next, rows: [...current.rows, ...next.rows] } : next);
+    } catch (cause) {
+      const message = errMsg(cause);
+      setError(message);
+      toast.error(message);
+    } finally {
+      setLoading(false);
+    }
+  }, [area, outcome, actorFilter]);
+  useEffect(() => { setPage(null); void load(); }, [load]);
+  const rows = page?.rows ?? [];
+  const areaLabel = (value: string) => ACTIVITY_AREAS.find(([key]) => key === value)?.[1] ?? value;
   return (
     <div className="grid gap-4 text-sm">
-      <div className="flex gap-1">
-        {FILTERS.map(([v, label]) => (
-          <Button key={v} size="sm" variant={filter === v ? "secondary" : "ghost"} onClick={() => setFilter(v)}>{label}</Button>
-        ))}
+      <div className="flex flex-wrap gap-2">
+        <SimpleSelect aria-label="Filter admin activity by area" className="w-52" value={area} onValueChange={setArea} options={ACTIVITY_AREAS.map(([value, label]) => ({ value, label }))} />
+        <SimpleSelect aria-label="Filter admin activity by result" className="w-40" value={outcome} onValueChange={setOutcome} options={[{ value: "", label: "Any result" }, { value: "ok", label: "Succeeded" }, { value: "denied", label: "Denied" }, { value: "error", label: "Failed" }]} />
+        <Input className="w-56" aria-label="Filter admin activity by account" placeholder="Account email" value={actor} onChange={(event) => setActor(event.target.value)} />
       </div>
-      {!rows ? <p className="text-muted-foreground">Loading…</p> : !rows.length ? <p className="text-muted-foreground">Nothing recorded yet.</p> : (
-        <ul className={`${surface.list} font-mono text-xs`}>
-          {rows.map((r) => (
-            <li key={r.id} className="flex flex-wrap gap-x-3 gap-y-0.5 px-3 py-2">
-              <span className="text-muted-foreground">{new Date(r.createdAt).toLocaleString()}</span>
-              <span className={r.outcome === "ok" ? "" : "text-destructive"}>{r.action}</span>
-              <span className="text-muted-foreground">{r.userEmail ?? "—"}</span>
-              {r.target && <span className="truncate text-muted-foreground">→ {r.target}</span>}
-              {r.outcome !== "ok" && <span className="text-destructive">{r.outcome}</span>}
-            </li>
-          ))}
-        </ul>
-      )}
+      {error && <div className="flex items-center gap-2 text-destructive"><span>{error}</span><Button size="sm" variant="outline" onClick={() => void load()}>Retry</Button></div>}
+      {!page && loading && <p className="text-muted-foreground">Loading activity…</p>}
+      {page && rows.length === 0 && <p className="text-muted-foreground">No activity matches these filters yet.</p>}
+      {rows.length > 0 && <div className={surface.table}>
+        <Table>
+          <TableHeader className={surface.thead}><TableRow><TableHead>When</TableHead><TableHead>Area</TableHead><TableHead>Activity</TableHead><TableHead>Account</TableHead><TableHead>Target</TableHead><TableHead>Result</TableHead></TableRow></TableHeader>
+          <TableBody>
+            {rows.map((row: ActivityRow) => (
+              <TableRow key={row.id}>
+                <TableCell className="whitespace-nowrap text-muted-foreground">{new Date(row.createdAt).toLocaleString()}</TableCell>
+                <TableCell><Badge variant="outline">{areaLabel(row.area)}</Badge></TableCell>
+                <TableCell><span className="font-medium">{row.action.replace(/[:_]/g, " · ")}</span><span className="ms-2 text-muted-foreground">via {row.channel}</span></TableCell>
+                <TableCell>{row.userEmail ?? "—"}</TableCell>
+                <TableCell className="max-w-48 truncate font-mono text-muted-foreground">{row.target ?? "—"}</TableCell>
+                <TableCell><Badge variant={row.outcome === "ok" ? "secondary" : "destructive"}>{row.outcome}</Badge></TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </div>}
+      {page?.hasMore && <Button variant="outline" className="justify-self-center" disabled={loading} onClick={() => void load(true, page.nextCursor)}>{loading ? "Loading…" : "Load more activity"}</Button>}
     </div>
   );
 }

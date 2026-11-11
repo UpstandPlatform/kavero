@@ -1,14 +1,14 @@
 import { SIGNUP_POLICY_KEY, getSignupPolicy, type SignupPolicy } from "@Kavero/auth";
 import type { Database } from "@Kavero/db";
-import { session, user } from "@Kavero/db/schema/auth";
+import { apikey, session, user } from "@Kavero/db/schema/auth";
 import { catalog, catalogAsset } from "@Kavero/db/schema/catalog";
-import { aiJob, apiToken, appSetting, auditLog } from "@Kavero/db/schema/integration";
+import { aiJob, appSetting } from "@Kavero/db/schema/integration";
 import { publication } from "@Kavero/db/schema/publication";
 import { workspace } from "@Kavero/db/schema/workspace";
 import { TRPCError } from "@trpc/server";
-import { and, count, desc, eq, gte, ilike, isNull, lt, max, or, sql, sum } from "drizzle-orm";
+import { and, count, desc, eq, gte, ilike, max, or, sql, sum } from "drizzle-orm";
 
-import { audit, isBanned } from "./token-service";
+import { audit, isBanned, listAudit, type AuditArea, type AuditOutcome } from "./audit-service";
 
 const DAY = 24 * 60 * 60 * 1000;
 const escapeLike = (s: string) => s.replace(/[\\%_]/g, (c) => `\\${c}`);
@@ -112,7 +112,7 @@ export class AdminService {
     return { ok: true };
   }
 
-  /** Suspends sign-in, API tokens and published sites; signs the user out everywhere. */
+  /** Suspends sign-in and API-key access; signs the user out everywhere. */
   async ban(userId: string, reason: string | undefined, days: number | undefined) {
     const u = await this.target(userId);
     if (u.id === this.adminId) throw new TRPCError({ code: "BAD_REQUEST", message: "You can't suspend your own account." });
@@ -133,12 +133,12 @@ export class AdminService {
   async revokeSessions(userId: string) {
     await this.target(userId);
     const r = await this.db.delete(session).where(eq(session.userId, userId)).returning({ id: session.id });
-    const t = await this.db.update(apiToken).set({ revokedAt: new Date() }).where(and(eq(apiToken.userId, userId), isNull(apiToken.revokedAt))).returning({ id: apiToken.id });
-    await this.log("revoke-sessions", userId, { sessions: r.length, tokens: t.length });
-    return { sessions: r.length, tokens: t.length };
+    const keys = await this.db.update(apikey).set({ enabled: false }).where(and(eq(apikey.referenceId, userId), eq(apikey.enabled, true))).returning({ id: apikey.id });
+    await this.log("revoke-sessions", userId, { sessions: r.length, apiKeys: keys.length });
+    return { sessions: r.length, apiKeys: keys.length };
   }
 
-  /** Deletes the account and everything it owns (catalogs, sites, tokens). Workspaces it created stay with their other members. */
+  /** Deletes the account and everything it owns (catalogs, sites, API keys). Workspaces it created stay with their other members. */
   async deleteUser(userId: string) {
     const u = await this.target(userId);
     await this.guardAdminChange(u, "delete");
@@ -183,17 +183,7 @@ export class AdminService {
     return { ok: true };
   }
 
-  async activity(input: { limit: number; before?: Date; action?: string }) {
-    const rows = await this.db
-      .select({
-        id: auditLog.id, action: auditLog.action, target: auditLog.target, outcome: auditLog.outcome,
-        details: auditLog.details, createdAt: auditLog.createdAt, userEmail: user.email,
-      })
-      .from(auditLog)
-      .leftJoin(user, eq(user.id, auditLog.userId))
-      .where(and(input.before ? lt(auditLog.createdAt, input.before) : undefined, input.action ? ilike(auditLog.action, `${escapeLike(input.action)}%`) : undefined))
-      .orderBy(desc(auditLog.createdAt))
-      .limit(input.limit);
-    return rows;
+  async activity(input: { limit: number; before?: Date; beforeId?: string; area?: AuditArea; outcome?: AuditOutcome; actor?: string }) {
+    return listAudit(this.db, { limit: input.limit, before: input.before, beforeId: input.beforeId, area: input.area, outcome: input.outcome, actor: input.actor });
   }
 }

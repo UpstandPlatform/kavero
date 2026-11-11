@@ -10,7 +10,7 @@ import { TRPCError } from "@trpc/server";
 import { and, eq, gte, ne, sql } from "drizzle-orm";
 
 import { isUniqueViolation, requireCatalog, type CatalogPermission } from "./access";
-import { isBanned } from "./token-service";
+import { isBanned } from "./audit-service";
 
 const scrypt = promisify(scryptCb) as (pw: string, salt: Buffer, len: number) => Promise<Buffer>;
 
@@ -123,7 +123,7 @@ export class PublicationService {
 
     const files = await this.db.select().from(catalogAsset).where(eq(catalogAsset.catalogId, cat.id));
     const byId = new Map(files.map((f) => [f.assetId, f]));
-    const missing = doc.assets.filter((a) => !byId.has(a.id)).map((a) => a.name);
+    const missing = doc.assets.filter((a) => !/^https:\/\//i.test(a.uri) && !byId.has(a.id)).map((a) => a.name);
 
     const [existing] = await this.db.select({ id: publication.id, version: publication.version, passwordHash: publication.passwordHash }).from(publication).where(eq(publication.catalogId, cat.id)).limit(1);
 

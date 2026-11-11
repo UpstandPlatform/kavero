@@ -1,4 +1,4 @@
-import { ease, matchMorph, scheduleSlide, transitionStyles } from "@Kavero/animation-engine";
+import { ease, gateClickTimeline, matchMorph, nextClickStart, scheduleSlide, transitionStyles } from "@Kavero/animation-engine";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
@@ -40,6 +40,7 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
   /** The slide we came from when that move was a Morph: its shared elements arrive at rest. */
   const [morphedFrom, setMorphedFrom] = useState<number | null>(null);
   const [now, setNow] = useState(0);
+  const [clickStep, setClickStep] = useState(0);
   const [scale, setScale] = useState(0);
   const [reduced, setReduced] = useState(false);
   const box = useRef<HTMLDivElement>(null);
@@ -73,6 +74,7 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
       setTransition(!reduced && tr && tr.type !== "none" ? { from: index, startedAt: t } : null);
       setMorphedFrom(tr?.type === "morph" ? index : null);
       setIndex(target);
+      setClickStep(0);
       setEnteredAt(t);
       setNow(t);
     },
@@ -86,14 +88,20 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
 
   // Animate only while something is moving.
   const slide = doc.slides[index]!;
+  const animationSchedule = useMemo(() => scheduleSlide(slide), [slide]);
+  const maxClickStep = Math.max(0, ...animationSchedule.map((animation) => animation.clickIndex ?? 0));
+  const nextClickAt = nextClickStart(animationSchedule, clickStep);
   const settledIds = useMemo(() => {
     const from = morphedFrom === null ? undefined : doc.slides[morphedFrom];
     return from ? new Set(matchMorph(from, slide).map(([, b]) => b.id)) : undefined;
   }, [morphedFrom, slide, doc.slides]);
   const tr = transition ? (doc.slides[Math.max(index, transition.from)]?.transition ?? null) : null;
   const trTotal = tr ? tr.delayMs + tr.durationMs : 0;
-  const local = reduced ? SETTLED : now - enteredAt;
-  const animating = !reduced && (local <= settledAt[index]! + 50 || (transition !== null && now - transition.startedAt < trTotal));
+  const elapsed = now - enteredAt;
+  const local = reduced ? SETTLED : gateClickTimeline(animationSchedule, elapsed, clickStep);
+  const transitioning = transition !== null && now - transition.startedAt < trTotal;
+  const waitingForClick = nextClickAt !== undefined && elapsed >= nextClickAt;
+  const animating = !reduced && ((!waitingForClick && local <= settledAt[index]! + 50) || transitioning);
   useEffect(() => {
     if (!animating) {
       if (transition && now - transition.startedAt >= trTotal) setTransition(null);
@@ -106,11 +114,24 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
     return () => cancelAnimationFrame(raf);
   }, [animating, transition, now, trTotal]);
 
+  const advance = useCallback((direction: number) => {
+    if (direction > 0 && clickStep < maxClickStep) {
+      const t = performance.now();
+      // Restart the timeline clock at the frozen boundary so the click-triggered
+      // animation plays from its beginning even if the presenter waited there.
+      setEnteredAt(t - local);
+      setNow(t);
+      setClickStep((step) => Math.min(maxClickStep, step + 1));
+      return;
+    }
+    go(index + direction);
+  }, [clickStep, go, index, local, maxClickStep]);
+
   // Keyboard and hash navigation.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.closest?.("input, textarea, select")) return;
-      if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); go(index + 1); }
+      if ((e.target as HTMLElement)?.closest?.("input, textarea, select, button, a, [contenteditable='true'], [role='button']")) return;
+      if (["ArrowRight", "ArrowDown", "PageDown", " ", "Enter"].includes(e.key)) { e.preventDefault(); advance(1); }
       else if (["ArrowLeft", "ArrowUp", "PageUp", "Backspace"].includes(e.key)) { e.preventDefault(); go(index - 1); }
       else if (e.key === "Home") go(0);
       else if (e.key === "End") go(count - 1);
@@ -124,7 +145,7 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
       window.removeEventListener("hashchange", onHash);
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [go, index, count]);
+  }, [advance, go, index, count]);
 
   // Touch swipe.
   const touch = useRef<{ x: number; y: number } | null>(null);
@@ -149,7 +170,8 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
         onClick={(e) => {
           if ((e.target as HTMLElement).closest("a, button, video, iframe")) return;
           const r = e.currentTarget.getBoundingClientRect();
-          go(e.clientX - r.left < r.width / 3 ? index - 1 : index + 1);
+          const direction = e.clientX - r.left < r.width / 3 ? -1 : 1;
+          advance(direction);
         }}
         onTouchStart={(e) => { const t = e.touches[0]!; touch.current = { x: t.clientX, y: t.clientY }; }}
         onTouchEnd={(e) => {
@@ -158,7 +180,10 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
           touch.current = null;
           if (!start || !t) return;
           const dx = t.clientX - start.x;
-          if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(t.clientY - start.y)) go(dx < 0 ? index + 1 : index - 1);
+          if (Math.abs(dx) > 50 && Math.abs(dx) > Math.abs(t.clientY - start.y)) {
+            const direction = dx < 0 ? 1 : -1;
+            advance(direction);
+          }
         }}
       >
         {scale > 0 && (
@@ -192,7 +217,7 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
       >
         <button type="button" onClick={() => go(index - 1)} disabled={index === 0} aria-label="Previous slide" style={btn}>‹</button>
         <span style={{ fontVariantNumeric: "tabular-nums", minWidth: 52, textAlign: "center" }} aria-live="polite">{index + 1} / {count}</span>
-        <button type="button" onClick={() => go(index + 1)} disabled={index === count - 1} aria-label="Next slide" style={btn}>›</button>
+        <button type="button" onClick={() => advance(1)} disabled={index === count - 1 && clickStep >= maxClickStep} aria-label={clickStep < maxClickStep ? "Play next animation" : "Next slide"} style={btn}>›</button>
         <div style={{ flex: 1, height: 3, background: "rgba(255,255,255,.2)", borderRadius: 2 }}>
           <div style={{ width: `${((index + 1) / count) * 100}%`, height: "100%", background: "#fff", borderRadius: 2, transition: "width .3s" }} />
         </div>

@@ -3,6 +3,7 @@ export * from "./document";
 export * from "./validation";
 export * from "./products";
 export * from "./templates";
+export * from "./slide-layouts";
 export * from "./blocks";
 export * from "./examples";
 export * from "./sanitize";

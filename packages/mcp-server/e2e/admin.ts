@@ -72,27 +72,27 @@ try {
   check("can't demote yourself", code(await trpc(admin, "admin.users.setRole", { userId: bossId, role: "user" }, true)) === "BAD_REQUEST");
   check("can't delete yourself", code(await trpc(admin, "admin.users.remove", { userId: bossId }, true)) === "BAD_REQUEST");
 
-  // Suspension: sessions, sign-in, API tokens, published sites
-  const token = (await trpc(member.cookie, "integrations.tokens.create", { name: "t", scopes: ["catalogs:read"] }, true)).data?.token as string | undefined;
-  const mcpOk = async () => token && (await fetch(`${BASE}/api/mcp`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) })).status === 200;
-  check("token works before suspension", !!(await mcpOk()), token ? "" : "token not created");
+  // Suspension: sessions, sign-in, API keys, published sites
+  const apiKey = (await trpc(member.cookie, "integrations.apiKeys.create", { name: "t", scopes: ["catalogs:read"] }, true)).data?.key as string | undefined;
+  const mcpOk = async () => apiKey && (await fetch(`${BASE}/api/mcp`, { method: "POST", headers: { Authorization: `Bearer ${apiKey}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) })).status === 200;
+  check("API key works before suspension", !!(await mcpOk()), apiKey ? "" : "API key not created");
   check("suspend", (await trpc(admin, "admin.users.ban", { userId: memberId, reason: "spam", days: 7 }, true)).data?.ok === true);
   check("suspended session is gone", (await trpc(member.cookie, "workspace.list", null)).error !== undefined);
   const blocked = await signIn(member.email, member.password);
   check("suspended account can't sign in", !blocked.ok && /suspended/i.test(JSON.stringify(blocked.body)), JSON.stringify(blocked.body));
-  check("suspended account's API token is rejected", !(await mcpOk()));
+  check("suspended account's API key is rejected", !(await mcpOk()));
   const row = (await trpc(admin, "admin.users.list", { query: member.email, limit: 5 })).data?.users?.[0];
   check("list shows suspension", row?.banned === true && row.banReason === "spam" && !!row.banExpires);
   check("can't make a suspended account admin", code(await trpc(admin, "admin.users.setRole", { userId: memberId, role: "admin" }, true)) === "BAD_REQUEST");
   check("lift suspension", (await trpc(admin, "admin.users.unban", { userId: memberId }, true)).data?.ok === true);
   const back = await signIn(member.email, member.password);
   check("can sign in again", back.ok);
-  check("token works again", !!(await mcpOk()));
+  check("API key works again", !!(await mcpOk()));
 
-  // Sign out everywhere also revokes API tokens
+  // Sign out everywhere also revokes API keys
   const revoked = (await trpc(admin, "admin.users.revokeSessions", { userId: memberId }, true)).data;
-  check("sign out everywhere", revoked?.sessions >= 1 && revoked.tokens >= 1, JSON.stringify(revoked));
-  check("…and tokens stop working", !(await mcpOk()));
+  check("sign out everywhere", revoked?.sessions >= 1 && revoked.apiKeys >= 1, JSON.stringify(revoked));
+  check("…and API keys stop working", !(await mcpOk()));
 
   // Sign-up policy
   check("close sign-ups", (await trpc(admin, "admin.settings.setSignupPolicy", { policy: "closed" }, true)).data?.signupPolicy === "closed");

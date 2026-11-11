@@ -1,6 +1,6 @@
 # Deploying Kavero
 
-Kavero ships as one Next.js server (`apps/web`, standalone output) plus Postgres. Binary assets live in object storage (a local folder or an S3-compatible bucket). PDF, video and preview exports need headless Chromium and ffmpeg on the server.
+Kavero ships as one Next.js server (`apps/web`, standalone output), Postgres and Redis. Binary assets live in object storage (a local folder or an S3-compatible bucket). PDF, video and preview exports need headless Chromium and ffmpeg on the server.
 
 ## Environment
 
@@ -10,10 +10,13 @@ Declared in `apps/web/.env.schema` (varlock). Values come from the process envir
 | --- | --- | --- | --- |
 | `NODE_ENV` | yes | `development` | `production` in deployments. |
 | `DATABASE_URL` | yes | — | Postgres connection string. Sensitive. |
+| `REDIS_URL` | no | unset | Redis connection string for shared rate limits, Better Auth session lookups and short-lived caches. When omitted or unavailable, these use bounded process-local fallback storage. Sensitive if it contains credentials. |
 | `BETTER_AUTH_SECRET` | yes | — | ≥ 32 random chars (`openssl rand -base64 48`). Signs sessions **and** derives the key that encrypts stored MCP connection credentials: rotating it signs everyone out and makes saved connection tokens unreadable (they must be re-entered). |
 | `BETTER_AUTH_URL` | yes | — | Public origin, e.g. `https://kavero.example.com`. Public. Used for auth, trusted origins, sitemap and robots. |
 | `STORAGE_DRIVER` | no | `filesystem` | `filesystem` or `s3`. |
 | `KAVERO_STORAGE_DIR` | no | `<cwd>/.storage` | Folder for the filesystem driver. `/data/storage` in the Docker image. |
+| `NEXT_PUBLIC_OPENVERSE_ENABLED` | no | unset (disabled) | Set to `true` to show Openverse stock image search in the media library. |
+| `NEXT_PUBLIC_GIPHY_API_KEY` | no | unset (disabled) | Public GIPHY key; GIF search is hidden when no key is configured. |
 | `S3_BUCKET` | with `s3` | — | Bucket name. |
 | `S3_REGION` | no | `us-east-1`, or `auto` when `S3_ENDPOINT` is set | Use `auto` for Cloudflare R2. |
 | `S3_ENDPOINT` | no | AWS | R2: `https://<account>.r2.cloudflarestorage.com`; MinIO: `http://minio:9000`. |
@@ -28,13 +31,14 @@ AI and other feature variables are documented in the schema next to their defini
 
 ```sh
 # create apps/web/.env with at least BETTER_AUTH_SECRET (see table above)
-docker compose up -d --build              # postgres → migrate → web
+docker compose up -d --build              # postgres + redis, then migrate and web
 docker compose logs -f web
 ```
 
 - `apps/web/.env` is mounted as a BuildKit secret during build (never baked into layers) and loaded as `env_file` at runtime. Values in `environment:` in `docker-compose.yml` override it — change `BETTER_AUTH_URL` there for a real domain.
-- `web` listens on `3001`. Postgres is published on host port `5436` for local tools.
-- Volumes: `Kavero_postgres_data` (database), `Kavero_storage_data` → `/data/storage` (assets, OG images).
+- `web` listens on `3001`. Postgres is published on host port `5436` for local tools. Redis is published on `127.0.0.1:6379` for local development and is only reachable through the internal Compose network by default.
+- Volumes: `Kavero_postgres_data` (database), `Kavero_redis_data` (Redis AOF persistence), `Kavero_storage_data` at `/data/storage` (assets, OG images).
+- Compose Redis uses AOF persistence, bounded memory and `noeviction` so rate-limit counters are not silently evicted. Set REDIS_URL in the Compose environment to use a managed Redis service instead.
 - `shm_size: 1gb` gives Chromium enough shared memory; keep it if you run the image elsewhere (`--shm-size=1g`).
 - The image runs as the unprivileged `node` user and has a `HEALTHCHECK` on `/api/health`.
 
@@ -67,7 +71,7 @@ Create new migrations in development with `bun run db:generate` after changing `
 | `KAVERO_MAX_BROWSERS` | `2` | Headless Chrome exports (PDF, JPG, video, previews) running at once; others queue, then get "busy, try again". |
 | `TRUST_PROXY` | unset | Set to `true` (or the number of proxy hops) behind a reverse proxy, so password-protected sites can rate-limit wrong passwords per visitor. Without it only a per-site limit applies. |
 
-Export requests are capped at 60 MB, page sizes at 10000 px, and each account at 50 active API tokens. Export browsers can only load the app itself, Google Fonts and public HTTPS addresses.
+Export requests are capped at 60 MB and page sizes at 10000 px. Export browsers can only load the app itself, Google Fonts and public HTTPS addresses.
 
 ## Admin accounts
 
@@ -100,7 +104,7 @@ Kavero needs a long-running Node server (API routes, MCP endpoint, background vi
 git clone <your fork> kavero && cd kavero
 cp apps/web/.env.example apps/web/.env      # set BETTER_AUTH_SECRET, BETTER_AUTH_URL=https://catalog.example.com
 #    and change POSTGRES_PASSWORD in docker-compose.yml / its .env
-docker compose up -d --build                 # postgres → migrate → web on :3001
+docker compose up -d --build                 # postgres + redis, then migrate and web on :3001
 
 # 2. HTTPS with Caddy (automatic certificates)
 cat > Caddyfile <<'EOF'
@@ -178,7 +182,7 @@ Local-only catalogs live in each user's browser (IndexedDB) and are not on the s
 
 - `BETTER_AUTH_SECRET`: ≥ 32 random characters, unique per environment, stored as a secret.
 - Serve only over HTTPS (terminate TLS at a reverse proxy) and set `BETTER_AUTH_URL` to the `https://` origin; secure cookies and trusted origins depend on it.
-- Rate limits (MCP API: 120 req/min per token; AI requests; publication password attempts) are in-memory per instance. With several instances the effective limit multiplies — add limits at the proxy/WAF if that matters.
+- Rate limits (MCP API: 120 req/min per API key; AI requests; publication password attempts) use shared Redis storage when `REDIS_URL` is configured. If Redis is unavailable or not configured, Kavero falls back to bounded process-local storage; in that mode limits are per instance and may be less strict across multiple instances.
 - Keep Postgres off the public internet (compose publishes `5436` for local use; remove the `ports:` mapping in production) and change the default `POSTGRES_PASSWORD`.
-- MCP API tokens are scoped (`catalogs:read|write|delete`, `publish`) and audited in `audit_log`; revoke unused tokens in Settings.
+- MCP API keys are scoped by catalogs, assets, exports, AI generation, workspaces and publishing permissions, then audited in `audit_log`; revoke unused keys in Settings.
 - `robots.txt` disallows `/api/`, `/editor/`, `/render`, `/settings`, `/dashboard`; only `public` publications appear in `/sitemap.xml`.

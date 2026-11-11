@@ -1,8 +1,9 @@
 import { readLimited } from "@Kavero/api/services/safe-fetch";
+import { audit } from "@Kavero/api/services/audit-service";
 import { BrowserBusyError } from "@Kavero/export-chromium";
 import { z } from "zod";
 
-import { auth } from "@/services";
+import { auth, db } from "@/services";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
 
@@ -19,6 +20,13 @@ export async function canExport(request: Request): Promise<boolean> {
   } catch {
     return false;
   }
+}
+
+/** Record authenticated export attempts without retaining the exported document or its assets. */
+export async function auditExport(request: Request, kind: "pdf" | "images" | "video", target: string, outcome: "ok" | "error", details?: unknown) {
+  const session = await auth.api.getSession({ headers: request.headers }).catch(() => null);
+  if (!session) return;
+  await audit(db, { userId: session.user.id, area: "exports", channel: "web", action: `export:${kind}`, target, outcome, details });
 }
 
 /**

@@ -53,18 +53,18 @@ export function WorkspacesTab() {
 
   return (
     <div className="grid gap-6 text-xs">
-      <p className="text-sm text-muted-foreground">Every account has a protected Personal workspace. New cloud catalogs are saved there by default; choose a team workspace from a catalog’s save menu to share work with others.</p>
-      <div className="flex flex-wrap items-end gap-2">
+      <p className="max-w-3xl text-sm leading-relaxed text-muted-foreground">Every account has a protected Personal workspace. New cloud catalogs are saved there by default; choose a team workspace from a catalog’s save menu to share work with others.</p>
+      <div className="grid gap-2 sm:max-w-xl sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
         <label className="grid gap-1.5">New workspace<Input value={name} onChange={(e) => setName(e.target.value)} placeholder="Marketing team" maxLength={80} /></label>
-        <Button onClick={create} disabled={!name.trim()}><HugeiconsIcon icon={Add01Icon} /> Create</Button>
+        <Button onClick={create} disabled={!name.trim()}><HugeiconsIcon icon={Add01Icon} /> Create workspace</Button>
       </div>
       {!list ? <p className="text-muted-foreground">Loading…</p> : list.length === 0 ? <p className="text-muted-foreground">You’re not in any workspace yet.</p> : (
-        <div className="grid gap-4 sm:grid-cols-[200px_1fr]">
-          <ul className="grid content-start gap-1">
+        <div className="grid items-start gap-5 sm:grid-cols-[220px_minmax(0,1fr)]">
+          <ul className="grid content-start gap-2">
             {list.map((w) => (
               <li key={w.id}>
-                <button type="button" onClick={() => setSelected(w.id)} aria-pressed={selected === w.id} className={`w-full px-3 py-2 ${surface.option}`}>
-                  <span className="flex items-center gap-2"><span className="truncate font-medium">{w.name}</span>{w.isPersonal && <Badge variant="secondary">Personal</Badge>}</span>
+                <button type="button" onClick={() => setSelected(w.id)} aria-pressed={selected === w.id} className={`grid w-full gap-1 px-3 py-3 text-start ${surface.option}`}>
+                  <span className="flex min-w-0 items-center gap-2"><span className="truncate font-medium">{w.name}</span>{w.isPersonal && <Badge variant="secondary">Personal</Badge>}</span>
                   <span className="text-muted-foreground capitalize">{w.role}</span>
                 </button>
               </li>
@@ -105,7 +105,7 @@ function WorkspaceDetail({ workspaceId, me, onChanged, onGone }: { workspaceId: 
   const roles: Role[] = data.you === "owner" ? ["owner", "admin", "editor", "viewer"] : ["admin", "editor", "viewer"];
 
   return (
-    <div className="grid gap-5">
+    <div className="grid min-w-0 gap-6 rounded-xl border bg-card p-4 sm:p-5">
       {data.isPersonal && <p className={surface.muted}>This is your default workspace. It stays with your account, and you can’t delete it, leave it, or invite other members to it.</p>}
       <section className="grid gap-3">
         <SectionHeader as="h3" title="Members" />

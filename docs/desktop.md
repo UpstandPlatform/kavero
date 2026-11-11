@@ -76,15 +76,15 @@ Without `DATABASE_URL`, the installed app runs entirely on your computer:
 
 - **Embedded database.** The bundled server uses [PGlite](https://pglite.dev) — real Postgres compiled to WebAssembly, running inside the server process — stored in `database/` in the data folder (`DATABASE_URL=pglite:<folder>` internally). Migrations run automatically on every start (`KAVERO_AUTO_MIGRATE`), so updates never need a manual step.
 - **No sign-in screens.** On first launch the app creates a local account (`me@kavero.local`, named after your OS user) with a random password stored encrypted in `local-account.json`, and signs it in automatically on every launch. Sign-in, sign-up and sign-out are hidden; `/login` goes to the dashboard. Being the first account, it is the server admin.
-- **Everything works locally**: cloud catalogs (saved to the embedded database), workspaces, publishing (sites are served at `http://127.0.0.1:<port>/c/<slug>` while the app runs), API tokens, the admin page, and the MCP endpoint.
+- **Everything works locally**: cloud catalogs (saved to the embedded database), workspaces, publishing (sites are served at `http://127.0.0.1:<port>/c/<slug>` while the app runs), API keys, the admin page, and the MCP endpoint.
 - The server only listens on `127.0.0.1`, so nothing is reachable from other computers.
 
 **Team mode.** Put `DATABASE_URL` (a shared Postgres) in `kavero.env` and Kavero uses it with normal Better Auth accounts: sign-up, sign-in and the admin's sign-up policy, exactly like a deployed server. Migrations still run on start. **Remote mode.** Set `KAVERO_URL` to a deployed Kavero (e.g. `https://kavero.example.com`) and the window simply loads it, with that server's sign-in.
 
 ### MCP in the desktop app
 
-1. Open **Settings → API tokens & AI agents** and create a token.
-2. Point your MCP client at `http://127.0.0.1:41731/api/mcp` (the token page shows a ready-to-paste config) — Kavero must be running.
+1. Open **Settings → API keys** and create an API key.
+2. Point your MCP client at `http://127.0.0.1:41731/api/mcp` (the API key page shows a ready-to-paste config) — Kavero must be running.
 3. Links that agents return (`editorUrl`) use `kavero://editor/<catalog id>` in local mode: clicking one opens the catalog in the app, which is the signed-in place. The installer registers the `kavero://` scheme.
 
 ## In-app updates

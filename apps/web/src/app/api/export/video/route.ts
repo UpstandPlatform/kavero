@@ -2,7 +2,7 @@ import { parseCatalogDocument } from "@Kavero/catalog-engine";
 import { z } from "zod";
 
 import { MAX_ACTIVE_JOBS, activeJobs, publicJob, startVideoJob } from "@/modules/export/video-jobs";
-import { canExport, exportAssetsSchema, readExportBody, renderOrigin } from "@/modules/export/access";
+import { auditExport, canExport, exportAssetsSchema, readExportBody, renderOrigin } from "@/modules/export/access";
 
 export const runtime = "nodejs";
 
@@ -40,6 +40,13 @@ export async function POST(request: Request) {
   }
 
   const baseUrl = renderOrigin(request);
-  const job = await startVideoJob({ doc: doc.document, assets: parsed.data.assets, baseUrl, fps: parsed.data.fps, height: parsed.data.height });
+  let job;
+  try {
+    job = await startVideoJob({ doc: doc.document, assets: parsed.data.assets, baseUrl, fps: parsed.data.fps, height: parsed.data.height });
+    await auditExport(request, "video", doc.document.metadata.title, "ok", { jobId: job.id, fps: parsed.data.fps, height: parsed.data.height });
+  } catch (error) {
+    await auditExport(request, "video", doc.document.metadata.title, "error", { fps: parsed.data.fps, height: parsed.data.height });
+    return Response.json({ error: `Video export failed: ${(error as Error).message}` }, { status: 500 });
+  }
   return Response.json(publicJob(job), { status: 202 });
 }

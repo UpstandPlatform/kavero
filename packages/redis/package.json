@@ -1,0 +1,18 @@
+{
+  "name": "@Kavero/redis",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "check-types": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@mhbdev/redis": "0.2.5"
+  },
+  "devDependencies": {
+    "@Kavero/config": "workspace:*",
+    "@types/bun": "^1.3.0",
+    "typescript": "catalog:"
+  }
+}

@@ -5,6 +5,7 @@ import { Add01Icon, Delete02Icon, Key02Icon, Loading02Icon } from "@hugeicons/co
 import { Button } from "@Kavero/ui/components/button";
 import { Checkbox } from "@Kavero/ui/components/checkbox";
 import { CopyField } from "@Kavero/ui/components/code-block";
+import { FieldDescription, FieldLegend, FieldSet } from "@Kavero/ui/components/field";
 import { Input } from "@Kavero/ui/components/input";
 import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { useCallback, useEffect, useState } from "react";
@@ -19,17 +20,20 @@ let client: ReturnType<typeof makeTRPCClient> | null = null;
 const api = () => (client ??= makeTRPCClient());
 
 const SCOPE_LABELS = {
-  "catalogs:read": "Read catalogs",
+  "catalogs:read": "View catalogs and their content",
   "catalogs:write": "Create and edit catalogs",
   "catalogs:delete": "Delete catalogs",
-  publish: "Publish websites",
+  "assets:write": "Import images and fonts",
+  "exports:read": "Render previews and export files",
+  "ai:generate": "Generate catalogs with AI",
+  "workspaces:write": "Create catalogs in team workspaces",
+  publish: "Publish and unpublish websites",
 } as const;
 type Scope = keyof typeof SCOPE_LABELS;
-const DEFAULT_SCOPES: Scope[] = ["catalogs:read", "catalogs:write"];
+const DEFAULT_SCOPES: Scope[] = ["catalogs:read"];
 type ApiKeyRow = Awaited<ReturnType<ReturnType<typeof api>["integrations"]["apiKeys"]["list"]["query"]>>[number];
-type LegacyTokenRow = Awaited<ReturnType<ReturnType<typeof api>["integrations"]["tokens"]["list"]["query"]>>[number];
 
-/** Creates, lists, and revokes Better Auth API keys for remote agent access. */
+/** Creates, lists, and revokes scoped Better Auth API keys for MCP clients. */
 export function ApiKeysTab() {
   const [keys, setKeys] = useState<ApiKeyRow[] | null>(null);
   const [name, setName] = useState("Claude Code");
@@ -93,9 +97,9 @@ export function ApiKeysTab() {
               ]} />
             </label>
           </div>
-          <fieldset className="grid gap-2">
-            <legend className="mb-1.5 font-medium">Permissions</legend>
-            <p className="text-muted-foreground">Grant only the access this client needs. You can revoke a key at any time.</p>
+          <FieldSet className="grid gap-2">
+            <FieldLegend>Permissions</FieldLegend>
+            <FieldDescription>Grant only the access this client needs. You can revoke a key at any time.</FieldDescription>
             <div className="flex flex-wrap gap-x-5 gap-y-2">
               {(Object.entries(SCOPE_LABELS) as [Scope, string][]).map(([scope, label]) => (
                 <label key={scope} className="flex cursor-pointer items-center gap-2">
@@ -104,7 +108,7 @@ export function ApiKeysTab() {
                 </label>
               ))}
             </div>
-          </fieldset>
+          </FieldSet>
           <div>
             <Button onClick={create} disabled={busy || !name.trim() || !scopes.length}>
               {busy ? <HugeiconsIcon icon={Loading02Icon} className="animate-spin" /> : <HugeiconsIcon icon={Add01Icon} />}
@@ -147,50 +151,6 @@ export function ApiKeysTab() {
         )}
       </section>
 
-      <LegacyTokensSection />
     </div>
-  );
-}
-
-function LegacyTokensSection() {
-  const [tokens, setTokens] = useState<LegacyTokenRow[] | null>(null);
-  const [loadError, setLoadError] = useState(false);
-  const refresh = useCallback(async () => {
-    try {
-      setTokens(await api().integrations.tokens.list.query());
-      setLoadError(false);
-    } catch (error) {
-      setTokens([]);
-      setLoadError(true);
-      toast.error((error as Error).message);
-    }
-  }, []);
-  useEffect(() => { void refresh(); }, [refresh]);
-
-  return (
-    <section className="grid gap-3 border-t pt-6">
-      <SectionHeader title="Older access tokens" description="Tokens created before API keys remain active. Revoke any that you no longer use; new credentials should use API keys above." />
-      {loadError ? <div className="grid justify-items-start gap-2 text-muted-foreground"><p>Couldn’t load older tokens.</p><Button variant="outline" size="sm" onClick={() => void refresh()}>Retry</Button></div> : !tokens ? <p className="text-muted-foreground">Loading…</p> : tokens.length === 0 ? <p className="text-muted-foreground">No older tokens remain.</p> : (
-        <ul className={surface.list}>
-          {tokens.map((token) => (
-            <li key={token.id} className="flex flex-wrap items-center gap-3 p-3">
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">{token.name} <code className={`ms-2 text-muted-foreground ${surface.code}`}>{token.prefix}…</code></p>
-                <p className="text-muted-foreground">
-                  {token.scopes.join(", ")} · {token.lastUsedAt ? `used ${new Date(token.lastUsedAt).toLocaleString()}` : "never used"}
-                  {token.expiresAt ? ` · expires ${new Date(token.expiresAt).toLocaleDateString()}` : ""}
-                </p>
-              </div>
-              <Button variant="ghost" size="sm" onClick={async () => {
-                if (!await confirmAction({ title: `Revoke “${token.name}”?`, description: "Clients using this token will lose access immediately.", confirmLabel: "Revoke token", destructive: true })) return;
-                await api().integrations.tokens.revoke.mutate({ id: token.id }).then(refresh).catch((error: Error) => toast.error(error.message));
-              }}>
-                <HugeiconsIcon icon={Delete02Icon} /> Revoke
-              </Button>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
   );
 }

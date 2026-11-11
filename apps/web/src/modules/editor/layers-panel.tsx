@@ -7,7 +7,7 @@ import type { Editor } from "@Kavero/editor-core";
 import { Input } from "@Kavero/ui/components/input";
 import { useRef, useState, type ReactNode } from "react";
 
-import { useContextMenu } from "./context-menu";
+import { useContextMenu, type MenuItem } from "./context-menu";
 import type { EditorActions } from "./editor-actions";
 import { TooltipHint } from "@Kavero/ui/components/tooltip";
 import { elementMenu, labelOf } from "./editor-menus";
@@ -31,7 +31,7 @@ export function layerName(el: CatalogElement) {
  * select, eye and lock toggles, double-click to rename, drag to reorder,
  * right-click for the element menu.
  */
-export function LayersPanel({ editor, slide, selection, actions }: { editor: Editor; slide: CatalogSlide; selection: string[]; actions: EditorActions }) {
+export function LayersPanel({ editor, slide, selection, actions, getExtensionElementMenuItems }: { editor: Editor; slide: CatalogSlide; selection: string[]; actions: EditorActions; getExtensionElementMenuItems?: (elements: readonly CatalogElement[]) => MenuItem[] }) {
   const openMenu = useContextMenu();
   const layers = [...slide.elements].sort((a, b) => b.zIndex - a.zIndex);
   const selected = new Set(selection);
@@ -87,8 +87,13 @@ export function LayersPanel({ editor, slide, selection, actions }: { editor: Edi
             onClick={(e) => select(e, el)}
             onDoubleClick={() => setRenaming(el.id)}
             onContextMenu={(e) => {
-              if (!isSel) editor.select([el.id]);
-              openMenu(e, elementMenu(actions, { onRename: () => setRenaming(el.id) }));
+              const contextElementIds = isSel ? selection : [el.id];
+              if (!isSel) editor.select(contextElementIds);
+              const contextElements = slide.elements.filter((element) => contextElementIds.includes(element.id));
+              openMenu(e, elementMenu(actions, {
+                onRename: () => setRenaming(el.id),
+                extensionItems: getExtensionElementMenuItems?.(contextElements),
+              }));
             }}
             className={`group relative flex h-7 min-w-0 cursor-default items-center gap-1.5 rounded-md px-1.5 select-none ${isSel ? "bg-accent text-accent-foreground" : "hover:bg-muted"} ${el.hidden ? "opacity-50" : ""} [&_svg]:size-3.5 [&_svg]:shrink-0`}
           >

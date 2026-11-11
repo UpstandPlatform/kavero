@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { createCatalog } from "@Kavero/catalog-engine";
+import { createBlockSlide, createCatalog, PRESENTATION_BLOCKS } from "@Kavero/catalog-engine";
 import { Editor } from "./index";
 
 const pos = { x: 0, y: 0, width: 100, height: 50, rotation: 0 };
@@ -64,6 +64,23 @@ test("slide ops and transitions", () => {
   expect(editor.getDocument().slides[0]!.transition).toMatchObject({ type: "fade", durationMs: 500 });
   editor.execute({ type: "slide.delete", slideId });
   expect(() => editor.execute({ type: "slide.delete", slideId: s2! })).toThrow();
+});
+
+test("slide.add repairs missing and duplicate built-in block element ids", () => {
+  for (const block of PRESENTATION_BLOCKS) {
+    const editor = new Editor(createCatalog({ title: "Blocks" }), { coalesceMs: 0 });
+    const slide = createBlockSlide(block.id, block.name, 1920, 1080);
+    for (const element of slide.elements) (element as { id: string }).id = "";
+
+    const result = editor.execute({ type: "slide.add", slide } as never);
+    const inserted = editor.getDocument().slides.find((item) => item.id === result.createdIds[0]);
+    const ids = inserted?.elements.map((element) => element.id) ?? [];
+
+    expect(ids.length).toBeGreaterThan(0);
+    expect(ids.every((id) => id.length > 0)).toBe(true);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(result.createdIds.slice(1)).toEqual(ids);
+  }
 });
 
 test("products and assets", () => {

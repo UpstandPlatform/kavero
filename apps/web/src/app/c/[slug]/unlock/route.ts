@@ -18,12 +18,12 @@ export async function POST(request: Request, { params }: { params: Promise<{ slu
   if (!pub || pub.visibility !== "password" || !pub.passwordHash) return redirect(back());
 
   const ip = clientIp(request.headers);
-  if (!attemptAllowed(pub.id, ip)) return redirect(back("locked"));
+  if (!(await attemptAllowed(pub.id, ip))) return redirect(back("locked"));
 
   const form = await request.formData();
   const password = String(form.get("password") ?? "").slice(0, 200);
   if (!password || !(await verifyPassword(password, pub.passwordHash))) {
-    recordFailure(pub.id, ip);
+    await recordFailure(pub.id, ip);
     return redirect(back("wrong"));
   }
 

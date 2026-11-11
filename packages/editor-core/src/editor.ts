@@ -64,7 +64,7 @@ export class Editor {
     return () => this.listeners.delete(listener);
   };
 
-  execute(command: EditorCommand): CommandResult {
+  execute(command: EditorCommand, options: { undoable?: boolean } = {}): CommandResult {
     const before = this.doc;
     const draft = structuredClone(before);
     const result = applyCommand(draft, command); // throws on invalid commands; document untouched
@@ -73,16 +73,23 @@ export class Editor {
     draft.revision = before.revision + 1;
     this.doc = draft;
 
-    const last = this.undoStack.at(-1);
-    const now = Date.now();
-    if (last && now - last.at < this.coalesceMs && coalesceKey(last.command) !== null && coalesceKey(last.command) === coalesceKey(command)) {
-      last.after = draft;
-      last.at = now;
+    if (options.undoable === false) {
+      // Irreversible storage changes (for example deleting an uploaded binary)
+      // cannot safely be restored by replaying a document-only history snapshot.
+      this.undoStack = [];
+      this.redoStack = [];
     } else {
-      this.undoStack.push({ command, before, after: draft, at: now });
-      if (this.undoStack.length > this.historyLimit) this.undoStack.shift();
+      const last = this.undoStack.at(-1);
+      const now = Date.now();
+      if (last && now - last.at < this.coalesceMs && coalesceKey(last.command) !== null && coalesceKey(last.command) === coalesceKey(command)) {
+        last.after = draft;
+        last.at = now;
+      } else {
+        this.undoStack.push({ command, before, after: draft, at: now });
+        if (this.undoStack.length > this.historyLimit) this.undoStack.shift();
+      }
+      this.redoStack = [];
     }
-    this.redoStack = [];
     this.pruneSelection();
     this.emit(command);
     return result;

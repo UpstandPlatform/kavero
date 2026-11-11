@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { CatalogService } from "@Kavero/api/services/catalog-service";
+import { audit } from "@Kavero/api/services/audit-service";
 import { readLimited } from "@Kavero/api/services/safe-fetch";
 
 import { db, auth } from "@/services";
@@ -42,8 +43,14 @@ export async function PUT(request: Request, { params }: Ctx) {
   }
   const hash = createHash("sha256").update(bytes).digest("hex");
   const storageKey = `catalogs/${target.catalogId}/${hash}`;
-  await objectStorage().put(storageKey, bytes);
-  await service.recordAsset({ catalogId: target.catalogId, assetId, mimeType: type, bytes: bytes.byteLength, hash, storageKey });
+  try {
+    await objectStorage().put(storageKey, bytes);
+    await service.recordAsset({ catalogId: target.catalogId, assetId, mimeType: type, bytes: bytes.byteLength, hash, storageKey });
+  } catch (error) {
+    await audit(db, { userId: uid, area: "assets", action: "asset:upload", target: `${id}/${assetId}`, outcome: "error" });
+    throw error;
+  }
+  await audit(db, { userId: uid, area: "assets", action: "asset:upload", target: `${id}/${assetId}`, outcome: "ok", details: { mimeType: type, bytes: bytes.byteLength } });
   return Response.json({ assetId, hash, bytes: bytes.byteLength });
 }
 

@@ -1,4 +1,4 @@
-import type { CatalogDocument, ElementEffect } from "@Kavero/catalog-engine";
+import type { CatalogDocument, CatalogElement, CatalogElementType, CatalogSlide, ElementEffect } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand } from "@Kavero/editor-core";
 import type { ExtensionCapability, ExtensionDefinition, ExtensionEvents, ExtensionHost, ExtensionManifest, JsonValue } from "@Kavero/extensions";
 import type { ExtensionElementEffectRenderer, ExtensionElementRenderer } from "@Kavero/renderer";
@@ -56,12 +56,65 @@ export interface EditorExtensionPanel {
   content: ReactNode;
 }
 
+export interface EditorExtensionDesignPropertyTarget {
+  /** Discriminates slide-wide settings from selected-element settings. */
+  kind: "slide" | "elements";
+  document: CatalogDocument;
+  slide: CatalogSlide;
+  elements: readonly CatalogElement[];
+}
+
+/** An extension-owned inspector section shown in the matching Design selection context. */
+export interface EditorExtensionDesignPropertySection {
+  id: string;
+  title: string;
+  /** Defaults to elements. Slide sections are shown only when no element is selected. */
+  target?: "slide" | "elements";
+  /** Restrict the section to these element types; omitted means any catalog element. */
+  elementTypes?: readonly CatalogElementType[];
+  /** Defaults to false so a section only receives a single unambiguous target. */
+  supportsMultiple?: boolean;
+  render: (target: EditorExtensionDesignPropertyTarget) => ReactNode;
+}
+
 export interface EditorExtensionContribution {
   toolGroups?: RailTool[][];
   panels?: EditorExtensionPanel[];
+  designProperties?: EditorExtensionDesignPropertySection[];
+  canvasWidgets?: EditorExtensionCanvasWidget[];
+  elementMenuActions?: EditorExtensionElementMenuAction[];
   renderers?: Record<string, ExtensionElementRenderer>;
   effects?: EditorExtensionEffect[];
   pptxRenderers?: Record<string, PptxExtensionElementRenderer>;
+}
+
+/** Compact extension UI anchored over the editor canvas, outside the scrollable slide surface. */
+export interface EditorExtensionCanvasWidget {
+  id: string;
+  content: ReactNode;
+}
+
+export interface EditorExtensionElementMenuTarget {
+  id: string;
+  type: CatalogElementType;
+}
+
+/** An action contributed to the right-click menu for compatible selected elements. */
+export interface EditorExtensionElementMenuAction {
+  id: string;
+  label: string;
+  icon?: ReactNode;
+  /** Restrict the action to these catalog element types; omitted means any type. */
+  elementTypes?: readonly CatalogElementType[];
+  /** Capabilities this action uses, in addition to the editor.ui capability needed to add menu UI. */
+  requiredCapabilities: readonly ExtensionCapability[];
+  /** Defaults to true. */
+  supportsMultiple?: boolean;
+  /** Defaults to false. */
+  allowLocked?: boolean;
+  /** Optional dynamic target filter. Request catalog.read when it reads document data. */
+  isAvailable?: (targets: readonly EditorExtensionElementMenuTarget[]) => boolean;
+  onSelect: (targets: readonly EditorExtensionElementMenuTarget[]) => void | Promise<void>;
 }
 
 export interface EditorExtensionEffect {
@@ -69,6 +122,8 @@ export interface EditorExtensionEffect {
   name: string;
   description: string;
   type: ElementEffect["type"];
+  /** Restrict application to these catalog element types; omitted means any type. */
+  elementTypes?: readonly CatalogElementType[];
   defaultParameters?: Record<string, JsonValue>;
   render: ExtensionElementEffectRenderer;
 }
@@ -82,20 +137,28 @@ export interface EditorExtensionHooks extends Record<string, unknown> {
 export type EditorExtension = ExtensionDefinition<EditorExtensionContext, EditorExtensionContribution, ExtensionEvents, EditorExtensionHooks>;
 export type EditorExtensionHost = ExtensionHost<EditorExtensionContext, EditorExtensionContribution, ExtensionEvents, EditorExtensionHooks>;
 
+const EDITOR_ELEMENT_TYPES = new Set(["text", "image", "shape", "product", "product-grid", "icon", "extension", "video", "button", "html"]);
+
 export function validateEditorExtensionContribution(manifest: ExtensionManifest, contribution: EditorExtensionContribution) {
   if (!contribution || typeof contribution !== "object") throw new Error("Extension contribution must be an object.");
   const panels = contribution.panels ?? [];
+  const designProperties = contribution.designProperties ?? [];
   const groups = contribution.toolGroups ?? [];
+  const canvasWidgets = contribution.canvasWidgets ?? [];
+  const elementMenuActions = contribution.elementMenuActions ?? [];
   const renderers = contribution.renderers ?? {};
   const effects = contribution.effects ?? [];
   const pptxRenderers = contribution.pptxRenderers ?? {};
-  if ((panels.length || groups.length) && !manifest.capabilities.includes("editor.ui")) {
+  if ((panels.length || designProperties.length || groups.length || canvasWidgets.length || elementMenuActions.length) && !manifest.capabilities.includes("editor.ui")) {
     throw new Error(`Extension "${manifest.id}" contributes editor UI without requesting editor.ui.`);
+  }
+  if (designProperties.length && !manifest.capabilities.includes("catalog.read")) {
+    throw new Error(`Extension "${manifest.id}" contributes design properties without requesting catalog.read.`);
   }
   if ((Object.keys(renderers).length || effects.length || Object.keys(pptxRenderers).length) && !manifest.capabilities.includes("editor.render")) {
     throw new Error(`Extension "${manifest.id}" contributes renderers without requesting editor.render.`);
   }
-  if (panels.length > 32 || groups.length > 24) throw new Error(`Extension "${manifest.id}" exceeds editor contribution limits.`);
+  if (panels.length > 32 || designProperties.length > 32 || groups.length > 24 || canvasWidgets.length > 16 || elementMenuActions.length > 32) throw new Error(`Extension "${manifest.id}" exceeds editor contribution limits.`);
   const panelIds = new Set<string>();
   for (const panel of panels) {
     if (!panel || !/^[a-z0-9][a-z0-9._-]{0,79}$/.test(panel.id) || !panel.label.trim() || panel.label.length > 80 || !panel.icon) {
@@ -103,6 +166,34 @@ export function validateEditorExtensionContribution(manifest: ExtensionManifest,
     }
     if (panelIds.has(panel.id)) throw new Error(`Extension "${manifest.id}" contributes duplicate panel id "${panel.id}".`);
     panelIds.add(panel.id);
+  }
+  const designPropertyIds = new Set<string>();
+  for (const section of designProperties) {
+    if (!section || !/^[a-z0-9][a-z0-9._-]{0,79}$/.test(section.id) || !section.title.trim() || section.title.length > 80 || typeof section.render !== "function") {
+      throw new Error(`Extension "${manifest.id}" has an invalid design property section.`);
+    }
+    if (designPropertyIds.has(section.id)) throw new Error(`Extension "${manifest.id}" contributes duplicate design property id "${section.id}".`);
+    designPropertyIds.add(section.id);
+    if (section.target !== undefined && section.target !== "slide" && section.target !== "elements") {
+      throw new Error(`Extension "${manifest.id}" design property section "${section.id}" has an invalid target.`);
+    }
+    if (section.elementTypes !== undefined && (!Array.isArray(section.elementTypes) || !section.elementTypes.length || new Set(section.elementTypes).size !== section.elementTypes.length || section.elementTypes.some((type) => !EDITOR_ELEMENT_TYPES.has(type)))) {
+      throw new Error(`Extension "${manifest.id}" design property section "${section.id}" has an invalid element type filter.`);
+    }
+    if (section.supportsMultiple !== undefined && typeof section.supportsMultiple !== "boolean") {
+      throw new Error(`Extension "${manifest.id}" design property section "${section.id}" has invalid target options.`);
+    }
+    if (section.target === "slide" && (section.elementTypes !== undefined || section.supportsMultiple !== undefined)) {
+      throw new Error(`Extension "${manifest.id}" slide property section "${section.id}" cannot declare element selection options.`);
+    }
+  }
+  const widgetIds = new Set<string>();
+  for (const widget of canvasWidgets) {
+    if (!widget || !/^[a-z0-9][a-z0-9._-]{0,79}$/.test(widget.id) || widget.content === null || widget.content === undefined) {
+      throw new Error(`Extension "${manifest.id}" has an invalid canvas widget contribution.`);
+    }
+    if (widgetIds.has(widget.id)) throw new Error(`Extension "${manifest.id}" contributes duplicate canvas widget id "${widget.id}".`);
+    widgetIds.add(widget.id);
   }
   for (const group of groups) {
     if (!Array.isArray(group) || group.length > 32) throw new Error(`Extension "${manifest.id}" has an invalid tool group.`);
@@ -115,6 +206,25 @@ export function validateEditorExtensionContribution(manifest: ExtensionManifest,
       toolIds.add(tool.id);
     }
   }
+  const elementActionIds = new Set<string>();
+  for (const action of elementMenuActions) {
+    if (!action || !/^[a-z0-9][a-z0-9._-]{0,79}$/.test(action.id) || !action.label.trim() || action.label.length > 80 || typeof action.onSelect !== "function") {
+      throw new Error(`Extension "${manifest.id}" has an invalid element menu action.`);
+    }
+    if (elementActionIds.has(action.id)) throw new Error(`Extension "${manifest.id}" contributes duplicate element menu action id "${action.id}".`);
+    elementActionIds.add(action.id);
+    if (!Array.isArray(action.requiredCapabilities) || new Set(action.requiredCapabilities).size !== action.requiredCapabilities.length || action.requiredCapabilities.some((capability) => !manifest.capabilities.includes(capability))) {
+      throw new Error(`Extension "${manifest.id}" element menu action "${action.id}" requires a capability not requested by its manifest.`);
+    }
+    if (action.elementTypes !== undefined && (!Array.isArray(action.elementTypes) || !action.elementTypes.length || new Set(action.elementTypes).size !== action.elementTypes.length || action.elementTypes.some((type) => !EDITOR_ELEMENT_TYPES.has(type)))) {
+      throw new Error(`Extension "${manifest.id}" element menu action "${action.id}" has an invalid element type filter.`);
+    }
+    if ((action.supportsMultiple !== undefined && typeof action.supportsMultiple !== "boolean")
+      || (action.allowLocked !== undefined && typeof action.allowLocked !== "boolean")
+      || (action.isAvailable !== undefined && typeof action.isAvailable !== "function")) {
+      throw new Error(`Extension "${manifest.id}" element menu action "${action.id}" has invalid target options.`);
+    }
+  }
   for (const [id, renderer] of Object.entries({ ...renderers, ...pptxRenderers })) {
     if (id !== manifest.id || typeof renderer !== "function") throw new Error(`Extension "${manifest.id}" can only register its own slide renderer.`);
   }
@@ -124,6 +234,9 @@ export function validateEditorExtensionContribution(manifest: ExtensionManifest,
       throw new Error(`Extension "${manifest.id}" has an invalid shader effect contribution.`);
     }
     if (!new Set(manifest.types ?? ["plugin"]).has(effect.type)) throw new Error(`Extension "${manifest.id}" must declare the "${effect.type}" extension type to contribute this effect.`);
+    if (effect.elementTypes !== undefined && (!Array.isArray(effect.elementTypes) || !effect.elementTypes.length || new Set(effect.elementTypes).size !== effect.elementTypes.length || effect.elementTypes.some((type) => !EDITOR_ELEMENT_TYPES.has(type)))) {
+      throw new Error(`Extension "${manifest.id}" effect "${effect.id}" has an invalid element type filter.`);
+    }
     if (effectIds.has(effect.id)) throw new Error(`Extension "${manifest.id}" contributes duplicate shader effect id "${effect.id}".`);
     effectIds.add(effect.id);
   }

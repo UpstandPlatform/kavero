@@ -1,7 +1,7 @@
 import { AiService } from "@Kavero/api/services/ai-service";
 import { CatalogService } from "@Kavero/api/services/catalog-service";
 import { PublicationService, slugify } from "@Kavero/api/services/publication-service";
-import { audit, type Scope, type TokenPrincipal } from "@Kavero/api/services/token-service";
+import { audit, type ApiKeyPrincipal, type Scope } from "@Kavero/api/services/audit-service";
 import {
   PAGE_PRESETS,
   PRODUCT_AVAILABILITY,
@@ -71,7 +71,7 @@ Images, logos and background photos: add the file with asset_import first, then 
 const id = z.string().min(1).max(100);
 const positionShape = z.object({ x: z.number(), y: z.number(), width: z.number().positive(), height: z.number().positive(), rotation: z.number().optional() });
 
-type Ctx = { db: Database; principal: TokenPrincipal; host: McpHost };
+type Ctx = { db: Database; principal: ApiKeyPrincipal; host: McpHost };
 
 const ok = (data: unknown, extra: CallToolResult["content"] = []): CallToolResult => ({
   content: [{ type: "text", text: JSON.stringify(data, null, 2) }, ...extra],
@@ -152,25 +152,27 @@ export function fontSummary(doc: CatalogDocument) {
  */
 export function createKaveroMcpServer({ db, principal, host }: Ctx) {
   const server = new McpServer({ name: "kavero", version: "0.1.0" }, { instructions: "Create and edit Kavero product catalogs: slides with text, images, products, shapes and HTML; themes, transitions, animations; previews and website publishing. Call catalog_get first to see ids and page size." });
-  const catalogs = new CatalogService(db);
+  const catalogs = new CatalogService(db, host.deleteObjects);
   const pubs = new PublicationService(db);
   const uid = principal.userId;
 
   /** Scope check + audit + error mapping around every tool. */
-  function guard<A extends Record<string, unknown>>(name: string, scope: Scope, fn: (args: A) => Promise<CallToolResult>) {
+  function guard<A extends Record<string, unknown>>(name: string, scope: Scope | Scope[] | ((args: A) => Scope[]), fn: (args: A) => Promise<CallToolResult>) {
     return async (args: A): Promise<CallToolResult> => {
       const target = typeof args.catalogId === "string" ? args.catalogId : null;
-      if (!principal.scopes.includes(scope)) {
-        await audit(db, { userId: uid, tokenId: principal.tokenId, action: `mcp:${name}`, target, outcome: "denied", details: { missingScope: scope } });
-        return fail(`This token doesn't have the "${scope}" permission. Create a token with it in Kavero settings.`);
+      const requiredScopes = typeof scope === "function" ? scope(args) : Array.isArray(scope) ? scope : [scope];
+      const missingScopes = requiredScopes.filter((required) => !principal.scopes.includes(required));
+      if (missingScopes.length) {
+        await audit(db, { userId: uid, apiKeyId: principal.apiKeyId, action: `mcp:${name}`, target, outcome: "denied", details: { missingScopes } });
+        return fail(`This API key is missing the ${missingScopes.map((missing) => `"${missing}"`).join(" and ")} permission. Edit its permissions in Kavero settings.`);
       }
       try {
         const result = await fn(args);
-        await audit(db, { userId: uid, tokenId: principal.tokenId, action: `mcp:${name}`, target, outcome: result.isError ? "error" : "ok" });
+        await audit(db, { userId: uid, apiKeyId: principal.apiKeyId, action: `mcp:${name}`, target, outcome: result.isError ? "error" : "ok" });
         return result;
       } catch (e) {
         const message = e instanceof TRPCError || e instanceof Error ? e.message : "Unexpected error";
-        await audit(db, { userId: uid, tokenId: principal.tokenId, action: `mcp:${name}`, target, outcome: "error", details: { message } });
+        await audit(db, { userId: uid, apiKeyId: principal.apiKeyId, action: `mcp:${name}`, target, outcome: "error", details: { message } });
         return fail(message);
       }
     };
@@ -205,7 +207,11 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
       language: z.string().max(10).optional(), currency: z.string().length(3).optional(),
       workspaceId: z.string().max(100).optional().describe("Create inside this workspace (see catalog_list); default: personal"),
     },
-  }, guard("catalog_create", "catalogs:write", async (a) => {
+  }, guard("catalog_create", (a) => {
+    const scopes: Scope[] = ["catalogs:write"];
+    if (a.workspaceId) scopes.push("workspaces:write");
+    return scopes;
+  }, async (a) => {
     const input = { title: a.title, description: a.description, language: a.language, currency: a.currency?.toUpperCase(), page: a.page as keyof typeof PAGE_PRESETS | undefined };
     const doc = a.template && a.template !== "blank" ? createFromTemplate(a.template, input) : createCatalog(input);
     const r = await catalogs.create(uid, doc, a.workspaceId);
@@ -401,7 +407,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
       mimeType: z.enum(["image/png", "image/jpeg", "image/gif", "image/webp"]).optional().describe("Required with data"),
       name: z.string().min(1).max(120).describe("Human-readable name, e.g. 'Cover photo'"),
     },
-  }, guard("asset_import", "catalogs:write", async ({ catalogId, url, data, mimeType, name }) => {
+  }, guard("asset_import", ["catalogs:write", "assets:write"], async ({ catalogId, url, data, mimeType, name }) => {
     if (!!url === !!data) return fail("Pass either url or data (base64), not both.");
     await catalogs.access(uid, catalogId, "write");
     const { id: rowId, document } = await catalogs.get(uid, catalogId);
@@ -458,7 +464,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
       embed: z.boolean().optional().describe("Store the font files in the catalog (default true). false = load from Google Fonts by name when the catalog is shown."),
       applyTo: applyToSchema,
     },
-  }, guard("font_add_google", "catalogs:write", async ({ catalogId, family, weights = [400, 600, 700], italic = false, embed = true, applyTo }) => {
+  }, guard("font_add_google", ["catalogs:write", "assets:write"], async ({ catalogId, family, weights = [400, 600, 700], italic = false, embed = true, applyTo }) => {
     if (!host.googleFontFaces) return fail("Google Fonts aren't available on this server.");
     if (embed && !host.importFont) return fail("Storing font files isn't available on this server. Use embed=false.");
     await catalogs.access(uid, catalogId, "write");
@@ -504,7 +510,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
       name: z.string().max(120).optional().describe("Label shown in the editor (default \"<family> <weight>\")"),
       applyTo: applyToSchema,
     },
-  }, guard("font_upload", "catalogs:write", async ({ catalogId, family, url, data, weight = 400, style = "normal", name, applyTo }) => {
+  }, guard("font_upload", ["catalogs:write", "assets:write"], async ({ catalogId, family, url, data, weight = 400, style = "normal", name, applyTo }) => {
     if (!!url === !!data) return fail("Pass either url or data (base64), not both.");
     const bad = badFamily(family);
     if (bad) return fail(bad);
@@ -536,7 +542,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
       elementIds: z.array(id).max(200).optional().describe("Text elements to change"),
       weight: z.number().int().min(100).max(900).optional().describe("Font weight for those elements"),
     },
-  }, guard("font_apply", "catalogs:write", async ({ catalogId, family, theme, elementIds = [], weight }) => {
+  }, guard("font_apply", ["catalogs:write", "assets:write"], async ({ catalogId, family, theme, elementIds = [], weight }) => {
     if (!theme && !elementIds.length) return fail("Pass theme and/or elementIds.");
     const bad = badFamily(family);
     if (bad) return fail(bad);
@@ -561,7 +567,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     title: "Remove font",
     description: "Remove font files from a catalog: every face of a family, or one face by assetId. Text keeps its fontFamily and then loads it from Google Fonts by name if the family exists there, otherwise a system font is used. The response says where the family is still used.",
     inputSchema: { catalogId: id, family: z.string().max(80).optional(), assetId: id.optional() },
-  }, guard("font_remove", "catalogs:write", async ({ catalogId, family, assetId }) => {
+  }, guard("font_remove", ["catalogs:write", "assets:write"], async ({ catalogId, family, assetId }) => {
     if (!!family === !!assetId) return fail("Pass either family or assetId.");
     const { document } = await catalogs.get(uid, catalogId);
     const targets = document.assets.filter((a) => a.kind === "font" && (assetId ? a.id === assetId : a.family === cleanFamily(family!)));
@@ -592,7 +598,11 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
       language: z.string().max(10).optional(), currency: z.string().length(3).optional(),
       workspaceId: z.string().max(100).optional(),
     },
-  }, guard("catalog_generate", "catalogs:write", async (a) => {
+  }, guard("catalog_generate", (a) => {
+    const scopes: Scope[] = ["catalogs:write", "ai:generate"];
+    if (a.workspaceId) scopes.push("workspaces:write");
+    return scopes;
+  }, async (a) => {
     const products = (a.products ?? []).map((p) => ({ ...p, id: p.id ?? createId("prd"), currency: p.currency?.toUpperCase(), imageAssetIds: [] as string[], attributes: p.attributes ?? {} }));
     // Same per-user rate limit and AI job log as the web app.
     const result = await new AiService(db, host.ai ?? null).generate(uid, {
@@ -645,7 +655,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
   server.registerTool("catalog_export_pdf", {
     title: "Export PDF", description: "Export the catalog as a print-ready PDF (one page per slide). Returned as an embedded file.",
     inputSchema: { catalogId: id }, annotations: { readOnlyHint: true },
-  }, guard("catalog_export_pdf", "catalogs:read", async ({ catalogId }) => {
+  }, guard("catalog_export_pdf", ["catalogs:read", "exports:read"], async ({ catalogId }) => {
     if (!host.renderPdf) return fail("PDF export isn't available on this server (no Chrome).");
     const { document } = await catalogs.get(uid, catalogId);
     return fileResult(fileName(document, "pdf"), "application/pdf", await host.renderPdf(document), "Animations are shown in their finished state.");
@@ -654,7 +664,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
   server.registerTool("catalog_export_pptx", {
     title: "Export PowerPoint", description: "Export the catalog as an editable PowerPoint file (text, shapes and images stay editable). Returned as an embedded file with compatibility notes.",
     inputSchema: { catalogId: id }, annotations: { readOnlyHint: true },
-  }, guard("catalog_export_pptx", "catalogs:read", async ({ catalogId }) => {
+  }, guard("catalog_export_pptx", ["catalogs:read", "exports:read"], async ({ catalogId }) => {
     const { document } = await catalogs.get(uid, catalogId);
     const assets = host.loadAssets ? await host.loadAssets(document) : {};
     const { data, warnings } = await exportPptx<Uint8Array>(document, { assets, outputType: "uint8array" });
@@ -666,7 +676,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
   server.registerTool("catalog_preview", {
     title: "Preview slide", description: "Render a slide (finished state) as a PNG image so you can check the layout.",
     inputSchema: { catalogId: id, slideIndex: z.number().int().min(0).optional() }, annotations: { readOnlyHint: true },
-  }, guard("catalog_preview", "catalogs:read", async ({ catalogId, slideIndex = 0 }) => {
+  }, guard("catalog_preview", ["catalogs:read", "exports:read"], async ({ catalogId, slideIndex = 0 }) => {
     if (!host.renderPreview) return fail("Previews aren't available on this server (no Chrome).");
     const { document } = await catalogs.get(uid, catalogId);
     if (!document.slides[slideIndex]) return fail(`Slide index out of range (0–${document.slides.length - 1})`);

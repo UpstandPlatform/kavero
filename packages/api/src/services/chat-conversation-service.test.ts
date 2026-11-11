@@ -38,23 +38,31 @@ test("uses conversation revisions to reject stale turns and prevent late streams
   ]);
 
   const store = new ChatConversationService(db);
+  const conversationId = crypto.randomUUID();
   const initial = [{ id: "user-1", role: "user", parts: [{ type: "text", text: "Hello" }] }];
-  const revision = await store.save(userId, "editor", "cat_local", initial);
+  const revision = await store.save(userId, "editor", "cat_local", conversationId, initial);
 
   expect(revision).toBe(1);
-  expect(await store.load(userId, "editor", "cat_local")).toEqual({ exists: true, revision: 1, messages: initial });
-  expect(await store.load(otherUserId, "editor", "cat_local")).toEqual({ exists: false, revision: null, messages: [] });
+  expect(await store.load(userId, "editor", "cat_local", conversationId)).toEqual({ exists: true, conversationId, revision: 1, messages: initial });
+  expect(await store.load(otherUserId, "editor", "cat_local", conversationId)).toEqual({ exists: false, conversationId: null, revision: null, messages: [] });
   const turn = [...initial, { id: "user-2", role: "user", parts: [{ type: "text", text: "Follow up" }] }];
-  const turnRevision = await store.beginTurn(userId, "editor", "cat_local", revision!, turn);
+  const turnRevision = await store.beginTurn(userId, "editor", "cat_local", conversationId, revision!, turn);
   expect(turnRevision).toBe(2);
-  expect(await store.beginTurn(userId, "editor", "cat_local", revision!, turn)).toBeUndefined();
-  expect(await store.clear(userId, "editor", "cat_local")).toBe(3);
-  expect(await store.saveIfRevision(userId, "editor", "cat_local", turnRevision!, [...turn, { id: "assistant-late" }])).toBe(false);
-  expect(await store.load(userId, "editor", "cat_local")).toEqual({ exists: true, revision: 3, messages: [] });
+  expect(await store.beginTurn(userId, "editor", "cat_local", conversationId, revision!, turn)).toBeUndefined();
 
-  const firstTurn = await store.beginTurn(otherUserId, "landing", "landing", null, [{ id: "landing-user" }]);
+  const secondConversationId = crypto.randomUUID();
+  expect(await store.beginTurn(userId, "editor", "cat_local", secondConversationId, null, [{ id: "separate-user" }])).toBe(1);
+  expect(await store.load(userId, "editor", "cat_local", secondConversationId)).toMatchObject({ exists: true, conversationId: secondConversationId, revision: 1 });
+  expect((await store.list(userId, "editor")).filter((item) => item.scopeId === "cat_local")).toHaveLength(2);
+
+  expect(await store.clear(userId, "editor", "cat_local", conversationId)).toBe(3);
+  expect(await store.saveIfRevision(userId, "editor", "cat_local", conversationId, turnRevision!, [...turn, { id: "assistant-late" }])).toBe(false);
+  expect(await store.load(userId, "editor", "cat_local", conversationId)).toEqual({ exists: true, conversationId, revision: 3, messages: [] });
+
+  const landingConversationId = crypto.randomUUID();
+  const firstTurn = await store.beginTurn(otherUserId, "landing", "landing", landingConversationId, null, [{ id: "landing-user" }]);
   expect(firstTurn).toBe(1);
-  expect(await store.beginTurn(otherUserId, "landing", "landing", null, [{ id: "stale-user" }])).toBeUndefined();
-  expect(await store.clear(otherUserId, "landing", "landing")).toBe(2);
-  expect(await store.load(otherUserId, "landing", "landing")).toEqual({ exists: true, revision: 2, messages: [] });
+  expect(await store.beginTurn(otherUserId, "landing", "landing", landingConversationId, null, [{ id: "stale-user" }])).toBeUndefined();
+  expect(await store.clear(otherUserId, "landing", "landing", landingConversationId)).toBe(2);
+  expect(await store.load(otherUserId, "landing", "landing", landingConversationId)).toEqual({ exists: true, conversationId: landingConversationId, revision: 2, messages: [] });
 });

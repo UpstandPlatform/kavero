@@ -203,10 +203,10 @@ The website shows the version you published. Later edits stay private until you 
 ## Settings
 
 - **Workspaces** — create, invite, change roles, leave or delete.
-- **API tokens & AI agents** — tokens for MCP clients, with permissions and expiry; shown once. Includes a ready-to-paste MCP client config.
+- **API keys** — keys for MCP clients, with separate permissions and expiry; shown once. Includes a ready-to-paste MCP client config.
 - **MCP connections** — product sources (Streamable HTTP or SSE, with bearer or header auth). Credentials are encrypted.
-- **AI** — connect your own model: **Claude** (Anthropic API key), **OpenRouter** (key plus any model id from openrouter.ai/models), **OpenAI**, or an **OpenAI-compatible server** such as Ollama or LM Studio. **Save and test** checks the connection. The key is encrypted on the server and never shown again (only its last 4 characters). Your key is used for generation, AI edits and the MCP `catalog_generate` tool, in preference to the server's key. Also shows your generation history.
-- **Activity** — audit log of API and agent actions.
+- **AI** — connect multiple providers: **Claude** (Anthropic), **OpenRouter**, **OpenAI**, or an **OpenAI-compatible server** such as Ollama or LM Studio. Load the provider's model list, search and select a model, review its known input and output capabilities, then test and save it. The key is encrypted on the server and never shown again (only its last 4 characters). Choose a default provider for generation, AI edits and the MCP `catalog_generate` tool. Also shows your generation history.
+- **Activity** — categorized audit log of catalog, asset, export, publishing, workspace, AI, API key, integration and sign-in actions, with outcome filters and pagination.
 
 ## Administering a server
 
@@ -215,9 +215,9 @@ The **first account created on a new Kavero server is its admin**. Admins see **
 - **Overview** — accounts, admins, cloud catalogs, published sites and views, stored files, AI requests in the last 30 days.
 - **Users** — search accounts and, from each row's menu:
   - **Make admin / Remove admin**. You can't remove your own admin role, and the last admin can't be removed.
-  - **Suspend** (until lifted, or for 1, 7 or 30 days, with a reason). A suspended account is signed out, can't sign in, its API tokens stop working and its published sites go offline. **Lift suspension** restores everything.
-  - **Sign out everywhere** — ends all sessions and revokes the account's API tokens.
-  - **Delete account** — removes the account with its cloud catalogs, published sites and tokens (type the email to confirm). Workspaces it created stay with their other members.
+  - **Suspend** (until lifted, or for 1, 7 or 30 days, with a reason). A suspended account is signed out, can't sign in, its API keys stop working and its published sites go offline. **Lift suspension** restores everything.
+  - **Sign out everywhere** — ends all sessions and revokes the account's API keys.
+  - **Delete account** — removes the account with its cloud catalogs, published sites and API keys (type the email to confirm). Workspaces it created stay with their other members.
 - **Published sites** — every site on the server with its owner and views; **Unpublish** takes one offline (the owner keeps the catalog).
 - **Activity** — the server-wide audit log; filter to admin actions or MCP/agent actions.
 - **Sign-ups** — **Open** (anyone), **Invite-only** (only email addresses with a pending workspace invitation) or **Closed**. Existing accounts are never affected.

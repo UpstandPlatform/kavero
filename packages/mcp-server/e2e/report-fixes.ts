@@ -13,10 +13,10 @@ const check = (name: string, ok: unknown, info?: string) => results.push([name, 
 
 const r0 = await fetch(`${BASE}/api/auth/sign-up/email`, { method: "POST", headers: { "Content-Type": "application/json", Origin: BASE }, body: JSON.stringify({ email: `rtl-${crypto.randomUUID().slice(0, 8)}@example.test`, password: crypto.randomUUID(), name: "RTL" }) });
 const cookie = r0.headers.getSetCookie().map((c) => c.split(";")[0]).join("; ");
-const tok = await (await fetch(`${BASE}/api/trpc/integrations.tokens.create`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie, Origin: BASE }, body: JSON.stringify({ name: "rtl", scopes: ["catalogs:read", "catalogs:write"], expiresInDays: 1 }) })).json() as { result: { data: { token: string } } };
+const keyResponse = await (await fetch(`${BASE}/api/trpc/integrations.apiKeys.create`, { method: "POST", headers: { "Content-Type": "application/json", Cookie: cookie, Origin: BASE }, body: JSON.stringify({ name: "rtl", scopes: ["catalogs:read", "catalogs:write", "assets:write"], expiresInDays: 1 }) })).json() as { result: { data: { key: string } } };
 
 const mcp = new Client({ name: "e2e", version: "1" });
-await mcp.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), { requestInit: { headers: { Authorization: `Bearer ${tok.result.data.token}` } } }));
+await mcp.connect(new StreamableHTTPClientTransport(new URL(`${BASE}/api/mcp`), { requestInit: { headers: { Authorization: `Bearer ${keyResponse.result.data.key}` } } }));
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const call = async (name: string, args: Record<string, unknown>): Promise<any> => {
   const r = await mcp.callTool({ name, arguments: args });

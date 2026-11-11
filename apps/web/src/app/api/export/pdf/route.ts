@@ -2,7 +2,7 @@ import { attachmentHeader, parseCatalogDocument, safeFileName } from "@Kavero/ca
 import { renderPdf } from "@Kavero/export-chromium";
 import { z } from "zod";
 
-import { canExport, exportAssetsSchema, exportFailed, readExportBody, renderOrigin } from "@/modules/export/access";
+import { auditExport, canExport, exportAssetsSchema, exportFailed, readExportBody, renderOrigin } from "@/modules/export/access";
 
 export const runtime = "nodejs";
 
@@ -28,10 +28,12 @@ export async function POST(request: Request) {
 
   try {
     const pdf = await renderPdf({ doc: doc.document, assets: parsed.data.assets, baseUrl: renderOrigin(request), pageNumbers: parsed.data.pageNumbers });
+    await auditExport(request, "pdf", doc.document.metadata.title, "ok", { slides: doc.document.slides.length });
     return new Response(new Blob([pdf as BlobPart], { type: "application/pdf" }), {
       headers: { "Content-Disposition": attachmentHeader(safeFileName(doc.document.metadata.title, "pdf")), "Cache-Control": "no-store" },
     });
   } catch (e) {
+    await auditExport(request, "pdf", doc.document.metadata.title, "error", { slides: doc.document.slides.length });
     return exportFailed(e, "PDF export");
   }
 }

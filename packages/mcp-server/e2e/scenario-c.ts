@@ -40,9 +40,9 @@ async function mcp(url: string, headers: Record<string, string>) {
 const json = (r: unknown): any => JSON.parse(((r as { content: { text: string }[] }).content)[0]!.text);
 
 const cookie = await signUp();
-const full = (await trpc(cookie, "integrations.tokens.create", { name: "Agent", scopes: ["catalogs:read", "catalogs:write", "catalogs:delete", "publish"], expiresInDays: 1 }, true)).data;
-const readOnly = (await trpc(cookie, "integrations.tokens.create", { name: "Reader", scopes: ["catalogs:read"], expiresInDays: 1 }, true)).data;
-check("tokens created (shown once)", full?.token?.startsWith("kv_") && readOnly?.token?.startsWith("kv_"));
+const full = (await trpc(cookie, "integrations.apiKeys.create", { name: "Agent", scopes: ["catalogs:read", "catalogs:write", "catalogs:delete", "assets:write", "exports:read", "ai:generate", "publish"], expiresInDays: 1 }, true)).data;
+const readOnly = (await trpc(cookie, "integrations.apiKeys.create", { name: "Reader", scopes: ["catalogs:read"], expiresInDays: 1 }, true)).data;
+check("API keys created (shown once)", full?.key?.startsWith("kv_") && readOnly?.key?.startsWith("kv_"));
 
 // --- Auth failures ---
 let r401 = await fetch(`${BASE}/api/mcp`, { method: "POST", headers: { "Content-Type": "application/json", Accept: "application/json, text/event-stream" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) });
@@ -62,7 +62,7 @@ await store.close();
 check("agent fetched store products", storeProducts.length === 6);
 
 // --- …and builds a catalog in Kavero over MCP ---
-const kavero = await mcp(`${BASE}/api/mcp`, { Authorization: `Bearer ${full.token}` });
+const kavero = await mcp(`${BASE}/api/mcp`, { Authorization: `Bearer ${full.key}` });
 const tools = (await kavero.listTools()).tools.map((t) => t.name);
 check("Kavero exposes 29 tools", tools.length === 29, tools.join(","));
 
@@ -104,7 +104,7 @@ check("delete without confirm refused", !!noConfirm.isError);
 await kavero.close();
 
 // --- Least privilege ---
-const reader = await mcp(`${BASE}/api/mcp`, { Authorization: `Bearer ${readOnly.token}` });
+const reader = await mcp(`${BASE}/api/mcp`, { Authorization: `Bearer ${readOnly.key}` });
 check("read-only token can read", !(await reader.callTool({ name: "catalog_list", arguments: {} })).isError);
 const denied = await reader.callTool({ name: "catalog_create", arguments: { title: "Nope" } });
 check("read-only token can't write", !!denied.isError && JSON.stringify(denied.content).includes("catalogs:write"));

@@ -1,6 +1,5 @@
 import { HugeiconsIcon } from "@hugeicons/react";
-import { BotIcon, CloudIcon, CursorPointer02Icon, FileDownloadIcon, HardDriveIcon, Layout01Icon, PackageSearchIcon, Presentation01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
-import { Badge } from "@Kavero/ui/components/badge";
+import { BotIcon, CursorPointer02Icon, FileDownloadIcon, HardDriveIcon, Layout01Icon, PackageSearchIcon, Presentation01Icon, SparklesIcon } from "@hugeicons/core-free-icons";
 import { Button } from "@Kavero/ui/components/button";
 import type { Metadata } from "next";
 import Link from "next/link";
@@ -39,9 +38,6 @@ export default function Home() {
 
         <div className="mx-auto w-full max-w-7xl px-4 pb-14 pt-12 sm:px-6 sm:pb-16 sm:pt-16 lg:pt-20">
           <div className="mx-auto grid max-w-4xl justify-items-center gap-5 text-center sm:gap-6">
-            <Badge variant="outline" className="rounded-full border-primary/20 bg-background/60 px-3 py-1 text-xs font-normal text-muted-foreground shadow-sm backdrop-blur">
-              <HugeiconsIcon icon={Layout01Icon} data-icon="inline-start" className="text-primary" /> Product catalogs · presentations · websites
-            </Badge>
             <div className="grid justify-items-center gap-3 sm:gap-4">
               <h1 className="max-w-4xl text-4xl leading-[1.08] font-semibold tracking-tight text-balance sm:text-5xl lg:text-6xl">
                 Turn product data into a <span className="text-primary">story people remember.</span>
@@ -139,9 +135,8 @@ export default function Home() {
       </section>
 
       <footer className="border-t">
-        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-between gap-3 px-4 py-5 text-xs text-muted-foreground sm:px-6">
+        <div className="mx-auto flex w-full max-w-7xl flex-wrap items-center justify-start gap-3 px-4 py-5 text-xs text-muted-foreground sm:px-6">
           <span>Kavero · Product stories, thoughtfully made.</span>
-          <span className="flex items-center gap-4"><span className="inline-flex items-center gap-1.5"><HugeiconsIcon icon={CloudIcon} /> Local-first by design</span><span className="hidden sm:inline">Docs: user guide · MCP · deployment</span></span>
         </div>
       </footer>
     </main>

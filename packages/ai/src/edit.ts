@@ -81,29 +81,30 @@ export function opsToCommands(doc: CatalogDocument, currentSlideId: string, plan
   const skipped: string[] = [];
   const nameToSlide = new Map<string, string>();
   const slideOf = (op: EditOp) => (op.slideId && (nameToSlide.get(op.slideId) ?? (draft.slides.some((s) => s.id === op.slideId) ? op.slideId : undefined))) ?? currentSlideId;
+  const findElement = (id: string | undefined) => id ? draft.slides.flatMap((slide) => slide.elements).find((element) => element.id === id) : undefined;
   const box = (op: EditOp) => ({ x: op.x ?? 80, y: op.y ?? 80, width: Math.max(10, op.width ?? 400), height: Math.max(10, op.height ?? 100), rotation: 0 });
 
   for (const op of plan.ops) {
     let cmd: EditorCommand | null = null;
     switch (op.op) {
       case "set_text":
-        if (op.elementId && op.text !== undefined) cmd = { type: "element.update", elementId: op.elementId, changes: { content: { paragraphs: op.text.split("\n").map((t) => [{ text: t }]) } } };
+        if (op.elementId && op.text !== undefined && findElement(op.elementId)?.type === "text") cmd = { type: "element.update", elementId: op.elementId, changes: { content: { paragraphs: op.text.split("\n").map((t) => [{ text: t }]) } } };
         break;
       case "restyle_text": {
         const style = Object.fromEntries(Object.entries({ fontSize: op.fontSize, fontWeight: op.fontWeight && Math.round(op.fontWeight / 100) * 100, color: op.color, align: op.align }).filter(([, v]) => v !== undefined));
-        if (op.elementId && Object.keys(style).length) cmd = { type: "element.update", elementId: op.elementId, changes: { style } };
+        if (op.elementId && findElement(op.elementId)?.type === "text" && Object.keys(style).length) cmd = { type: "element.update", elementId: op.elementId, changes: { style } };
         break;
       }
       case "move": {
         const position = Object.fromEntries(Object.entries({ x: op.x, y: op.y, width: op.width, height: op.height }).filter(([, v]) => v !== undefined)) as Record<string, number>;
-        if (op.elementId && Object.keys(position).length) cmd = { type: "element.move", elementId: op.elementId, position };
+        if (op.elementId && findElement(op.elementId) && Object.keys(position).length) cmd = { type: "element.move", elementId: op.elementId, position };
         break;
       }
       case "set_fill":
-        if (op.elementId && op.color) cmd = { type: "element.update", elementId: op.elementId, changes: { style: { fill: op.color } } };
+        if (op.elementId && op.color && findElement(op.elementId)?.type === "shape") cmd = { type: "element.update", elementId: op.elementId, changes: { style: { fill: op.color } } };
         break;
       case "delete_element":
-        if (op.elementId) cmd = { type: "element.delete", elementId: op.elementId };
+        if (op.elementId && findElement(op.elementId)) cmd = { type: "element.delete", elementId: op.elementId };
         break;
       case "add_text":
         if (op.text) cmd = { type: "element.add", slideId: slideOf(op), element: { type: "text", position: box(op), content: { paragraphs: op.text.split("\n").map((t) => [{ text: t }]) }, style: { fontSize: op.fontSize ?? 32, fontWeight: op.fontWeight ?? 400, color: op.color ?? "token:text", align: op.align ?? "left" } } as unknown as NewElement };
@@ -118,7 +119,7 @@ export function opsToCommands(doc: CatalogDocument, currentSlideId: string, plan
         if (op.transition) cmd = { type: "slide.setTransition", slideId: slideOf(op), transition: op.transition === "none" ? null : { type: op.transition } };
         break;
       case "animate":
-        if (op.elementId) cmd = { type: "element.addAnimation", elementId: op.elementId, animation: { category: op.category ?? "entrance", preset: op.preset ?? "fade", trigger: "after-previous" } };
+        if (op.elementId && findElement(op.elementId)) cmd = { type: "element.addAnimation", elementId: op.elementId, animation: { category: op.category ?? "entrance", preset: op.preset ?? "fade", trigger: "after-previous" } };
         break;
       case "set_theme_color":
         if (op.themeColor && op.color && /^#[0-9a-f]{6}$/i.test(op.color)) cmd = { type: "catalog.updateTheme", theme: { colors: { [op.themeColor]: op.color } } };
@@ -137,12 +138,22 @@ export function opsToCommands(doc: CatalogDocument, currentSlideId: string, plan
       }
     }
     if (!cmd) {
-      skipped.push(`${op.op}: missing fields`);
+      const target = findElement(op.elementId);
+      const reason = op.elementId && !target
+        ? "element not found"
+        : op.op === "set_fill" && op.elementId && target?.type !== "shape"
+          ? "fill can only be applied to shapes"
+          : ["set_text", "restyle_text"].includes(op.op) && op.elementId && target?.type !== "text"
+            ? "operation can only be applied to text elements"
+            : "missing or incompatible fields";
+      skipped.push(`${op.op}: ${reason}`);
       continue;
     }
     try {
+      const before = JSON.stringify(draft);
       applyCommand(draft, cmd);
-      commands.push(cmd);
+      if (JSON.stringify(draft) === before) skipped.push(`${op.op}: it would not change the catalog`);
+      else commands.push(cmd);
     } catch (e) {
       skipped.push(`${op.op}: ${(e as Error).message}`);
     }

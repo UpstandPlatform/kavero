@@ -11,6 +11,7 @@ export const auroraFill: EditorExtensionEffect = {
   name: "Aurora field",
   description: "Layer a soft, shifting-color inspired glow over a shape, image, or text block.",
   type: "shader-fill",
+  elementTypes: ["shape", "image", "text"],
   defaultParameters: { intensity: 0.32 },
   render: ({ children, effect }) => (
     <div style={{ position: "relative", isolation: "isolate", width: "100%", height: "100%", overflow: "hidden" }}>

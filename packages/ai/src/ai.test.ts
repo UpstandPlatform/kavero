@@ -68,6 +68,26 @@ test("AI edits become validated commands; invalid ops are skipped", async () => 
   expect(r.summary).toContain("tagline");
 });
 
+test("AI edit planning rejects incompatible targets and omits no-op changes", async () => {
+  const doc = createCatalog({ title: "T" });
+  const slide = doc.slides[0]!;
+
+  const mock = new MockProvider([{
+    summary: "Try a few changes",
+    ops: [
+      { op: "set_fill", elementId: "missing-element", color: "#111111" },
+      { op: "set_text", elementId: "missing-element", text: "Hello" },
+      { op: "set_theme_color", themeColor: "primary", color: doc.theme.colors.primary },
+    ],
+  }]);
+
+  const result = await proposeEdit(mock, doc, slide.id, "try a few changes");
+  expect(result.commands).toHaveLength(0);
+  expect(result.skipped).toHaveLength(3);
+  expect(result.skipped.join(" ")).toContain("element not found");
+  expect(result.skipped.join(" ")).toContain("would not change the catalog");
+});
+
 test("editing without a provider is a clear error", async () => {
   const doc = createCatalog({ title: "T" });
   await expect(proposeEdit(null, doc, doc.slides[0]!.id, "x")).rejects.toBeInstanceOf(AiError);

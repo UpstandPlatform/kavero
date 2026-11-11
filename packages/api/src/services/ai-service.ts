@@ -4,20 +4,16 @@ import { AiError, generateCatalog, proposeEdit, type GenerateInput, type LlmProv
 import { parseCatalogDocument } from "@Kavero/catalog-engine";
 import type { Database } from "@Kavero/db";
 import { aiJob } from "@Kavero/db/schema/integration";
+import { createResilientRateLimiter } from "@Kavero/redis";
 import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
 
 const PER_MINUTE = 6;
-// Shared by every entry point (tRPC, MCP) even when bundled separately.
-const g = globalThis as unknown as { __kaveroAiUsage?: Map<string, number[]> };
-const usage = (g.__kaveroAiUsage ??= new Map<string, number[]>());
+const aiRateLimiter = createResilientRateLimiter({ namespace: "ai", maxRequests: PER_MINUTE, windowMs: 60_000 });
 
-function rateLimit(userId: string) {
-  const now = Date.now();
-  const recent = (usage.get(userId) ?? []).filter((t) => now - t < 60_000);
-  if (recent.length >= PER_MINUTE) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Too many AI requests. Wait a minute and try again." });
-  recent.push(now);
-  usage.set(userId, recent);
+async function rateLimit(userId: string) {
+  const decision = await aiRateLimiter.limit(userId);
+  if (!decision.allowed) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message: "Too many AI requests. Wait a minute and try again." });
 }
 
 function toTrpc(e: unknown): never {
@@ -42,7 +38,7 @@ export class AiService {
   }
 
   async generate(userId: string, input: GenerateInput) {
-    rateLimit(userId);
+    await rateLimit(userId);
     const started = Date.now();
     try {
       const r = await generateCatalog(this.provider, input, AbortSignal.timeout(240_000));
@@ -59,7 +55,7 @@ export class AiService {
   }
 
   async edit(userId: string, document: unknown, slideId: string, instruction: string) {
-    rateLimit(userId);
+    await rateLimit(userId);
     const parsed = parseCatalogDocument(document);
     if (!parsed.ok) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid catalog" });
     const started = Date.now();

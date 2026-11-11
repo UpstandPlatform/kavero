@@ -1,7 +1,7 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, ArrowLeft01Icon, CircleIcon, CodeIcon, Copy01Icon, Delete02Icon, DragDropVerticalIcon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PlayIcon, Presentation01Icon, PuzzleIcon, Redo02Icon, SquareIcon, TextIcon, Undo02Icon, Upload01Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
+import { Add01Icon, ArrowLeft01Icon, CircleIcon, Clock01Icon, CodeIcon, Copy01Icon, Delete02Icon, DragDropVerticalIcon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PlayIcon, Presentation01Icon, PuzzleIcon, Redo02Icon, SquareIcon, TextIcon, Undo02Icon, Upload01Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
 import { createBlankSlide, createId, parseCatalogDocument, productCardStyleSchema, productGridStyleSchema, PRODUCTS_EXTENSION_ID, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import type { ExtensionInstalledState, JsonValue } from "@Kavero/extensions";
@@ -15,7 +15,7 @@ import { toast } from "sonner";
 
 import { Canvas } from "./canvas";
 import type { AddFont } from "./font-picker";
-import { ContextMenuProvider, useContextMenu } from "./context-menu";
+import { ContextMenuProvider, useContextMenu, type MenuItem } from "./context-menu";
 import { createActions, kbd } from "./editor-actions";
 import { slideMenu } from "./editor-menus";
 import { ExportMenu } from "./export-menu";
@@ -28,6 +28,7 @@ import { ProductPickerDialog, type PickOptions, type ProductUi } from "./product
 import { PublishDialog } from "./publish-dialog";
 import { PreviewPlayer } from "./preview-player";
 import { EditorLibraryPanel, type EditorLibraryTab } from "./editor-library-panel";
+import type { ExtensionDesignPropertyContent } from "./properties-panel";
 import { RailButton, ToolRail } from "./tool-rail";
 import { Workspace, WorkspaceMenu, useWorkspace } from "./workspace";
 import { EditorChat, type EditorChatAnnotationRef } from "@/modules/chat/editor-chat";
@@ -41,7 +42,7 @@ import { CLOUD_LABEL, useCloudAutoSync } from "./use-cloud-autosync";
 import { builtInExtensionEffects, builtInExtensionRenderers, createEditorExtensionHost } from "./extensions/registry";
 import { ExtensionStoreDialog } from "./extensions/extension-store-dialog";
 import { describeCapability } from "./extensions/extension-store-dialog";
-import { scopeEditorExtensionContext, type EditorExportFormat, type EditorExtensionHostContext } from "./extensions/types";
+import { scopeEditorExtensionContext, type EditorExportFormat, type EditorExtensionDesignPropertySection, type EditorExtensionDesignPropertyTarget, type EditorExtensionHostContext } from "./extensions/types";
 import { ExtensionUiBoundary } from "./extensions/extension-ui-boundary";
 import { confirmAction } from "@/components/confirm-dialog";
 
@@ -81,7 +82,7 @@ export function CatalogEditorPage({ catalogId }: { catalogId: string }) {
 }
 
 function LoadedEditor({ catalogId, userId }: { catalogId: string; userId: string | null }) {
-  const { editor, loadError, assetUrls, saveStatus, uploadImage, uploadFont, reloadFromStorage, keepMine } = useCatalogEditor(catalogId);
+  const { editor, loadError, assetUrls, saveStatus, uploadImage, removeUpload, setExternalAssetUrl, uploadFont, reloadFromStorage, keepMine } = useCatalogEditor(catalogId);
   const cloudStatus = useCloudAutoSync(catalogId, userId, saveStatus);
   if (loadError) {
     return (
@@ -94,7 +95,7 @@ function LoadedEditor({ catalogId, userId }: { catalogId: string; userId: string
   if (!editor) return <p className="p-8 text-sm text-muted-foreground">Opening catalog…</p>;
   return (
     <ContextMenuProvider>
-      <EditorShell editor={editor} userId={userId} assetUrls={assetUrls} saveStatus={saveStatus} cloudLabel={CLOUD_LABEL[cloudStatus]} uploadImage={uploadImage} uploadFont={uploadFont} onReload={reloadFromStorage} onKeepMine={keepMine} />
+      <EditorShell editor={editor} userId={userId} assetUrls={assetUrls} saveStatus={saveStatus} cloudLabel={CLOUD_LABEL[cloudStatus]} uploadImage={uploadImage} removeUpload={removeUpload} setExternalAssetUrl={setExternalAssetUrl} uploadFont={uploadFont} onReload={reloadFromStorage} onKeepMine={keepMine} />
     </ContextMenuProvider>
   );
 }
@@ -103,7 +104,19 @@ const SAVE_LABEL: Record<SaveStatus, string> = { saved: "Saved", saving: "Saving
 let extensionApiClient: ReturnType<typeof makeTRPCClient> | null = null;
 const extensionApi = () => (extensionApiClient ??= makeTRPCClient());
 
-function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, uploadImage, uploadFont, onReload, onKeepMine }: {
+function ContributedDesignPropertySection({ extensionId, section, target }: {
+  extensionId: string;
+  section: EditorExtensionDesignPropertySection;
+  target: EditorExtensionDesignPropertyTarget;
+}) {
+  return <ExtensionUiBoundary extensionId={`${extensionId}/${section.id}`}><ContributedDesignPropertyContent section={section} target={target} /></ExtensionUiBoundary>;
+}
+
+function ContributedDesignPropertyContent({ section, target }: { section: EditorExtensionDesignPropertySection; target: EditorExtensionDesignPropertyTarget }) {
+  return <>{section.render(target)}</>;
+}
+
+function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, uploadImage, removeUpload, setExternalAssetUrl, uploadFont, onReload, onKeepMine }: {
   onReload: () => void;
   onKeepMine: () => void;
   cloudLabel: string | null;
@@ -111,7 +124,9 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   userId: string | null;
   assetUrls: Record<string, string>;
   saveStatus: SaveStatus;
-  uploadImage: (f: File) => Promise<{ assetId: string; width: number; height: number }>;
+  uploadImage: (f: File, attribution?: NonNullable<CatalogDocument["assets"][number]["attribution"]>) => Promise<{ assetId: string; width: number; height: number }>;
+  removeUpload: (assetId: string) => Promise<void>;
+  setExternalAssetUrl: (assetId: string, url: string) => void;
   uploadFont: AddFont;
 }) {
   const editorExtensions = useMemo(createEditorExtensionHost, []);
@@ -168,6 +183,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   const [annotationMode, setAnnotationMode] = useState(false);
   const [chatAnnotations, setChatAnnotations] = useState<EditorChatAnnotationRef[]>([]);
   const [hoveredChatAnnotation, setHoveredChatAnnotation] = useState<EditorChatAnnotationRef | null>(null);
+  const [chatHistoryOpen, setChatHistoryOpen] = useState(false);
   const cancelAnnotationMode = useCallback(() => setAnnotationMode(false), []);
   const [sidebar, setSidebar] = useState("slides");
   const [libraryTab, setLibraryTab] = useState<EditorLibraryTab>("design");
@@ -239,6 +255,31 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   );
   const extensionPanels = extensionContributions.flatMap(({ definition, contribution }) =>
     (contribution.panels ?? []).map((panel) => ({ ...panel, id: `${definition.manifest.id}/${panel.id}` })),
+  );
+  const extensionProperties: ExtensionDesignPropertyContent[] = !slide ? [] : extensionContributions.flatMap(({ definition, contribution }) =>
+    (contribution.designProperties ?? []).flatMap((section) => {
+      const selection = slide.elements.filter((element) => state.selection.includes(element.id));
+      const targetKind = section.target ?? "elements";
+      if (targetKind === "slide" ? selection.length > 0 : selection.length === 0) return [];
+      if (targetKind === "elements" && section.elementTypes && selection.some((element) => !section.elementTypes!.includes(element.type))) return [];
+      if (targetKind === "elements" && selection.length > 1 && section.supportsMultiple !== true) return [];
+      const extensionId = definition.manifest.id;
+      const target: EditorExtensionDesignPropertyTarget = {
+        kind: targetKind,
+        document: structuredClone(doc),
+        slide: structuredClone(slide),
+        elements: structuredClone(targetKind === "elements" ? selection : []),
+      };
+      return [{
+        id: `${extensionId}/${section.id}`,
+        extensionId,
+        title: section.title,
+        content: <ContributedDesignPropertySection extensionId={extensionId} section={section} target={target} />,
+      }];
+    }),
+  );
+  const extensionCanvasWidgets = extensionContributions.flatMap(({ definition, contribution }) =>
+    (contribution.canvasWidgets ?? []).map((widget) => ({ ...widget, id: `${definition.manifest.id}/${widget.id}`, extensionId: definition.manifest.id })),
   );
   const extensionToolGroups = extensionContributions.flatMap(({ definition, contribution }) =>
     (contribution.toolGroups ?? []).map((group) => group.map((tool) => ({
@@ -324,9 +365,10 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
         const approvedCapabilities = definition.manifest.capabilities.filter((capability) => grantedCapabilities.has(capability));
         try {
           const extensionContext = scopeEditorExtensionContext(extensionHostContext, definition.manifest, approvedCapabilities);
-          const dispose = await editorExtensions.activate(extensionId, {
-            ...extensionContext,
-          }, { storage }, editor.getDocument().extensions[extensionId]);
+          // Keep capability-gated properties as getters. Spreading this facade
+          // eagerly reads `doc`, `activeSlideId`, and `assetUrls`, so extensions
+          // fail startup if they have not requested every available capability.
+          const dispose = await editorExtensions.activate(extensionId, extensionContext, { storage }, editor.getDocument().extensions[extensionId]);
           if (disposed) await dispose();
           else cleanups.push(() => { void dispose(); });
         } catch (error) {
@@ -410,18 +452,29 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
       toast.error("The extension could not run.");
     }
   }
-  function applyExtensionEffect(extensionId: string) {
+  function applyExtensionEffect(extensionId: string, targetElementIds: readonly string[] = state.selection, effectId?: string) {
     const extension = extensionContributions.find((item) => item.definition.manifest.id === extensionId);
-    const effect = extension?.contribution.effects?.[0];
-    if (!effect) {
+    const effect = effectId
+      ? extension?.contribution.effects?.find((item) => item.id === effectId)
+      : extension?.contribution.effects?.[0];
+    if (!extension || !effect) {
       toast.error("This extension has no effect to apply.");
       return;
     }
-    const selectedIds = new Set(state.selection);
-    const selectedElements = doc.slides.flatMap((candidate) => candidate.elements).filter((element) => selectedIds.has(element.id));
-    const targets = selectedElements.filter((element) => !element.locked);
+    const currentDocument = editor.getDocument();
+    const manifest = extension.definition.manifest;
+    const installation = currentDocument.extensions[extensionId];
+    const grants = new Set(installation?.grantedCapabilities ?? (manifest.defaultEnabled ? manifest.capabilities : []));
+    if (!editorExtensions.isEnabled(extensionId, currentDocument.extensions)
+      || !(["catalog.write", "editor.render"] as const).every((capability) => manifest.capabilities.includes(capability) && grants.has(capability))) {
+      toast.error(`${manifest.name} does not have permission to apply this effect.`);
+      return;
+    }
+    const selectedIds = new Set(targetElementIds);
+    const selectedElements = currentDocument.slides.flatMap((candidate) => candidate.elements).filter((element) => selectedIds.has(element.id));
+    const targets = selectedElements.filter((element) => !element.locked && (!effect.elementTypes || effect.elementTypes.includes(element.type)));
     if (!targets.length) {
-      toast.info(selectedElements.length ? "Unlock a selected layer before applying this effect." : "Select a layer on the canvas first.");
+      toast.info(selectedElements.length ? "No unlocked selected layer supports this effect." : "Select a layer on the canvas first.");
       return;
     }
     const commands = targets.flatMap((element) => {
@@ -452,6 +505,98 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
       toast.error((error as Error).message || `Could not apply ${effect.name}.`);
     }
   }
+  function removeExtensionEffect(extensionId: string, effectId: string, targetElementIds: readonly string[]) {
+    const extension = extensionContributions.find((item) => item.definition.manifest.id === extensionId);
+    const effect = extension?.contribution.effects?.find((item) => item.id === effectId);
+    if (!extension || !effect) return;
+    const currentDocument = editor.getDocument();
+    const manifest = extension.definition.manifest;
+    const installation = currentDocument.extensions[extensionId];
+    const grants = new Set(installation?.grantedCapabilities ?? (manifest.defaultEnabled ? manifest.capabilities : []));
+    if (!editorExtensions.isEnabled(extensionId, currentDocument.extensions)
+      || !manifest.capabilities.includes("catalog.write") || !grants.has("catalog.write")) {
+      toast.error(`${manifest.name} does not have permission to update this layer.`);
+      return;
+    }
+    const selectedIds = new Set(targetElementIds);
+    const targets = currentDocument.slides.flatMap((candidate) => candidate.elements).filter((element) =>
+      selectedIds.has(element.id) && !element.locked && (!effect.elementTypes || effect.elementTypes.includes(element.type))
+      && element.effects.some((item) => item.extensionId === extensionId && item.effectId === effectId),
+    );
+    if (!targets.length) return;
+    try {
+      const commands = targets.map((element) => ({
+        type: "element.update" as const,
+        elementId: element.id,
+        changes: { effects: element.effects.filter((item) => item.extensionId !== extensionId || item.effectId !== effectId) },
+      }));
+      editor.execute({ type: "batch", commands });
+      toast.success(`${effect.name} removed from ${targets.length} ${targets.length === 1 ? "layer" : "layers"}.`);
+    } catch (error) {
+      toast.error((error as Error).message || `Could not remove ${effect.name}.`);
+    }
+  }
+  function getExtensionElementMenuItems(targetElements: readonly CatalogElement[]): MenuItem[] {
+    const extensionItems: MenuItem[] = [];
+    for (const { definition, contribution } of extensionContributions) {
+      const { manifest } = definition;
+      const extensionId = manifest.id;
+      const installation = doc.extensions[extensionId];
+      if (!editorExtensions.isEnabled(extensionId, doc.extensions)) continue;
+      const grants = new Set(installation?.grantedCapabilities ?? (manifest.defaultEnabled ? manifest.capabilities : []));
+      const items: MenuItem[] = [];
+
+      if (manifest.capabilities.includes("editor.ui") && grants.has("editor.ui")) {
+        for (const action of contribution.elementMenuActions ?? []) {
+          if (!action.requiredCapabilities.every((capability) => manifest.capabilities.includes(capability) && grants.has(capability))) continue;
+          const eligibleElements = targetElements.filter((element) =>
+            (action.allowLocked || !element.locked) && (!action.elementTypes || action.elementTypes.includes(element.type)),
+          );
+          if (!eligibleElements.length || (action.supportsMultiple === false && eligibleElements.length !== 1)) continue;
+          const targets = eligibleElements.map(({ id, type }) => ({ id, type }));
+          try {
+            if (action.isAvailable && !action.isAvailable(targets)) continue;
+          } catch (error) {
+            console.error(`[extension-menu:${extensionId}/${action.id}] availability check failed`, error);
+            continue;
+          }
+          items.push({
+            label: action.label,
+            icon: action.icon,
+            onSelect: () => {
+              const reportError = (error: unknown) => {
+                console.error(`[extension-menu:${extensionId}/${action.id}] action failed`, error);
+                toast.error(`Could not run ${action.label}.`);
+              };
+              try { void Promise.resolve(action.onSelect(targets)).catch(reportError); }
+              catch (error) { reportError(error); }
+            },
+          });
+        }
+      }
+
+      const canApplyEffects = (["catalog.write", "editor.render"] as const).every((capability) => manifest.capabilities.includes(capability) && grants.has(capability));
+      if (canApplyEffects) {
+        for (const effect of contribution.effects ?? []) {
+          const compatibleTargets = targetElements.filter((element) => !element.locked && (!effect.elementTypes || effect.elementTypes.includes(element.type)));
+          if (!compatibleTargets.length) continue;
+          const hasEffect = (element: CatalogElement) => element.effects.some((item) => item.extensionId === extensionId && item.effectId === effect.id);
+          if (compatibleTargets.some((element) => hasEffect(element) || element.effects.length < 8)) {
+            items.push({ label: `Apply ${effect.name}`, onSelect: () => applyExtensionEffect(extensionId, compatibleTargets.map((element) => element.id), effect.id) });
+          }
+          const appliedTargets = compatibleTargets.filter(hasEffect);
+          if (appliedTargets.length) {
+            items.push({ label: `Remove ${effect.name}`, onSelect: () => removeExtensionEffect(extensionId, effect.id, appliedTargets.map((element) => element.id)) });
+          }
+        }
+      }
+
+      if (items.length) extensionItems.push({ type: "submenu", label: manifest.name, icon: <HugeiconsIcon icon={PuzzleIcon} />, items });
+    }
+    return extensionItems.length
+      ? [{ type: "submenu", label: "Extensions", icon: <HugeiconsIcon icon={PuzzleIcon} />, items: extensionItems }]
+      : [];
+  }
   const [renamingSlide, setRenamingSlide] = useState<string | null>(null);
   const openMenu = useContextMenu();
 
@@ -465,7 +610,9 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   const [previewSlideIds, setPreviewSlideIds] = useState<string[] | null>(null);
   const previewSlideIdsRef = useRef<string[] | null>(null);
   const previousSlideTops = useRef<Map<string, number> | null>(null);
-  const pointerSlideDrag = useRef<{ slideId: string; pointerId: number } | null>(null);
+  const pointerSlideDrag = useRef<{ slideId: string; pointerId: number; startX: number; startY: number; started: boolean; origin: HTMLLIElement } | null>(null);
+  const slideDragPreviewElement = useRef<HTMLDivElement | null>(null);
+  const slideDragPosition = useRef({ left: 12, top: 12 });
   const [draggingSlideId, setDraggingSlideId] = useState<string | null>(null);
   const [keyboardDraggingSlideId, setKeyboardDraggingSlideId] = useState<string | null>(null);
   const [slideReorderAnnouncement, setSlideReorderAnnouncement] = useState("");
@@ -548,17 +695,38 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
     return to;
   }
 
-  function onSlideDragStart(event: React.PointerEvent<HTMLButtonElement>, slideId: string) {
-    if (event.button !== 0 || !event.isPrimary || pointerSlideDrag.current) return;
-    event.currentTarget.setPointerCapture(event.pointerId);
-    pointerSlideDrag.current = { slideId, pointerId: event.pointerId };
-    setKeyboardDraggingSlideId(null);
-    startSlideReorder(slideId);
+  function updateSlideDragPreview(clientX: number, clientY: number) {
+    const width = Math.min(220, Math.max(120, window.innerWidth - 24));
+    const left = Math.max(12, Math.min(window.innerWidth - width - 12, clientX + 16));
+    const top = Math.max(12, Math.min(window.innerHeight - 160, clientY + 16));
+    slideDragPosition.current = { left, top };
+    if (slideDragPreviewElement.current) {
+      slideDragPreviewElement.current.style.left = left + "px";
+      slideDragPreviewElement.current.style.top = top + "px";
+    }
   }
 
-  function onSlideDragMove(event: React.PointerEvent<HTMLButtonElement>, slideId: string) {
+  function onSlideDragStart(event: React.PointerEvent<HTMLLIElement>, slideId: string) {
+    if (event.button !== 0 || !event.isPrimary || pointerSlideDrag.current) return;
+    const target = event.target;
+    if (target instanceof Element && target.closest("button, input, textarea, select") && !target.closest("[data-slide-drag-surface]")) return;
+    pointerSlideDrag.current = { slideId, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY, started: false, origin: event.currentTarget };
+  }
+
+  function onSlideDragMove(event: React.PointerEvent<HTMLLIElement>, slideId: string) {
     const drag = pointerSlideDrag.current;
     if (!drag || drag.slideId !== slideId || drag.pointerId !== event.pointerId) return;
+    if (!drag.started) {
+      if (Math.hypot(event.clientX - drag.startX, event.clientY - drag.startY) < 5) return;
+      event.preventDefault();
+      drag.started = true;
+      drag.origin.setPointerCapture(event.pointerId);
+      setKeyboardDraggingSlideId(null);
+      updateSlideDragPreview(event.clientX, event.clientY);
+      startSlideReorder(slideId);
+    } else {
+      updateSlideDragPreview(event.clientX, event.clientY);
+    }
     const list = slideListElement.current;
     if (!list) return;
     const bounds = list.getBoundingClientRect();
@@ -574,18 +742,18 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
     updatePreviewSlideOrder(order);
   }
 
-  function onSlideDragEnd(event: React.PointerEvent<HTMLButtonElement>, slideId: string) {
+  function onSlideDragEnd(event: React.PointerEvent<HTMLLIElement>, slideId: string) {
     const drag = pointerSlideDrag.current;
     if (!drag || drag.slideId !== slideId || drag.pointerId !== event.pointerId) return;
     pointerSlideDrag.current = null;
-    commitSlideReorder(slideId);
+    if (drag.started) commitSlideReorder(slideId);
   }
 
-  function onSlideDragCancel(event: React.PointerEvent<HTMLButtonElement>, slideId: string) {
+  function onSlideDragCancel(event: React.PointerEvent<HTMLLIElement>, slideId: string) {
     const drag = pointerSlideDrag.current;
     if (!drag || drag.slideId !== slideId || drag.pointerId !== event.pointerId) return;
     pointerSlideDrag.current = null;
-    cancelSlideReorder();
+    if (drag.started) cancelSlideReorder();
     setKeyboardDraggingSlideId(null);
   }
 
@@ -692,15 +860,26 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
               assetUrls={assetUrls}
               zoom={zoom}
               onFitScale={onFitScale}
+              onZoomChange={setZoom}
               actions={actions}
               annotationMode={annotationMode}
               highlightedAnnotation={hoveredChatAnnotation}
               onAnnotateElement={(slideId, elementId) => addElementsToChat(slideId, [elementId])}
               onAddElementsToChat={(slideId, elementIds) => addElementsToChat(slideId, elementIds, true)}
+              getExtensionElementMenuItems={getExtensionElementMenuItems}
               onCancelAnnotation={cancelAnnotationMode}
               extensionRenderers={extensionRenderers}
               extensionEffects={extensionEffects}
             />
+            {extensionCanvasWidgets.length > 0 && (
+              <div aria-label="Canvas widgets" className="pointer-events-none absolute bottom-3 left-3 z-10 flex max-w-[calc(100%-9rem)] flex-wrap items-end gap-2">
+                {extensionCanvasWidgets.map(({ id, extensionId, content }) => (
+                  <div key={id} className="pointer-events-auto">
+                    <ExtensionUiBoundary extensionId={extensionId}>{content}</ExtensionUiBoundary>
+                  </div>
+                ))}
+              </div>
+            )}
             {/* Zoom */}
             <div className="absolute right-3 bottom-3 z-10 flex items-center gap-0.5 rounded-lg border bg-background/90 p-0.5 text-xs shadow-sm backdrop-blur">
               <Button variant="ghost" size="icon-sm" title={`Zoom out (${kbd("Ctrl+-")})`} aria-label="Zoom out" onClick={() => zoomBy(0.8)}><HugeiconsIcon icon={ZoomOutIcon} /></Button>
@@ -713,6 +892,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
           if (id === "properties") {
             const tabs: { id: EditorLibraryTab; label: string; icon: React.ReactNode }[] = [
               { id: "design", label: "Design", icon: <HugeiconsIcon icon={Heading01Icon} /> },
+              { id: "motion", label: "Motion", icon: <HugeiconsIcon icon={PlayIcon} /> },
               { id: "templates", label: "Templates", icon: <HugeiconsIcon icon={Presentation01Icon} /> },
               { id: "blocks", label: "Blocks", icon: <HugeiconsIcon icon={LayoutGridIcon} /> },
               { id: "media", label: "Media", icon: <HugeiconsIcon icon={ImageAdd01Icon} /> },
@@ -731,23 +911,40 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                     ))}
                   </div>
                   <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-                    <EditorLibraryPanel tab={libraryTab} editor={editor} doc={doc} slide={slide} selection={state.selection} assetUrls={assetUrls} addFont={uploadFont} productUi={productUi} userId={userId} uploadImage={uploadImage} />
+                    <EditorLibraryPanel tab={libraryTab} editor={editor} doc={doc} slide={slide} selection={state.selection} assetUrls={assetUrls} addFont={uploadFont} productUi={productUi} extensionProperties={extensionProperties} onPlay={() => setPreviewing("play")} userId={userId} uploadImage={uploadImage} removeUpload={removeUpload} setExternalAssetUrl={setExternalAssetUrl} />
                   </div>
                 </div>
               ),
             };
           }
           if (id === "chat") return {
+            header: (
+              <>
+                <span className="truncate text-xs font-medium">Chat</span>
+                {userId && <TooltipHint content={chatHistoryOpen ? "Return to chat" : "Chat history"}>
+                  <Button variant={chatHistoryOpen ? "secondary" : "ghost"} size="icon-xs" aria-label={chatHistoryOpen ? "Return to chat" : "Chat history"} aria-pressed={chatHistoryOpen} onClick={() => setChatHistoryOpen((open) => !open)}>
+                    <HugeiconsIcon icon={Clock01Icon} />
+                  </Button>
+                </TooltipHint>}
+              </>
+            ),
             body: (
               <EditorChat
                 editor={editor}
                 doc={doc}
                 assetUrls={assetUrls}
+                historyOpen={chatHistoryOpen}
+                onHistoryOpenChange={setChatHistoryOpen}
                 annotations={chatAnnotations}
                 annotationMode={annotationMode}
                 hoveredAnnotation={hoveredChatAnnotation}
                 onAnnotationModeChange={setAnnotationMode}
                 onHoveredAnnotationChange={setHoveredChatAnnotation}
+                onAnnotationsSent={(sent) => {
+                  const sentKeys = new Set(sent.map((annotation) => `${annotation.slideId}\u0000${annotation.elementId}`));
+                  setChatAnnotations((current) => current.filter((annotation) => !sentKeys.has(`${annotation.slideId}\u0000${annotation.elementId}`)));
+                  setHoveredChatAnnotation((current) => current && sentKeys.has(`${current.slideId}\u0000${current.elementId}`) ? null : current);
+                }}
                 onRemoveAnnotation={(annotation) => {
                   setChatAnnotations((current) => current.filter((item) => item.slideId !== annotation.slideId || item.elementId !== annotation.elementId));
                   setHoveredChatAnnotation((current) => current?.slideId === annotation.slideId && current.elementId === annotation.elementId ? null : current);
@@ -776,7 +973,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
             body:
               sidebar === "layers" ? (
                 <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto pt-2">
-                  <LayersPanel editor={editor} slide={slide} selection={state.selection} actions={actions} />
+                  <LayersPanel editor={editor} slide={slide} selection={state.selection} actions={actions} getExtensionElementMenuItems={getExtensionElementMenuItems} />
                 </div>
               ) : sidebar === "slides" ? (
                 <>
@@ -788,13 +985,21 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                       data-slide-id={s.id}
                       data-sortable-slide-id={s.id}
                       data-dragging={draggingSlideId === s.id ? "true" : undefined}
-                      className="group relative rounded-lg transition-[background-color,box-shadow,opacity] duration-150 data-[dragging=true]:bg-primary/5 data-[dragging=true]:shadow-md"
+                      className="group relative rounded-lg transition-[background-color,box-shadow,opacity] duration-150 data-[dragging=true]:select-none data-[dragging=true]:bg-primary/5 data-[dragging=true]:opacity-25 data-[dragging=true]:shadow-md"
+                      onPointerDown={(e) => onSlideDragStart(e, s.id)}
+                      onPointerMove={(e) => onSlideDragMove(e, s.id)}
+                      onPointerUp={(e) => onSlideDragEnd(e, s.id)}
+                      onPointerCancel={(e) => onSlideDragCancel(e, s.id)}
+                      onLostPointerCapture={(e) => onSlideDragCancel(e, s.id)}
+                      onDragStart={(e) => e.preventDefault()}
                       onContextMenu={(e) => { editor.setActiveSlide(s.id); openMenu(e, slideMenu(actions, s.id, i, slidesForList.length, () => setRenamingSlide(s.id))); }}
                     >
                       <div className="mb-1 flex items-center gap-1 text-[11px] text-muted-foreground">
                         <span className="tabular-nums">{i + 1}</span>
                         {renamingSlide === s.id ? (
-                          <Input autoFocus defaultValue={s.name} aria-label="Slide name" className="h-8 min-w-0 flex-1"
+                          <Input autoFocus defaultValue={s.name} aria-label="Slide name" className="h-5 min-w-0 flex-1 rounded-none border-0 bg-transparent px-0 py-0 text-[11px] text-foreground shadow-none focus-visible:border-0 focus-visible:bg-transparent focus-visible:ring-0"
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={(e) => e.stopPropagation()}
                             onBlur={(e) => { actions.renameSlide(s.id, e.target.value); setRenamingSlide(null); }}
                             onKeyDown={(e) => { e.stopPropagation(); if (e.key === "Enter") e.currentTarget.blur(); if (e.key === "Escape") setRenamingSlide(null); }} />
                         ) : (
@@ -804,14 +1009,10 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                           <TooltipHint content="Drag to reorder. Press Space, then ↑/↓ to move with the keyboard.">
                             <button
                               type="button"
+                              data-slide-drag-surface
                               aria-label={`Reorder slide ${i + 1}: ${s.name}`}
                               aria-pressed={draggingSlideId === s.id}
                               aria-keyshortcuts="Space ArrowUp ArrowDown Escape"
-                              onPointerDown={(e) => onSlideDragStart(e, s.id)}
-                              onPointerMove={(e) => onSlideDragMove(e, s.id)}
-                              onPointerUp={(e) => onSlideDragEnd(e, s.id)}
-                              onPointerCancel={(e) => onSlideDragCancel(e, s.id)}
-                              onLostPointerCapture={(e) => onSlideDragCancel(e, s.id)}
                               onKeyDown={(e) => {
                                 const keyboardDragging = keyboardDraggingSlideId === s.id;
                                 if (!keyboardDragging && (e.key === " " || e.key === "Enter")) {
@@ -865,10 +1066,11 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                       </div>
                       <button
                         type="button"
+                        data-slide-drag-surface
                         onClick={() => editor.setActiveSlide(s.id)}
                         aria-current={s.id === slide.id}
                         aria-label={`Slide ${i + 1}: ${s.name}`}
-                        className="block w-full overflow-hidden rounded-md ring-1 ring-border aria-current:ring-2 aria-current:ring-sky-500"
+                        className="block w-full touch-none cursor-grab overflow-hidden rounded-md ring-1 ring-border aria-current:ring-2 aria-current:ring-sky-500 active:cursor-grabbing"
                       >
                         <SlideView doc={doc} slide={s} scale={thumbScale} mode="edit" highlightedElementId={hoveredChatAnnotation?.slideId === s.id ? hoveredChatAnnotation.elementId : undefined} resolveAsset={(id) => assetUrls[id]} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} />
                       </button>
@@ -889,6 +1091,27 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
           };
         }}
       />
+      {draggingSlideId && pointerSlideDrag.current?.started && (() => {
+        const draggingSlide = doc.slides.find((item) => item.id === draggingSlideId);
+        if (!draggingSlide) return null;
+        const position = (previewSlideIds ?? doc.slides.map((item) => item.id)).indexOf(draggingSlideId) + 1;
+        return (
+          <div
+            ref={slideDragPreviewElement}
+            aria-hidden="true"
+            className="pointer-events-none fixed z-[100] w-[min(220px,calc(100vw-24px))] overflow-hidden rounded-xl border border-primary/70 bg-background/90 p-1.5 opacity-75 shadow-2xl ring-1 ring-primary/20 backdrop-blur-sm"
+            style={{ left: slideDragPosition.current.left, top: slideDragPosition.current.top }}
+          >
+            <div className="flex items-center justify-between gap-2 px-1 pb-1.5 text-[10px] font-medium">
+              <span className="truncate">{draggingSlide.name}</span>
+              <span className="shrink-0 tabular-nums text-muted-foreground">{position} / {doc.slides.length}</span>
+            </div>
+            <div className="overflow-hidden rounded-md ring-1 ring-border">
+              <SlideView doc={doc} slide={draggingSlide} scale={220 / W} mode="edit" resolveAsset={(id) => assetUrls[id]} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} />
+            </div>
+          </div>
+        );
+      })()}
       <CatalogFonts doc={doc} resolveAsset={(id) => assetUrls[id]} />
       {shortcutsOpen && <ShortcutsDialog onClose={() => setShortcutsOpen(false)} />}
       {importing && <ProductImportDialog editor={editor} doc={doc} uploadImage={uploadImage} activeSlideIndex={slideIndex} onClose={() => setImporting(false)} />}

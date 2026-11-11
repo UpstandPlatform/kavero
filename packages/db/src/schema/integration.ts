@@ -1,30 +1,21 @@
-import { defineRelationsPart } from "drizzle-orm";
-import { index, integer, jsonb, pgTable, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { defineRelationsPart, sql } from "drizzle-orm";
+import { boolean, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
 
 import { user } from "./auth";
 
-/**
- * Personal access tokens for MCP clients and other API callers.
- * Only a SHA-256 hash is stored; the token itself is shown once.
- */
-export const apiToken = pgTable(
-  "api_token",
-  {
-    id: text("id").primaryKey(),
-    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-    name: text("name").notNull(),
-    /** First characters, to recognise a token in the list. */
-    prefix: text("prefix").notNull(),
-    tokenHash: text("token_hash").notNull(),
-    /** e.g. catalogs:read, catalogs:write, catalogs:delete, publish */
-    scopes: jsonb("scopes").$type<string[]>().notNull(),
-    lastUsedAt: timestamp("last_used_at"),
-    expiresAt: timestamp("expires_at"),
-    revokedAt: timestamp("revoked_at"),
-    createdAt: timestamp("created_at").defaultNow().notNull(),
-  },
-  (t) => [uniqueIndex("api_token_hash_idx").on(t.tokenHash), index("api_token_user_idx").on(t.userId)],
-);
+export type ModelCapabilities = {
+  inputModalities: ("text" | "image" | "audio" | "video" | "file")[] | null;
+  outputModalities: ("text" | "image" | "audio" | "video")[] | null;
+  toolCalling: boolean | null;
+  structuredOutput: boolean | null;
+  maxInputTokens: number | null;
+  source: "provider" | "curated" | "unknown";
+};
+
+export const AUDIT_AREAS = ["catalogs", "assets", "exports", "publication", "workspace", "ai", "api_keys", "integrations", "admin", "auth", "account"] as const;
+export type AuditArea = (typeof AUDIT_AREAS)[number];
+export const AUDIT_CHANNELS = ["web", "mcp", "admin", "system"] as const;
+export type AuditChannel = (typeof AUDIT_CHANNELS)[number];
 
 /** Security and activity record for API/MCP actions. */
 export const auditLog = pgTable(
@@ -32,15 +23,20 @@ export const auditLog = pgTable(
   {
     id: text("id").primaryKey(),
     userId: text("user_id").references(() => user.id, { onDelete: "set null" }),
-    tokenId: text("token_id"),
-    /** e.g. "mcp:slide_add_element" */
+    apiKeyId: text("api_key_id"),
+    area: text("area").$type<AuditArea>().notNull().default("account"),
+    channel: text("channel").$type<AuditChannel>().notNull().default("web"),
     action: text("action").notNull(),
     target: text("target"),
     outcome: text("outcome", { enum: ["ok", "denied", "error"] }).notNull(),
     details: jsonb("details"),
     createdAt: timestamp("created_at").defaultNow().notNull(),
   },
-  (t) => [index("audit_log_user_created_idx").on(t.userId, t.createdAt)],
+  (t) => [
+    index("audit_log_user_created_idx").on(t.userId, t.createdAt),
+    index("audit_log_area_created_idx").on(t.area, t.createdAt),
+    index("audit_log_action_created_idx").on(t.action, t.createdAt),
+  ],
 );
 
 /** External MCP servers a user connected (e.g. a store's product server). */
@@ -68,8 +64,7 @@ export const mcpConnection = pgTable(
   (t) => [index("mcp_connection_user_idx").on(t.userId)],
 );
 
-export const integrationRelations = defineRelationsPart({ user, apiToken, mcpConnection }, (r) => ({
-  apiToken: { user: r.one.user({ from: r.apiToken.userId, to: r.user.id }) },
+export const integrationRelations = defineRelationsPart({ user, mcpConnection }, (r) => ({
   mcpConnection: { user: r.one.user({ from: r.mcpConnection.userId, to: r.user.id }) },
 }));
 
@@ -94,18 +89,25 @@ export const aiJob = pgTable(
   (t) => [index("ai_job_user_created_idx").on(t.userId, t.createdAt)],
 );
 
-/** A user's own AI provider key (Settings → AI). Used before the server's key. */
-export const aiCredential = pgTable("ai_credential", {
-  userId: text("user_id").primaryKey().references(() => user.id, { onDelete: "cascade" }),
-  provider: text("provider", { enum: ["anthropic", "openrouter", "openai", "openai-compatible"] }).notNull(),
-  model: text("model"),
-  baseUrl: text("base_url"),
-  /** AES-256-GCM sealed key (SecretBox); never returned to clients. */
-  encryptedKey: text("encrypted_key"),
-  /** Last 4 characters, to recognise the key in the UI. */
-  keyHint: text("key_hint"),
-  updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()).notNull(),
-});
+/** A user's encrypted provider connection. At most one is active as the default. */
+export const aiCredential = pgTable(
+  "ai_credential",
+  {
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: ["anthropic", "openrouter", "openai", "openai-compatible"] }).notNull(),
+    model: text("model"),
+    baseUrl: text("base_url"),
+    encryptedKey: text("encrypted_key"),
+    keyHint: text("key_hint"),
+    isDefault: boolean("is_default").notNull().default(false),
+    modelCapabilities: jsonb("model_capabilities").$type<ModelCapabilities>(),
+    updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.userId, t.provider] }),
+    uniqueIndex("ai_credential_default_user_idx").on(t.userId).where(sql`${t.isDefault}`),
+  ],
+);
 
 /** Server-wide settings managed by admins (Admin → Settings). One row per key. */
 export const appSetting = pgTable("app_setting", {

@@ -6,7 +6,7 @@ import { MAX_FONT_BYTES, downloadFont, googleFontFaces, sniffFont } from "@Kaver
 import { SecretBox } from "@Kavero/api/services/secret-box";
 import { imageSize } from "@Kavero/api/services/image-size";
 import { fetchImageAsDataUrl } from "@Kavero/api/services/safe-fetch";
-import { TokenService, audit, isBanned, permissionsToScopes } from "@Kavero/api/services/token-service";
+import { audit, isBanned, permissionsToScopes, type ApiKeyPrincipal } from "@Kavero/api/services/audit-service";
 import { providerFromEnv, type AiEnv } from "@Kavero/ai";
 import { user } from "@Kavero/db/schema/auth";
 import { eq } from "drizzle-orm";
@@ -22,20 +22,8 @@ import { auth, db } from "@/services";
 
 export const runtime = "nodejs";
 
-const LIMIT_PER_MINUTE = 120;
 const aiProvider = providerFromEnv(process.env as AiEnv);
 const secretBox = new SecretBox(ENV.BETTER_AUTH_SECRET);
-const hits = new Map<string, { n: number; resetAt: number }>();
-function rateLimited(tokenId: string) {
-  const now = Date.now();
-  const h = hits.get(tokenId);
-  if (!h || h.resetAt < now) {
-    hits.set(tokenId, { n: 1, resetAt: now + 60_000 });
-    return false;
-  }
-  h.n += 1;
-  return h.n > LIMIT_PER_MINUTE;
-}
 
 const unauthorized = (message: string) =>
   Response.json({ jsonrpc: "2.0", error: { code: -32001, message }, id: null }, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="kavero"' } });
@@ -43,32 +31,19 @@ const unauthorized = (message: string) =>
 /**
  * Kavero MCP server (Streamable HTTP, stateless JSON mode).
  * Authenticate with a Better Auth API key: `Authorization: Bearer kv_...`.
- * Legacy personal access tokens remain valid during migration.
  */
 export async function POST(request: Request) {
   const token = request.headers.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
   if (!token) return unauthorized("Missing bearer token. Create one in Kavero → Settings → API keys.");
-  let principal: Awaited<ReturnType<TokenService["authenticate"]>> = null;
-  try {
-    const verified = await auth.api.verifyApiKey({ body: { key: token } });
-    if (verified.valid && verified.key) {
-      const [owner] = await db.select({ banned: user.banned, banExpires: user.banExpires }).from(user).where(eq(user.id, verified.key.referenceId)).limit(1);
-      if (!owner || isBanned(owner)) return unauthorized("Invalid, expired or revoked token.");
-      principal = {
-        userId: verified.key.referenceId,
-        tokenId: verified.key.id,
-        scopes: permissionsToScopes(verified.key.permissions),
-      };
-    }
-  } catch {
-    // Continue with legacy token authentication while users transition to Better Auth keys.
-  }
-  principal ??= await new TokenService(db).authenticate(token);
-  if (!principal) return unauthorized("Invalid, expired or revoked token.");
-  if (rateLimited(principal.tokenId)) {
-    await audit(db, { userId: principal.userId, tokenId: principal.tokenId, action: "mcp:request", outcome: "denied", details: { reason: "rate-limit" } });
-    return Response.json({ jsonrpc: "2.0", error: { code: -32002, message: "Rate limit exceeded; slow down." }, id: null }, { status: 429, headers: { "Retry-After": "60" } });
-  }
+  const verified = await auth.api.verifyApiKey({ body: { key: token } }).catch(() => null);
+  if (!verified?.valid || !verified.key) return unauthorized("Invalid, expired or revoked API key.");
+  const [owner] = await db.select({ banned: user.banned, banExpires: user.banExpires }).from(user).where(eq(user.id, verified.key.referenceId)).limit(1);
+  if (!owner || isBanned(owner)) return unauthorized("Invalid, expired or revoked API key.");
+  const principal: ApiKeyPrincipal = {
+    userId: verified.key.referenceId,
+    apiKeyId: verified.key.id,
+    scopes: permissionsToScopes(verified.key.permissions),
+  };
 
   // Links handed to agents use the app's public address (BETTER_AUTH_URL), not the
   // address this request happened to arrive on (an internal or localhost name).
@@ -93,6 +68,7 @@ export async function POST(request: Request) {
       const file = await catalogs.findAsset(principal.userId, doc.id, a.id);
       const bytes = file && (await objectStorage().get(file.storageKey));
       if (bytes) assets[a.id] = `data:${file.mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
+      else if (a.attribution?.provider !== "GIPHY" && /^https:\/\//i.test(a.uri)) assets[a.id] = a.uri;
     }
     return assets;
   };
@@ -134,7 +110,7 @@ export async function POST(request: Request) {
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });
   await server.connect(transport);
   try {
-    return await transport.handleRequest(request, { authInfo: { token, clientId: principal.tokenId, scopes: principal.scopes } });
+      return await transport.handleRequest(request, { authInfo: { token, clientId: principal.apiKeyId, scopes: principal.scopes } });
   } finally {
     void server.close();
   }

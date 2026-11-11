@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { toast } from "sonner";
 
 import { localCatalogs, onCatalogsChanged, saveLocalCatalog } from "@/modules/catalog/local-catalogs";
+import { resolveGiphyMediaUrl } from "@/modules/media/giphy";
 
 export type SaveStatus = "saved" | "saving" | "unsaved" | "error" | "conflict";
 
@@ -93,6 +94,16 @@ export function useCatalogEditor(catalogId: string) {
       setSaveStatus("saved");
       setAssetUrls(urls);
       setEditor(next);
+      const giphyKey = process.env.NEXT_PUBLIC_GIPHY_API_KEY?.trim() ?? "";
+      const externalGifs = parsed.document.assets.filter((asset) => asset.attribution?.provider === "GIPHY" && asset.attribution.providerAssetId);
+      if (giphyKey && externalGifs.length) {
+        void Promise.all(externalGifs.map(async (asset) => [asset.id, await resolveGiphyMediaUrl(asset.attribution!.providerAssetId!, giphyKey)] as const))
+          .then((resolved) => {
+            if (cancelled) return;
+            setAssetUrls((current) => ({ ...current, ...Object.fromEntries(resolved.filter((entry): entry is readonly [string, string] => !!entry[1])) }));
+          })
+          .catch(() => undefined);
+      }
     })().catch((e: Error) => !cancelled && setLoadError(e.message));
     return () => {
       cancelled = true;
@@ -212,7 +223,7 @@ export function useCatalogEditor(catalogId: string) {
   const flushSave = useCallback(() => controls.current?.flush() ?? Promise.resolve(), []);
 
   const uploadImage = useCallback(
-    async (file: File): Promise<{ assetId: string; width: number; height: number }> => {
+    async (file: File, attribution?: NonNullable<CatalogDocument["assets"][number]["attribution"]>): Promise<{ assetId: string; width: number; height: number }> => {
       if (!editor) throw new Error("Editor not ready");
       if (!file.type.startsWith("image/")) throw new Error("Please choose an image file");
       if (file.size > 25 * 1024 * 1024) throw new Error("Images must be under 25 MB");
@@ -231,12 +242,42 @@ export function useCatalogEditor(catalogId: string) {
       setAssetUrls((u) => ({ ...u, [assetId]: url }));
       editor.execute({
         type: "asset.add",
-        asset: { id: assetId, kind: "image", mimeType: file.type, name: file.name, uri: `local://${assetId}`, width, height, bytes: file.size, hash },
+        asset: { id: assetId, kind: "image", mimeType: file.type, name: file.name, uri: `local://${assetId}`, width, height, bytes: file.size, hash, attribution },
       });
       return { assetId, width, height };
     },
     [editor, catalogId],
   );
+
+  const removeUpload = useCallback(async (assetId: string) => {
+    if (!editor) throw new Error("Editor not ready");
+    const asset = editor.getDocument().assets.find((candidate) => candidate.id === assetId);
+    if (!asset) throw new Error("Upload not found");
+    const url = assetUrls[assetId];
+    const repo = localCatalogs();
+    const stored = await repo.getAsset(assetId);
+    if (stored) await repo.removeAsset(assetId);
+    try {
+      editor.execute({ type: "asset.remove", assetId, removeFromSlides: true }, { undoable: false });
+    } catch (error) {
+      if (stored) await repo.putAsset(stored);
+      throw error;
+    }
+    if (url) {
+      URL.revokeObjectURL(url);
+      urlsRef.current = urlsRef.current.filter((item) => item !== url);
+    }
+    setAssetUrls((current) => {
+      const next = { ...current };
+      delete next[assetId];
+      return next;
+    });
+  }, [editor, assetUrls]);
+
+  const setExternalAssetUrl = useCallback((assetId: string, url: string) => {
+    if (!/^https:\/\//i.test(url)) return;
+    setAssetUrls((current) => ({ ...current, [assetId]: url }));
+  }, []);
 
   /**
    * Store a font file inside the catalog so previews and every export render it,
@@ -267,7 +308,7 @@ export function useCatalogEditor(catalogId: string) {
     [editor, catalogId],
   );
 
-  return { editor, loadError, assetUrls, saveStatus, uploadImage, uploadFont, flushSave, reloadFromStorage, keepMine };
+  return { editor, loadError, assetUrls, saveStatus, uploadImage, removeUpload, setExternalAssetUrl, uploadFont, flushSave, reloadFromStorage, keepMine };
 }
 
 const EMPTY = () => () => {};

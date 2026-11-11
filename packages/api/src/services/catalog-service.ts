@@ -5,9 +5,10 @@ import { applyCommand, type EditorCommand } from "@Kavero/editor-core";
 import type { Database } from "@Kavero/db";
 import { ensurePersonalWorkspace } from "@Kavero/db/personal-workspace";
 import { catalog, catalogAsset, catalogRevision } from "@Kavero/db/schema/catalog";
+import { publicationAsset } from "@Kavero/db/schema/publication";
 import { workspace, workspaceMember, type WorkspaceRole } from "@Kavero/db/schema/workspace";
 import { TRPCError } from "@trpc/server";
-import { and, desc, eq, lt, notInArray } from "drizzle-orm";
+import { and, desc, eq, inArray, lt, notInArray } from "drizzle-orm";
 
 import { ROLE_PERMISSIONS, isUniqueViolation, memberJoin, requireCatalog, visibleTo, workspaceRole, type CatalogPermission } from "./access";
 
@@ -49,7 +50,7 @@ const summaryColumns = {
  * so tRPC, MCP tools and route handlers share one set of rules.
  */
 export class CatalogService {
-  constructor(private readonly db: Database) {}
+  constructor(private readonly db: Database, private readonly deleteObjects?: (keys: string[]) => Promise<void>) {}
 
   /** Personal catalogs plus catalogs in the user's workspaces. */
   async list(userId: string): Promise<CloudCatalogSummary[]> {
@@ -117,7 +118,7 @@ export class CatalogService {
           id, ownerId: userId, workspaceId: targetWorkspaceId, documentId: doc.id, title: doc.metadata.title, slideCount: doc.slides.length,
           thumbnail, revision: 1, schemaVersion: doc.schemaVersion, document: doc,
         });
-        return { id, revision: 1, created: true };
+        return { id, revision: 1, created: true, removedStorageKeys: [] as string[] };
       }
       if (!ROLE_PERMISSIONS[found!.role].includes("write")) {
         throw new TRPCError({ code: "FORBIDDEN", message: `Your role (${found!.role}) can't edit this catalog` });
@@ -138,23 +139,38 @@ export class CatalogService {
         schemaVersion: doc.schemaVersion, document: doc,
       }).where(eq(catalog.id, existing.id));
       await tx.delete(catalogRevision).where(and(eq(catalogRevision.catalogId, existing.id), lt(catalogRevision.revision, revision - KEEP_REVISIONS)));
-      // Forget uploaded files the document no longer references.
+      // Forget uploaded files the document no longer references, and remove
+      // their bytes after commit unless a published snapshot still needs them.
       const ids = doc.assets.map((a) => a.id);
+      const removedAssets = await tx.select({ storageKey: catalogAsset.storageKey }).from(catalogAsset).where(ids.length
+        ? and(eq(catalogAsset.catalogId, existing.id), notInArray(catalogAsset.assetId, ids))
+        : eq(catalogAsset.catalogId, existing.id));
       await tx.delete(catalogAsset).where(ids.length ? and(eq(catalogAsset.catalogId, existing.id), notInArray(catalogAsset.assetId, ids)) : eq(catalogAsset.catalogId, existing.id));
-      return { id: existing.id, revision, created: false };
+      return { id: existing.id, revision, created: false, removedStorageKeys: removedAssets.map((asset) => asset.storageKey) };
     }).catch((e) => {
       // Two first saves of the same document raced; the other one created the cloud copy.
       if (isUniqueViolation(e)) throw new TRPCError({ code: "CONFLICT", message: "This catalog was just saved from somewhere else. Reload it and try again." });
       throw e;
     });
-    return { ...result, missingAssetIds: await this.missingAssets(result.id, doc) };
+    const keys = [...new Set(result.removedStorageKeys)];
+    if (keys.length && this.deleteObjects) {
+      const [catalogReferences, publishedReferences] = await Promise.all([
+        this.db.select({ storageKey: catalogAsset.storageKey }).from(catalogAsset).where(inArray(catalogAsset.storageKey, keys)),
+        this.db.select({ storageKey: publicationAsset.storageKey }).from(publicationAsset).where(inArray(publicationAsset.storageKey, keys)),
+      ]);
+      const stillUsed = new Set([...catalogReferences, ...publishedReferences].map((asset) => asset.storageKey));
+      const unused = keys.filter((key) => !stillUsed.has(key));
+      if (unused.length) await this.deleteObjects(unused).catch(() => undefined);
+    }
+    const { removedStorageKeys: _removedStorageKeys, ...saved } = result;
+    return { ...saved, missingAssetIds: await this.missingAssets(result.id, doc) };
   }
 
   /** Document assets whose bytes the server doesn't have yet (or has a different version of). */
   private async missingAssets(catalogId: string, doc: CatalogDocument): Promise<string[]> {
     const stored = await this.db.select({ assetId: catalogAsset.assetId, hash: catalogAsset.hash }).from(catalogAsset).where(eq(catalogAsset.catalogId, catalogId));
     const have = new Map(stored.map((a) => [a.assetId, a.hash]));
-    return doc.assets.filter((a) => !have.has(a.id) || (a.hash && have.get(a.id) !== a.hash)).map((a) => a.id);
+    return doc.assets.filter((a) => !/^https:\/\//i.test(a.uri) && (!have.has(a.id) || (a.hash && have.get(a.id) !== a.hash))).map((a) => a.id);
   }
 
   /** Create a new cloud catalog from a full document (fresh document id is the caller's job). */

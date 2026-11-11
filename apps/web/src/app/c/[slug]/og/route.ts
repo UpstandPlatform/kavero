@@ -1,5 +1,6 @@
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { renderSlideImage } from "@Kavero/export-chromium";
+import { createCacheStore } from "@Kavero/redis";
 
 import { renderOrigin } from "@/modules/export/access";
 import { publications } from "@/modules/publishing/access";
@@ -10,8 +11,7 @@ export const runtime = "nodejs";
 const inFlight = new Map<string, Promise<Uint8Array | null>>();
 /** Versions whose render failed recently (no Chrome, busy, broken slide): retry after this. */
 const FAILURE_TTL_MS = 10 * 60_000;
-const g = globalThis as unknown as { __kaveroOgFailures?: Map<string, number> };
-const failedUntil = (g.__kaveroOgFailures ??= new Map());
+const failedRenders = createCacheStore<boolean>("og-render-failures", { defaultTtlMs: FAILURE_TTL_MS, maxEntries: 10_000 });
 
 /**
  * Social preview image (first slide) for public and unlisted catalogs.
@@ -27,7 +27,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   const key = `publications/${pub.id}/og-v${pub.version}.png`;
   let png = pub.ogImageKey === key ? await storage.get(key) : null;
 
-  if (!png && (failedUntil.get(key) ?? 0) > Date.now()) return new Response("Preview unavailable", { status: 404 });
+  if (!png && await failedRenders.get(key)) return new Response("Preview unavailable", { status: 404 });
   if (!png) {
     let job = inFlight.get(key);
     if (!job) {
@@ -48,8 +48,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
           return image;
         } catch {
           // No Chrome, all slots busy or a broken slide: no preview, and don't relaunch Chrome on every request.
-          for (const [k, until] of failedUntil) if (until <= Date.now()) failedUntil.delete(k);
-          failedUntil.set(key, Date.now() + FAILURE_TTL_MS);
+          await failedRenders.set(key, true, FAILURE_TTL_MS);
           return null;
         } finally {
           inFlight.delete(key);

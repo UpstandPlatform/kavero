@@ -10,10 +10,12 @@ import { nextCookies } from "better-auth/next-js";
 import { admin } from "better-auth/plugins";
 import { apiKey } from "@better-auth/api-key";
 import { and, count, eq, gt, isNull, sql } from "drizzle-orm";
+import { createBetterAuthRateLimitStorage, createBetterAuthSecondaryStorage } from "@Kavero/redis";
 
 export type AuthConfig = {
   BETTER_AUTH_URL: string;
   BETTER_AUTH_SECRET: string;
+  REDIS_URL?: string;
 };
 
 /** Who may create an account (Admin → Settings). */
@@ -27,6 +29,7 @@ export async function getSignupPolicy(database: Database): Promise<SignupPolicy>
 }
 
 export function createAuth(env: AuthConfig, database: Database) {
+  const secondaryStorage = createBetterAuthSecondaryStorage("better-auth", env.REDIS_URL);
   return betterAuth({
     database: drizzleAdapter(database, {
       provider: "pg",
@@ -36,6 +39,15 @@ export function createAuth(env: AuthConfig, database: Database) {
     emailAndPassword: { enabled: true },
     secret: env.BETTER_AUTH_SECRET,
     baseURL: env.BETTER_AUTH_URL,
+    secondaryStorage,
+    session: { storeSessionInDatabase: true },
+    verification: { storeInDatabase: true },
+    rateLimit: {
+      enabled: true,
+      timeWindow: 60_000,
+      maxRequests: 120,
+      customStorage: createBetterAuthRateLimitStorage("better-auth", env.REDIS_URL),
+    },
     databaseHooks: {
       user: {
         create: {
