@@ -3,6 +3,16 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.10.0](https://github.com/UpstandPlatform/kavero/compare/v0.9.0...v0.10.0) - 2026-11-11
+
+### Features
+
+- Add curated extension store and durable integrations ([2474f45](https://github.com/UpstandPlatform/kavero/commit/2474f4528f77b7660330f0f91a5b4b241716e1bc))
+
+### Fixes
+
+- Improve extension store and isolate render errors ([b66ae68](https://github.com/UpstandPlatform/kavero/commit/b66ae68be0cde6157163f4b8cc041fde53a6a66d))
+
 ## [0.9.0](https://github.com/UpstandPlatform/kavero/compare/v0.8.0...v0.9.0) - 2026-11-10
 
 ### Features
