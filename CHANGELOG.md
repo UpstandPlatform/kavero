@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.12.0](https://github.com/UpstandPlatform/kavero/compare/v0.11.0...v0.12.0) - 2026-11-12
+
+### Features
+
+- Runtime config and editions, chat and extension hardening, pen tool, markdown and table elements ([9bb69ab](https://github.com/UpstandPlatform/kavero/commit/9bb69abcb39237c37f4095316bef9ee7044cf078))
+
 ## [0.11.0](https://github.com/UpstandPlatform/kavero/compare/v0.10.0...v0.11.0) - 2026-11-11
 
 ### Features
