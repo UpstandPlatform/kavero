@@ -8,6 +8,7 @@ import { toast } from "sonner";
 
 import { localCatalogs, onCatalogsChanged, saveLocalCatalog } from "@/modules/catalog/local-catalogs";
 import { resolveGiphyMediaUrl } from "@/modules/media/giphy";
+import { loadPublicConfig } from "@/lib/public-config";
 
 export type SaveStatus = "saved" | "saving" | "unsaved" | "error" | "conflict";
 
@@ -94,14 +95,13 @@ export function useCatalogEditor(catalogId: string) {
       setSaveStatus("saved");
       setAssetUrls(urls);
       setEditor(next);
-      const giphyKey = process.env.NEXT_PUBLIC_GIPHY_API_KEY?.trim() ?? "";
       const externalGifs = parsed.document.assets.filter((asset) => asset.attribution?.provider === "GIPHY" && asset.attribution.providerAssetId);
-      if (giphyKey && externalGifs.length) {
-        void Promise.all(externalGifs.map(async (asset) => [asset.id, await resolveGiphyMediaUrl(asset.attribution!.providerAssetId!, giphyKey)] as const))
+      if (externalGifs.length) {
+        void loadPublicConfig().then(({ media: { giphyApiKey: giphyKey } }) => (giphyKey ? Promise.all(externalGifs.map(async (asset) => [asset.id, await resolveGiphyMediaUrl(asset.attribution!.providerAssetId!, giphyKey)] as const))
           .then((resolved) => {
             if (cancelled) return;
             setAssetUrls((current) => ({ ...current, ...Object.fromEntries(resolved.filter((entry): entry is readonly [string, string] => !!entry[1])) }));
-          })
+          }) : undefined))
           .catch(() => undefined);
       }
     })().catch((e: Error) => !cancelled && setLoadError(e.message));

@@ -144,3 +144,80 @@ export async function readLimited(body: ReadableStream<Uint8Array> | null, max: 
   }
   return Buffer.concat(chunks);
 }
+
+/**
+ * Wrap a response so its body errors as soon as it passes `max` bytes. Unlike readLimited this
+ * keeps the body streaming, so it also bounds long-lived streams (SSE) consumed by other code.
+ */
+export function limitResponseBody(res: Response, max: number, message = "The response is too large"): Response {
+  if (!res.body) return res;
+  const declared = Number(res.headers.get("content-length") ?? 0);
+  if (Number.isFinite(declared) && declared > max) {
+    void res.body.cancel().catch(() => undefined);
+    throw new Error(message);
+  }
+  let total = 0;
+  const limited = res.body.pipeThrough(new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      total += chunk.byteLength;
+      if (total > max) controller.error(new Error(message));
+      else controller.enqueue(chunk);
+    },
+  }));
+  return new Response(limited, { status: res.status, statusText: res.statusText, headers: res.headers });
+}
+
+/** Run `work` over `items` with at most `concurrency` in flight, keeping result order. */
+export async function mapWithConcurrency<T, R>(items: readonly T[], concurrency: number, work: (item: T, index: number) => Promise<R>): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workers = Array.from({ length: Math.max(1, Math.min(concurrency, items.length)) }, async () => {
+    while (next < items.length) {
+      const index = next++;
+      results[index] = await work(items[index]!, index);
+    }
+  });
+  await Promise.all(workers);
+  return results;
+}
+
+export interface ImageBatchOptions extends UrlGuardOptions {
+  /** Parallel downloads. Default 4. */
+  concurrency?: number;
+  /** Largest single image in bytes. Default 8 MB. */
+  maxImageBytes?: number;
+  /** Total decoded bytes across the batch. Default 32 MB. */
+  maxTotalBytes?: number;
+  /** Injected for tests. */
+  fetchImage?: (url: string, opts: UrlGuardOptions & { maxBytes: number }) => Promise<string>;
+}
+
+/** Decoded byte size of a base64 data: URL. */
+function dataUrlBytes(dataUrl: string) {
+  const base64 = dataUrl.slice(dataUrl.indexOf(",") + 1);
+  return Math.floor((base64.length * 3) / 4) - (base64.endsWith("==") ? 2 : base64.endsWith("=") ? 1 : 0);
+}
+
+/**
+ * Download a batch of images with bounded concurrency and a total byte budget. Each download
+ * reserves its maximum size from the budget before it starts, so memory use stays bounded even
+ * while several downloads run at once.
+ */
+export async function fetchImagesWithBudget(urls: readonly string[], opts: ImageBatchOptions = {}) {
+  const perImage = opts.maxImageBytes ?? 8 * 1024 * 1024;
+  let remaining = opts.maxTotalBytes ?? 32 * 1024 * 1024;
+  const fetchImage = opts.fetchImage ?? fetchImageAsDataUrl;
+  return mapWithConcurrency(urls, opts.concurrency ?? 4, async (url): Promise<{ url: string; dataUrl: string } | { url: string; error: string }> => {
+    const reserved = Math.min(perImage, remaining);
+    if (reserved <= 0) return { url, error: "The images in this request are too large in total; import fewer at a time" };
+    remaining -= reserved;
+    try {
+      const dataUrl = await fetchImage(url, { allowLocal: opts.allowLocal, maxBytes: reserved });
+      remaining += reserved - Math.min(reserved, dataUrlBytes(dataUrl));
+      return { url, dataUrl };
+    } catch (e) {
+      remaining += reserved;
+      return { url, error: (e as Error).message };
+    }
+  });
+}

@@ -52,3 +52,63 @@ test("product cards export the new product fields", async () => {
   const { data } = await exportPptx<Uint8Array>(doc, { assets: {}, outputType: "uint8array" });
   expect(data.byteLength).toBeGreaterThan(10_000);
 });
+
+/** Read one file from a zip (local headers; JSZip writes sizes there). */
+function readZipEntry(zip: Uint8Array, name: string): string | null {
+  const { inflateRawSync } = require("node:zlib") as typeof import("node:zlib");
+  const view = new DataView(zip.buffer, zip.byteOffset, zip.byteLength);
+  for (let offset = 0; offset + 30 < zip.length && view.getUint32(offset, true) === 0x04034b50;) {
+    const method = view.getUint16(offset + 8, true);
+    const size = view.getUint32(offset + 18, true);
+    const nameLength = view.getUint16(offset + 26, true);
+    const extraLength = view.getUint16(offset + 28, true);
+    const fileName = new TextDecoder().decode(zip.subarray(offset + 30, offset + 30 + nameLength));
+    const start = offset + 30 + nameLength + extraLength;
+    const body = zip.subarray(start, start + size);
+    if (fileName === name) return new TextDecoder().decode(method === 8 ? inflateRawSync(body) : body);
+    offset = start + size;
+  }
+  return null;
+}
+
+test("markdown becomes formatted text and tables become native PowerPoint tables", async () => {
+  const doc = createFromTemplate("tech", { title: "Deck", page: "16:9" });
+  const slide = doc.slides[0]!;
+  slide.elements = [
+    catalogElementSchema.parse({ id: "md", type: "markdown", position: { x: 0, y: 0, width: 800, height: 400 }, content: { markdown: "# Heading\n\n- **bold** item\n1. first\n- [x] task\n\n| a | b |\n|---|---|\n| 1 | 2 |" } }),
+    catalogElementSchema.parse({
+      id: "tb", type: "table", position: { x: 0, y: 500, width: 800, height: 300 },
+      content: { columns: [{ id: "a", label: "Item" }, { id: "b", label: "Price", align: "end", format: "currency" }], rows: [["Pen", "1.5"], ["Book", "12"]] },
+    }),
+  ];
+  const { data, warnings } = await exportPptx<Uint8Array>(doc, { assets: {}, outputType: "uint8array" });
+  const xml = readZipEntry(data, "ppt/slides/slide1.xml");
+  expect(xml).not.toBeNull();
+  expect(xml).toContain("<a:tbl>");
+  expect(xml).toContain("Item");
+  expect(xml).toContain("$1.50");
+  expect(xml).toContain("Heading");
+  expect(xml).toContain("buAutoNum");
+  expect(xml).toContain("☑");
+  expect(warnings.some((w) => w.includes("Tables inside markdown"))).toBe(true);
+});
+
+test("paths export as native custom geometry", async () => {
+  const { pathToPptxPoints } = await import("./index");
+  const points = pathToPptxPoints([{ x: 0, y: 0, out: { x: 0.5, y: 0 } }, { x: 1, y: 1 }, { x: 0, y: 1 }], true, 2, 1);
+  expect(points).toEqual([
+    { x: 0, y: 0, moveTo: true },
+    { x: 2, y: 1, curve: { type: "cubic", x1: 1, y1: 0, x2: 2, y2: 1 } },
+    { x: 0, y: 1 },
+    { x: 0, y: 0 },
+    { close: true },
+  ]);
+  const doc = createFromTemplate("tech", { title: "Paths", page: "16:9" });
+  doc.slides[0]!.elements.push(catalogElementSchema.parse({
+    id: "path1", type: "path", position: { x: 100, y: 100, width: 300, height: 200 },
+    content: { points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }, style: { fill: "token:accent", dash: [6, 4] },
+    animations: [{ id: "draw1", category: "entrance", preset: "draw" }],
+  }));
+  const { data } = await exportPptx<Uint8Array>(doc, { assets: {}, outputType: "uint8array" });
+  expect(data.byteLength).toBeGreaterThan(10_000);
+});

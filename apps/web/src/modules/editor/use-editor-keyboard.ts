@@ -15,7 +15,7 @@ const ignore = (t: EventTarget | null) => isTyping(t) || modalOpen();
  * Editor shortcuts. Copy/cut/paste use the native clipboard events so pasting
  * images or text from other apps works, and Kavero elements can move between tabs.
  */
-export function useEditorKeyboard(editor: Editor, a: EditorActions, view: { zoomIn: () => void; zoomOut: () => void; zoomFit: () => void; showShortcuts: () => void }) {
+export function useEditorKeyboard(editor: Editor, a: EditorActions, view: { zoomIn: () => void; zoomOut: () => void; zoomFit: () => void; showShortcuts: () => void; togglePen?: () => void }) {
   useEffect(() => {
     // Ctrl+C/X/V normally arrive as native clipboard events (which carry images and text
     // from other apps). Some hosts never fire them (an Electron window without an Edit menu,
@@ -82,6 +82,7 @@ export function useEditorKeyboard(editor: Editor, a: EditorActions, view: { zoom
         return has ? a.duplicate() : slideId ? a.duplicateSlide(slideId) : a.duplicateSlide();
       }
       if (e.key === "?" || (e.shiftKey && k === "/")) { handled(); return view.showShortcuts(); }
+      if (!mod && !e.altKey && !e.shiftKey && k === "p" && view.togglePen) { handled(); return view.togglePen(); }
       if (e.key === "Escape") return a.selectNone();
       if (e.key === "Tab") { handled(); return a.selectNext(e.shiftKey ? -1 : 1); }
       if (e.key === "Delete" || e.key === "Backspace") {

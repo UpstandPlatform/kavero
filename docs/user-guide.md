@@ -8,6 +8,7 @@ Kavero turns product information into designed, animated catalogs and presentati
 - [Text, fonts and right-to-left languages](#text-fonts-and-right-to-left-languages)
 - [Products](#products)
 - [Images and HTML blocks](#images-and-html-blocks)
+- [Markdown and tables](#markdown-and-tables)
 - [Animations and transitions](#animations-and-transitions)
 - [Preview and export](#preview-and-export)
 - [Cloud sync, conflicts and workspaces](#cloud-sync-conflicts-and-workspaces)
@@ -56,7 +57,7 @@ Each catalog card has a menu: rename, duplicate, export a `.kavero` file, save t
 | Area | What it does |
 | --- | --- |
 | Top bar | Title, save status, cloud status, undo/redo, **Chat**, **Export**, **Publish**, **Preview** |
-| Tool rail (left edge) | Icon buttons, one under another: heading, text, rectangle, ellipse, line, image, product card, product grid, HTML block, import products, chat. Hover any of them for what it does and its shortcut. At the bottom: keyboard shortcuts and the **Workspace** menu |
+| Tool rail (left edge) | Icon buttons, one under another: heading, text, rectangle, ellipse, line, **pen** (**P**), image, product card, product grid, HTML block, **Markdown**, **Table**, import products, chat. Hover any of them for what it does and its shortcut. At the bottom: keyboard shortcuts and the **Workspace** menu |
 | Pages panel | **Slides**: thumbnails; add, duplicate, rename, delete and reorder. **Layers**: every element on the current slide, top layer first. **Products**: the catalog's product library |
 | Canvas | Select, drag, resize (corners/edges), rotate (top handle); drag on empty space to select several. Zoom controls sit at the bottom right |
 | Properties panel | Everything about the selection, or the slide and theme when nothing is selected |
@@ -69,6 +70,16 @@ Each catalog card has a menu: rename, duplicate, export a `.kavero` file, save t
 - Each element can be locked, hidden, reordered (front/back) and given an opacity.
 - **Right-click** anything for its menu: elements (cut, copy, paste, duplicate, delete, copy/paste style, order, align, lock, hide, rename, select all of a type), empty canvas (paste here, select all, add slide) and slide thumbnails (duplicate, copy/paste slide, rename, move, delete). Menus work with the arrow keys too.
 - Copy and paste work between catalogs and browser tabs. Pasting an image or text copied from another app adds it to the slide.
+
+### Drawing with the pen
+
+Pick the **pen** in the tool rail (or press **P**) to draw your own lines, arrows, outlines and shapes.
+
+- **Click** to add a corner point; **click and drag** to add a smooth point and pull out its curve handles. Hold **Alt** while dragging to move only the outgoing handle (a sharp turn), and **Shift** to keep the next segment at 45° steps.
+- **Click the first point** to close the shape. **Enter**, **Esc** or a **double-click** finishes an open path; **Backspace** removes the last point; **Esc** before the second point cancels.
+- The finished path is a normal element: move, resize and rotate it like any other — the drawing scales with its box. In the properties panel set its stroke color (theme colors work), width, dashes, line ends and joins, an optional fill, and whether the shape is closed.
+- **Double-click a path** to edit its points: drag a point or its handles, **Alt-drag** a handle to break the pair apart, **double-click** a point to switch it between smooth and corner, **Delete** to remove the selected point. **Esc** (or a click on empty canvas) leaves point editing. Every change is a single undo step.
+- PowerPoint export keeps paths as editable custom shapes.
 
 ### Layers
 
@@ -146,9 +157,44 @@ Cards look the same in the editor, Preview, published websites, PDF, JPG, video 
 - **Image**: upload a picture (fill/fit/stretch, rounded corners, grayscale, alt text). Identical files are stored once.
 - **HTML block**: write your own HTML and CSS for anything the built-in elements can't do. Theme colors are available as CSS variables (`var(--kv-primary)`, `var(--kv-heading)`). Scripts, forms and embedded frames are removed and the block runs in a sandbox, so it can style but never run code. Images inside must use https or data URLs.
 
+## Markdown and tables
+
+**Markdown** (tool rail) adds a block of GitHub-flavored markdown: headings, **bold** and *italic* text, bulleted and numbered lists, task lists (`- [ ]` / `- [x]`), links, inline `code` and code blocks, quotes, tables and dividers. It uses the catalog's theme fonts and colors. Double-click the block (or click **Edit markdown…** in the Design panel) to edit the source next to a live preview; **Apply** saves it as one undoable change. In the Design panel set the body and heading fonts, base size (headings and code scale from it), line height, text, heading and link colors, an optional background, alignment and direction. You can also drop a `.md` file onto the slide or paste one. HTML tags inside markdown are never rendered, and links only work in Preview and on published websites.
+
+**Table** (tool rail) opens **Insert table** with three ways to start:
+
+- **Upload file**: drop or choose a CSV, TSV, Excel (`.xlsx`, `.xls`) or OpenDocument (`.ods`) file up to 10 MB. Workbooks with several sheets get a sheet picker. Cells keep the text shown in the spreadsheet (number and date formats included).
+- **Paste**: paste cells copied from Excel, Numbers or Google Sheets, or CSV text. Tabs, commas and semicolons are detected automatically, including quoted values with commas or line breaks.
+- **Manual**: pick a size on the grid (or type rows and columns) for an empty table.
+
+Upload and Paste show a preview and a **First row is the header** switch. Tables hold up to 50 columns and 500 rows (1,000 characters per cell); larger data shows a message, with an option to keep the first 500 rows. Dropping a CSV or Excel file on the slide opens the same dialog, and pasting spreadsheet cells straight onto the slide creates a table at once.
+
+Double-click a table (or **Edit data…** in the Design panel) to edit it like a spreadsheet: click a cell and type; **Tab**/**Shift+Tab** move across, **Enter** and the arrow keys move between rows, and **Enter** or **Tab** at the end adds a row. Pasting several cells into a cell fills them in. The column menu (**⋮**) sets alignment and number format (text, number, currency in the catalog's currency, percent, date) and inserts, moves or deletes columns; the row number menu does the same for rows. Every change can be undone.
+
+The Design panel styles the table: header row on/off, font and size, cell padding and density, text color, header background and text colors, cell background, striped rows and their color, border color and width, and direction. Defaults follow the theme (header in the primary color, muted borders), so tables restyle with the catalog theme. The table fills its box: rows stretch when there is room, and rows that don't fit fade out at the bottom (make the box taller to show them).
+
+Markdown and tables look the same in the editor, Preview, published websites, PDF, JPG, video and HTML exports. PowerPoint exports markdown as editable formatted text (headings, bullets, numbering and links) and tables as native PowerPoint tables; rows that don't fit the box are left out of the PowerPoint table.
+
+## Icons
+
+The built-in **Lucide icons** extension is on in every catalog. Open the **Icons** tab in the sidebar, search by name (for example "arrow", "shopping cart") and click an icon to add it to the middle of the current slide. Before you click, pick its **size**, **stroke width** and **color**: a theme color (it changes with the catalog theme) or a custom hex value.
+
+Icons are saved as vector shapes inside the catalog, so they stay sharp and look the same in the editor, Preview, published websites, PDF, JPG, video and HTML exports. PowerPoint exports insert them as SVG pictures (recent PowerPoint versions). You can turn the extension off in **Extensions** like any other.
+
+## Extensions and permissions
+
+Click **Extensions** in the tool rail to install, enable, disable or update the approved extensions available to a catalog. Each extension lists the access it needs before you turn it on.
+
+- Access you approve is remembered for you, on this device, per catalog. When you open a catalog someone else shared, imported or synced with extensions turned on, Kavero asks before running any extension you haven't approved yourself; until then it stays off for you.
+- **Connected tools** asks for confirmation before every call to a connected service and shows the arguments it sends.
+- Catalogs opened in an older desktop app keep their extensions working as long as the extension's major version matches; a newer major version asks you to update Kavero.
+
 ## Animations and transitions
 
-- **Element animations** (properties → Animation): entrance, emphasis or exit with effects fade, slide, scale, bounce, rotate, blur, float, pulse. Choose when it starts — **with the slide**, **after the previous animation**, or **with the previous** — and its duration and delay.
+- **Element animations** (properties → Motion): entrance, emphasis or exit with effects such as appear, fade, fly in, rise, zoom, grow, bounce, spin, flip, blur, float, pulse. Choose when it starts — **on click**, **with the slide**, **after the previous animation**, or **with the previous** — its duration, delay and easing (linear, ease in, ease out, ease in and out, spring). Emphasis effects can repeat a number of times, loop until the slide ends, or alternate back and forth.
+- **Path animations** (pen paths only): **Draw** (entrance) reveals the line from where you started drawing to where you finished — pick **Ease in** for a slow start that speeds up. **Run from the path end** reverses it, and **Fade the fill in after drawing** shows a closed shape's fill once its outline is complete. **Erase** (exit) removes the line the same way, and **Trace** (emphasis) runs a short highlight along the path — tick **Loop** to keep it running. All the other effects work on paths too.
+- **Keyframes** (category **Keyframes**, any element): build your own motion. The track shows a diamond per keyframe — click the track to move the playhead, drag a diamond to retime it (arrow keys nudge it, Delete removes it). **Add at playhead** inserts a keyframe with the values the animation has at that moment. **Record current state**: move, resize, rotate or fade the element on the slide, then record — the change becomes a keyframe at the playhead and the element returns to its resting place. Each keyframe sets any of X/Y offset, scale, rotation, opacity and, for paths, how much of the line is drawn; leave a field empty to let it flow between neighbouring keyframes. **To next** picks the easing up to the following keyframe. Set the repeat count, loop or alternate for the whole animation.
+- People who turn on "reduce motion" in their system settings see presentations and published sites without animation, in their finished state.
 - **Slide transitions** (slide properties): none, fade, morph, slide, push, zoom, wipe, flip, with duration and direction. **Duration** sets how long the slide stays on screen in playback and video.
 - Animations play in Preview, on published websites, in HTML exports and in MP4 exports exactly the same way. PDF shows the finished state; PowerPoint export keeps the content but not the motion.
 
@@ -221,6 +267,7 @@ The **first account created on a new Kavero server is its admin**. Admins see **
 - **Published sites** — every site on the server with its owner and views; **Unpublish** takes one offline (the owner keeps the catalog).
 - **Activity** — the server-wide audit log; filter to admin actions or MCP/agent actions.
 - **Sign-ups** — **Open** (anyone), **Invite-only** (only email addresses with a pending workspace invitation) or **Closed**. Existing accounts are never affected.
+- **System** — server settings without editing environment variables: media storage (this server's disk or an S3-compatible bucket such as AWS S3, Cloudflare R2 or MinIO, with **Test storage**), the server-wide AI model and keys, stock image and GIF search, private network access, reverse proxy hops and parallel exports. On the cloud edition, also plan limits. Keys are stored encrypted and never shown again; type a new value to replace one. A field set by an environment variable is locked and labelled with its name. Changes apply within seconds, without a restart.
 
 Every admin action is recorded in the activity log. Lost admin access? See [Deployment → Admin accounts](deployment.md#admin-accounts).
 
@@ -249,6 +296,8 @@ Press **?** in the editor (or the keyboard button in the toolbar) for the full l
 | Ctrl M, Ctrl Shift D | New slide, duplicate slide |
 | Ctrl + / Ctrl − / Ctrl 0 | Zoom in, out, fit |
 | Double-click text | Edit text |
+| P | Pen tool (Enter / Esc finishes the path) |
+| Double-click a path | Edit its points (Delete removes the selected point, Esc leaves) |
 
 ## Troubleshooting
 

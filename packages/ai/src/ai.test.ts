@@ -99,3 +99,28 @@ test("provider selection from env", () => {
   expect(providerFromEnv({ AI_BASE_URL: "http://localhost:11434/v1", AI_MODEL: "llama3.2" })?.id).toBe("openai-compatible");
   expect(providerFromEnv({ AI_PROVIDER: "none", ANTHROPIC_API_KEY: "k" })).toBeNull();
 });
+
+test("AI edit ops add and update markdown and table elements", async () => {
+  const { opsToCommands } = await import("./edit");
+  const { createCatalog } = await import("@Kavero/catalog-engine");
+  const { applyCommand } = await import("@Kavero/editor-core");
+  const doc = createCatalog({ title: "T" });
+  const slideId = doc.slides[0]!.id;
+  const added = opsToCommands(doc, slideId, { summary: "Add", ops: [
+    { op: "add_markdown", markdown: "# Agenda\n\n- one", x: 10, y: 10, width: 500, height: 300 },
+    { op: "add_table", tableColumns: ["Item", "Qty"], tableRows: [["Pen", "2"]], x: 10, y: 400, width: 600, height: 200 },
+  ] });
+  expect(added.skipped).toEqual([]);
+  for (const command of added.commands) applyCommand(doc, command);
+  const [markdown, table] = doc.slides[0]!.elements.filter((element) => element.type === "markdown" || element.type === "table");
+  const updated = opsToCommands(doc, slideId, { summary: "Update", ops: [
+    { op: "set_markdown", elementId: markdown!.id, markdown: "# New" },
+    { op: "set_table", elementId: table!.id, tableRows: [["Book", "3"], ["Ink", "1"]] },
+    { op: "set_markdown", elementId: table!.id, markdown: "x" },
+  ] });
+  expect(updated.commands).toHaveLength(2);
+  expect(updated.skipped[0]).toContain("markdown elements");
+  for (const command of updated.commands) applyCommand(doc, command);
+  const after = doc.slides[0]!.elements.find((element) => element.id === table!.id)!;
+  expect(after.type === "table" && after.content.rows).toEqual([["Book", "3"], ["Ink", "1"]]);
+});

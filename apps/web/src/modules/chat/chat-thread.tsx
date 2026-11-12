@@ -17,10 +17,12 @@ import {
   MessageScrollerViewport,
 } from "@Kavero/ui/components/message-scroller";
 import { cn } from "@Kavero/ui/lib/utils";
-import { DefaultChatTransport, safeValidateUIMessages, type UIMessage } from "ai";
+import { DefaultChatTransport, type UIMessage } from "ai";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+
+import { forgetDecisions, purgeLegacyTranscriptCache } from "./chat-local-state";
 
 export type ChatMode = "landing" | "editor";
 export type ChatAnnotationAttachment = { id: string; label: string; detail: string };
@@ -49,6 +51,7 @@ const markdownComponents: Components = {
   pre: ({ children }) => <pre className="my-2 max-w-full overflow-x-auto rounded-lg bg-muted/70 p-3 text-xs leading-relaxed">{children}</pre>,
   code: ({ children, className }) => <code className={cn("font-mono text-[0.92em]", className ? "" : "rounded bg-muted px-1 py-0.5")}>{children}</code>,
 };
+const remarkPlugins = [remarkGfm];
 
 /** A tool call as the UI sees it (AI SDK "tool-<name>" parts). */
 export type ToolPart = {
@@ -60,15 +63,28 @@ export type ToolPart = {
   errorText?: string;
 };
 
-/** Pulls the server's `{ error }` message out of a failed chat request. */
-function errorMessage(e: Error) {
+/** Sent by the server on the assistant message (see /api/chat messageMetadata). */
+type TurnMetadata = { conversationId?: string; turnRevision?: number; revision?: number };
+type ChatErrorBody = { error?: string; code?: string };
+type LoadResponse = { exists?: boolean; conversationId?: string; revision?: number | null; messages?: unknown[] };
+
+/** The server's `{ error, code }` from a failed chat request. */
+function errorBody(e: Error): ChatErrorBody {
   try {
-    const parsed = JSON.parse(e.message) as { error?: string };
-    if (parsed.error) return parsed.error;
+    const parsed = JSON.parse(e.message) as unknown;
+    if (parsed && typeof parsed === "object") return parsed as ChatErrorBody;
   } catch {
     // not JSON
   }
-  return e.message || "Something went wrong.";
+  return {};
+}
+
+function errorMessage(e: Error) {
+  return errorBody(e).error || e.message || "Something went wrong.";
+}
+
+function textOf(message: UIMessage) {
+  return message.parts.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n").trim();
 }
 
 function historyDate(value: string) {
@@ -76,54 +92,46 @@ function historyDate(value: string) {
   return Number.isNaN(date.getTime()) ? "" : new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(date);
 }
 
-/** How many recent messages go to the model with each request (the server accepts up to 80). */
-const SEND_LIMIT = 60;
-/** How many messages are kept in the browser per conversation. */
-const KEEP_LIMIT = 120;
+const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-function loadMessages(key?: string): unknown[] {
-  if (!key) return [];
-  try {
-    const raw = JSON.parse(localStorage.getItem(key) ?? "null") as unknown;
-    return Array.isArray(raw) ? raw.slice(-KEEP_LIMIT) : [];
-  } catch {
-    return [];
-  }
-}
+/** Markdown is parsed only when the text itself changes (not on every keystroke or streamed token elsewhere). */
+const MarkdownText = memo(function MarkdownText({ text }: { text: string }) {
+  return <ReactMarkdown remarkPlugins={remarkPlugins} components={markdownComponents}>{text}</ReactMarkdown>;
+});
 
-/** Validate browser caches with the same UI message schema used by the server. */
-async function validateStoredMessages(messages: unknown): Promise<UIMessage[]> {
-  if (!Array.isArray(messages) || messages.length === 0) return [];
-  const bounded = messages.slice(-KEEP_LIMIT);
-  for (let start = 0; start < bounded.length; start += 1) {
-    const result = await safeValidateUIMessages({ messages: bounded.slice(start) });
-    if (result.success) return result.data;
-  }
-  return [];
-}
+type RenderTool = (part: ToolPart, message: UIMessage) => ReactNode;
 
-function saveMessages(key: string, messages: UIMessage[]) {
-  let keep = messages.slice(-KEEP_LIMIT);
-  // Drop the oldest messages until it fits in browser storage.
-  while (keep.length) {
-    try {
-      localStorage.setItem(key, JSON.stringify(keep));
-      return;
-    } catch {
-      keep = keep.slice(Math.ceil(keep.length / 4));
-    }
-  }
-  try {
-    localStorage.removeItem(key);
-  } catch {
-    // storage unavailable
-  }
-}
+const MessageItem = memo(function MessageItem({ message, renderTool }: { message: UIMessage; renderTool?: RenderTool }) {
+  const fromUser = message.role === "user";
+  return (
+    <MessageScrollerItem messageId={message.id} scrollAnchor={fromUser}>
+      <Message align={fromUser ? "end" : "start"}>
+        <MessageContent className="gap-2">
+          {message.parts.map((part, i) => {
+            if (part.type === "text") {
+              if (!part.text.trim()) return null;
+              return (
+                <Bubble key={i} align={fromUser ? "end" : "start"} variant={fromUser ? "muted" : "ghost"}>
+                  <BubbleContent className="min-w-0 max-w-full break-words" dir="auto">
+                    <MarkdownText text={part.text} />
+                  </BubbleContent>
+                </Bubble>
+              );
+            }
+            if (part.type.startsWith("tool-") && renderTool) return <div key={i} className="w-full">{renderTool(part as unknown as ToolPart, message)}</div>;
+            return null;
+          })}
+        </MessageContent>
+      </Message>
+    </MessageScrollerItem>
+  );
+});
 
 /**
  * Chat thread (shadcn AI Elements: Message Scroller, Message, Bubble, Input Group)
- * driven by the AI SDK's useChat against /api/chat. Each mode brings its own tools;
- * `renderTool` draws their results (catalog cards, edit proposals).
+ * driven by the AI SDK's useChat against /api/chat. The account copy on the server is the
+ * only transcript: each request carries just the new user message and the revision it builds on.
+ * Each mode brings its own tools; `renderTool` draws their results (catalog cards, edit proposals).
  */
 export function ChatThread({
   mode,
@@ -142,7 +150,6 @@ export function ChatThread({
   onHoverAnnotation,
   annotationMode = false,
   onToggleAnnotationMode,
-  storageKey,
   onSelectHistory,
   historyOpen = false,
   onHistoryOpenChange,
@@ -154,13 +161,12 @@ export function ChatThread({
 }: {
   mode: ChatMode;
   /** Account-level server scope: `landing` or the open catalog id. */
-  scopeId?: string;
-  /** Keeps the conversation in this browser under this key (e.g. one per catalog), so it's remembered across visits. */
-  storageKey?: string;
+  scopeId: string;
   /** Open another saved chat's catalog in the editor. */
   onSelectHistory?: (item: ChatHistoryItem) => void;
   /** Active durable conversation thread, independent of its catalog scope. */
   conversationId?: string | null;
+  /** Called when the thread's id is resolved (first load) or replaced (unavailable chat). */
   onConversationIdChange?: (id: string) => void;
   /** Start a separate conversation and optionally send its first prompt. */
   onStartNewChat?: (id: string, prompt?: string) => void;
@@ -172,10 +178,10 @@ export function ChatThread({
   canSend?: boolean;
   /** Sent with every request (editor: the open catalog and current slide). */
   context?: () => unknown;
-  renderTool?: (part: ToolPart, message: UIMessage) => ReactNode;
+  renderTool?: RenderTool;
   emptyState?: ReactNode;
   placeholder?: string;
-  /** Sent automatically once, e.g. the prompt typed on the landing page. */
+  /** Sent automatically once per value, e.g. the prompt typed on the landing page. */
   initialPrompt?: string;
   className?: string;
   footer?: ReactNode;
@@ -187,40 +193,56 @@ export function ChatThread({
   annotationMode?: boolean;
   onToggleAnnotationMode?: () => void;
 }) {
-  const resolvedScopeId = scopeId ?? (mode === "landing" ? "landing" : undefined);
   const contextRef = useRef(context);
   contextRef.current = context;
+  const onAnnotationsSentRef = useRef(onAnnotationsSent);
+  onAnnotationsSentRef.current = onAnnotationsSent;
+  const onInitialPromptConsumedRef = useRef(onInitialPromptConsumed);
+  onInitialPromptConsumedRef.current = onInitialPromptConsumed;
+  const onConversationIdChangeRef = useRef(onConversationIdChange);
+  onConversationIdChangeRef.current = onConversationIdChange;
+
   const [activeConversationId, setActiveConversationId] = useState<string | null>(conversationId ?? null);
   const activeConversationIdRef = useRef(activeConversationId);
   activeConversationIdRef.current = activeConversationId;
-  const onConversationIdChangeRef = useRef(onConversationIdChange);
-  onConversationIdChangeRef.current = onConversationIdChange;
-  const loadedConversationId = useRef<string | null | undefined>(undefined);
   const chooseConversation = useCallback((id: string) => {
     activeConversationIdRef.current = id;
     setActiveConversationId(id);
     onConversationIdChangeRef.current?.(id);
   }, []);
   useEffect(() => {
-    if (conversationId !== undefined && conversationId !== activeConversationIdRef.current) {
+    if (conversationId && conversationId !== activeConversationIdRef.current) {
       activeConversationIdRef.current = conversationId;
       setActiveConversationId(conversationId);
     }
   }, [conversationId]);
+
   const pendingSendContext = useRef<{ value: unknown } | null>(null);
   const pendingAnnotationIds = useRef<string[]>([]);
+  /** The revision the next turn builds on (null: the conversation doesn't exist yet). */
   const serverRevision = useRef<number | null>(null);
+  /** Bumped whenever the thread changes, so late callbacks from an older thread are ignored. */
   const conversationGeneration = useRef(0);
   const requestSequence = useRef(0);
   const activeRequest = useRef<{ id: number; generation: number } | null>(null);
-  const clearingConversation = useRef(false);
-  useEffect(() => () => {
-    // A stream finishing during thread navigation must not update the next thread's URL or state.
-    conversationGeneration.current += 1;
-    activeRequest.current = null;
-    pendingSendContext.current = null;
-    pendingAnnotationIds.current = [];
+  const lastFailure = useRef<ChatErrorBody | null>(null);
+  const loadedConversationId = useRef<string | null | undefined>(undefined);
+  /** After a reload: a message to put back in the box if the server doesn't have it, and why. */
+  const restoreOnReload = useRef<{ message?: UIMessage; notice?: string } | null>(null);
+  const [reloadToken, setReloadToken] = useState(0);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  useEffect(() => {
+    purgeLegacyTranscriptCache();
+    return () => {
+      // A stream finishing during thread navigation must not update the next thread's URL or state.
+      conversationGeneration.current += 1;
+      activeRequest.current = null;
+      pendingSendContext.current = null;
+      pendingAnnotationIds.current = [];
+    };
   }, []);
+
   const transport = useMemo(
     () =>
       new DefaultChatTransport({
@@ -229,11 +251,13 @@ export function ChatThread({
           const pendingContext = pendingSendContext.current;
           pendingSendContext.current = null;
           activeRequest.current = { id: ++requestSequence.current, generation: conversationGeneration.current };
+          lastFailure.current = null;
           return {
             body: {
-              messages: messages.slice(-KEEP_LIMIT),
+              // Only the new turn: the server rebuilds the history from the account copy.
+              message: messages.at(-1),
               mode,
-              scopeId: resolvedScopeId,
+              scopeId,
               conversationId: activeConversationIdRef.current,
               expectedRevision: serverRevision.current,
               context: pendingContext?.value ?? contextRef.current?.(),
@@ -241,74 +265,112 @@ export function ChatThread({
           };
         },
       }),
-    [mode, resolvedScopeId],
+    [mode, scopeId],
   );
-  const [threadReady, setThreadReady] = useState(!resolvedScopeId);
-  const [resyncGeneration, setResyncGeneration] = useState(0);
-  const [persistenceStatus, setPersistenceStatus] = useState<"loading" | "account" | "device" | "saving" | "clearing" | "error">(resolvedScopeId ? "loading" : "device");
+  const [threadReady, setThreadReady] = useState(false);
+  const [persistenceStatus, setPersistenceStatus] = useState<"loading" | "account" | "saving" | "error">("loading");
+  const [input, setInput] = useState("");
+
+  /** Reload the thread from the account copy, optionally putting an unsaved message back in the box. */
+  const resync = useCallback((message?: UIMessage, reason?: string) => {
+    restoreOnReload.current = { message, notice: reason };
+    loadedConversationId.current = undefined;
+    setReloadToken((token) => token + 1);
+  }, []);
+
   const { messages, setMessages, sendMessage, status, stop, error, clearError } = useChat({
-    id: storageKey ?? (resolvedScopeId ? `${mode}:${resolvedScopeId}` : undefined),
-    // Restore asynchronously after schema validation so an old local cache cannot
-    // make useChat fail before the account transcript has a chance to repair it.
+    id: `${mode}:${scopeId}`,
     messages: [],
     transport,
-    onFinish: async ({ isAbort, isDisconnect, isError }) => {
-      const request = activeRequest.current;
-      if (!request || request.generation !== conversationGeneration.current || clearingConversation.current) return;
-      if (!isAbort && !isDisconnect && !isError && pendingAnnotationIds.current.length) {
-        onAnnotationsSent?.(pendingAnnotationIds.current);
-      }
-      pendingAnnotationIds.current = [];
-      if (!resolvedScopeId) return setPersistenceStatus("device");
-      const conversationId = activeConversationIdRef.current;
-      if (!conversationId) return setPersistenceStatus("device");
-      const query = new URLSearchParams({ mode, scopeId: resolvedScopeId, conversationId });
-      try {
-        const response = await fetch(`/api/chat?${query}`, { cache: "no-store" });
-        if (!response.ok) throw new Error("Could not refresh conversation revision");
-        const data = await response.json() as { conversationId?: string; revision?: number | null; messages?: unknown[] };
-        if (activeRequest.current?.id !== request.id || request.generation !== conversationGeneration.current || clearingConversation.current) return;
-        if (data.conversationId) chooseConversation(data.conversationId);
-        serverRevision.current = data.revision ?? null;
-        if (Array.isArray(data.messages)) {
-          const restored = await validateStoredMessages(data.messages);
-          if (activeRequest.current?.id !== request.id || request.generation !== conversationGeneration.current || clearingConversation.current) return;
-          setMessages(restored);
-          if (storageKey && data.conversationId) saveMessages(`${storageKey}:${data.conversationId}`, restored);
-        }
-        setPersistenceStatus("account");
-      } catch {
-        if (activeRequest.current?.id === request.id && request.generation === conversationGeneration.current && !clearingConversation.current) setPersistenceStatus("device");
-      }
-    },
     onError: (cause) => {
+      // Handled in onFinish, which always follows; remember the server's error code for it.
+      if (activeRequest.current?.generation === conversationGeneration.current) lastFailure.current = errorBody(cause);
+    },
+    onFinish: ({ message, messages: current, isAbort, isDisconnect, isError }) => {
       const request = activeRequest.current;
-      if (!request || request.generation !== conversationGeneration.current || clearingConversation.current) return;
+      if (!request || request.generation !== conversationGeneration.current) return;
       activeRequest.current = null;
+      const failure = lastFailure.current;
+      lastFailure.current = null;
+      const annotationIds = pendingAnnotationIds.current;
       pendingAnnotationIds.current = [];
-      const message = errorMessage(cause).toLowerCase();
-      if (message.includes("conversation changed in another tab") && !clearingConversation.current) {
-        setThreadReady(false);
-        setPersistenceStatus("loading");
-        setResyncGeneration((generation) => generation + 1);
-      } else if (!clearingConversation.current) {
-        setPersistenceStatus("device");
+      const meta = message.role === "assistant" ? (message.metadata as TurnMetadata | undefined) : undefined;
+
+      if (typeof meta?.turnRevision !== "number") {
+        // The server never started this turn (rejected, conflict) or we can't tell (stopped before it answered).
+        const last = current.at(-1);
+        const unsent = last?.role === "user" ? last : undefined;
+        if (failure?.code === "conversation_not_found") {
+          restoreOnReload.current = { message: unsent, notice: "That chat isn't available anymore, so a new one was started. Your message is back in the box." };
+          loadedConversationId.current = undefined;
+          chooseConversation(crypto.randomUUID());
+        } else if (failure?.code === "conversation_conflict") {
+          resync(unsent, "This chat changed in another tab, so it was reloaded. Your message is back in the box.");
+        } else if (isAbort || isDisconnect) {
+          resync(unsent);
+        } else {
+          if (unsent) {
+            setMessages(current.filter((item) => item.id !== unsent.id));
+            const text = textOf(unsent);
+            setInput((value) => (value.trim() ? value : text));
+          }
+          setPersistenceStatus("account");
+        }
+        return;
       }
+      if (!isAbort && !isDisconnect && !isError && typeof meta.revision === "number") {
+        serverRevision.current = meta.revision;
+        setPersistenceStatus("account");
+        if (annotationIds.length) onAnnotationsSentRef.current?.(annotationIds);
+        return;
+      }
+      // Stopped or failed mid-answer: the server saves what was produced. Keep it on screen and wait for that save.
+      const id = activeConversationIdRef.current;
+      if (id) void refreshRevision(id, meta.turnRevision, request.generation);
     },
   });
+
+  // Learn the revision after an interrupted turn without downloading the transcript again.
+  async function refreshRevision(id: string, turnRevision: number, generation: number) {
+    setThreadReady(false);
+    setPersistenceStatus("saving");
+    let revision: number | null | undefined;
+    for (let attempt = 0; attempt < 8; attempt += 1) {
+      try {
+        const response = await fetch(`/api/chat?${new URLSearchParams({ mode, scopeId, conversationId: id, meta: "1" })}`, { cache: "no-store" });
+        if (response.ok) {
+          revision = ((await response.json()) as LoadResponse).revision ?? null;
+          if (revision !== null && revision > turnRevision) break;
+        }
+      } catch {
+        // retry
+      }
+      if (generation !== conversationGeneration.current) return;
+      await wait(400);
+    }
+    if (generation !== conversationGeneration.current) return;
+    if (revision === undefined) return resync();
+    serverRevision.current = revision;
+    setPersistenceStatus("account");
+    setThreadReady(true);
+  }
+
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
-  const [input, setInput] = useState("");
-  const sentInitial = useRef<string | undefined>(undefined);
   const busy = status === "submitted" || status === "streaming";
-  const conversationSwitching = conversationId !== undefined && conversationId !== activeConversationId;
+  const busyRef = useRef(busy);
+  busyRef.current = busy;
+  const stopRef = useRef(stop);
+  stopRef.current = stop;
+  const sentInitial = useRef<string | undefined>(undefined);
+  const conversationSwitching = !!conversationId && conversationId !== activeConversationId;
   const [historyItems, setHistoryItems] = useState<ChatHistoryItem[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyError, setHistoryError] = useState<string | null>(null);
   const [historyActionError, setHistoryActionError] = useState<string | null>(null);
   const [historyReload, setHistoryReload] = useState(0);
   const [deletingHistoryId, setDeletingHistoryId] = useState<string | null>(null);
-  const historyEnabled = mode === "editor" && !!resolvedScopeId;
+  const historyEnabled = mode === "editor";
 
   useEffect(() => {
     if (!historyOpen || !historyEnabled) return;
@@ -336,8 +398,8 @@ export function ChatThread({
     };
   }, [historyOpen, historyEnabled, historyReload, mode]);
 
+  // Load (or reload) the account copy of the active thread.
   useEffect(() => {
-    if (!resolvedScopeId) return;
     if (activeConversationId && loadedConversationId.current === activeConversationId) return;
     let active = true;
     const generation = ++conversationGeneration.current;
@@ -345,130 +407,71 @@ export function ChatThread({
     activeRequest.current = null;
     pendingSendContext.current = null;
     pendingAnnotationIds.current = [];
-    if (busy) void stop();
+    if (busyRef.current) void stopRef.current();
     serverRevision.current = null;
     setThreadReady(false);
     setPersistenceStatus("loading");
-    setMessages([]);
     clearError();
-    const query = new URLSearchParams({ mode, scopeId: resolvedScopeId });
+    const query = new URLSearchParams({ mode, scopeId });
     if (requestedId) query.set("conversationId", requestedId);
-    void fetch(`/api/chat?${query}`, { cache: "no-store" })
-      .then(async (response) => {
+    void (async () => {
+      try {
+        const response = await fetch(`/api/chat?${query}`, { cache: "no-store" });
+        if (!active || generation !== conversationGeneration.current) return;
+        if (response.status === 404 && requestedId) {
+          // Deleted elsewhere or not this user's chat: start a fresh thread instead of failing every send.
+          restoreOnReload.current = { ...restoreOnReload.current, notice: "That chat isn't available anymore, so a new one was started." };
+          loadedConversationId.current = undefined;
+          chooseConversation(crypto.randomUUID());
+          return;
+        }
         if (!response.ok) throw new Error("Could not load conversation");
-        return response.json() as Promise<{ exists?: boolean; conversationId?: string; revision?: number | null; messages?: unknown[] }>;
-      })
-      .then(async (data) => {
-        if (!active || generation !== conversationGeneration.current || clearingConversation.current) return;
+        const data = (await response.json()) as LoadResponse;
+        if (!active || generation !== conversationGeneration.current) return;
         const id = data.conversationId ?? requestedId ?? crypto.randomUUID();
+        // The server validated and repaired the transcript before sending it.
+        const restored = Array.isArray(data.messages) ? (data.messages as UIMessage[]) : [];
         loadedConversationId.current = id;
-        chooseConversation(id);
+        if (id !== activeConversationIdRef.current || !requestedId) chooseConversation(id);
         serverRevision.current = data.revision ?? null;
-        const remote = await validateStoredMessages(data.messages);
-        let hasLocalMessages = false;
-        if (remote.length || data.exists) {
-          setMessages(remote);
-          hasLocalMessages = remote.length > 0;
-          if (storageKey) saveMessages(`${storageKey}:${id}`, remote);
-        } else if (!data.exists) {
-          const localCache = loadMessages(storageKey ? `${storageKey}:${id}` : undefined);
-          const legacyCache = !requestedId && !localCache.length ? loadMessages(storageKey) : [];
-          const local = await validateStoredMessages(localCache.length ? localCache : legacyCache);
-          if (active && generation === conversationGeneration.current && !clearingConversation.current) {
-            setMessages(local);
-            hasLocalMessages = local.length > 0;
-            if (storageKey && local.length) saveMessages(`${storageKey}:${id}`, local);
-          }
+        setMessages(restored);
+        const restore = restoreOnReload.current;
+        restoreOnReload.current = null;
+        if (restore?.message && !restored.some((item) => item.id === restore.message!.id)) {
+          const text = textOf(restore.message);
+          setInput((value) => (value.trim() ? value : text));
         }
-        setPersistenceStatus(data.exists || !hasLocalMessages ? "account" : "device");
-      })
-      .catch(async () => {
-        if (active && generation === conversationGeneration.current && !clearingConversation.current) {
-          const id = requestedId ?? crypto.randomUUID();
-          loadedConversationId.current = id;
-          chooseConversation(id);
-          const localCache = loadMessages(storageKey ? `${storageKey}:${id}` : undefined);
-          const legacyCache = !requestedId && !localCache.length ? loadMessages(storageKey) : [];
-          setMessages(await validateStoredMessages(localCache.length ? localCache : legacyCache));
-          setPersistenceStatus("device");
-        }
-      })
-      .finally(() => {
-        if (active && generation === conversationGeneration.current && !clearingConversation.current) setThreadReady(true);
-      });
-    return () => {
-      active = false;
-    };
-  }, [activeConversationId, clearError, chooseConversation, mode, resolvedScopeId, setMessages, storageKey]);
-
-  useEffect(() => {
-    if (resolvedScopeId) return;
-    let active = true;
-    void validateStoredMessages(loadMessages(storageKey)).then((local) => {
-      if (active) setMessages(local);
-    });
-    return () => {
-      active = false;
-    };
-  }, [resolvedScopeId, setMessages, storageKey]);
-
-  useEffect(() => {
-    if (!resolvedScopeId || resyncGeneration === 0) return;
-    let active = true;
-    const generation = conversationGeneration.current;
-    const query = new URLSearchParams({ mode, scopeId: resolvedScopeId });
-    if (activeConversationId) query.set("conversationId", activeConversationId);
-    void fetch(`/api/chat?${query}`, { cache: "no-store" })
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Could not reload conversation");
-        return response.json() as Promise<{ exists?: boolean; conversationId?: string; revision?: number | null; messages?: unknown[] }>;
-      })
-      .then(async (data) => {
-        if (!active || generation !== conversationGeneration.current || clearingConversation.current) return;
-        if (data.conversationId) chooseConversation(data.conversationId);
-        serverRevision.current = data.revision ?? null;
-        const remote = await validateStoredMessages(data.messages);
-        const remoteIds = new Set(remote.map((message) => message.id));
-        const pending = [...messagesRef.current].reverse().find((message) => message.role === "user" && !remoteIds.has(message.id));
-        const retryText = pending?.parts.filter((part) => part.type === "text").map((part) => part.text).join("\n").trim();
-        if (retryText) setInput(retryText);
-        setMessages(remote);
-        if (storageKey && data.conversationId) saveMessages(`${storageKey}:${data.conversationId}`, remote);
+        if (restore?.notice) setNotice(restore.notice);
         setPersistenceStatus("account");
-      })
-      .catch(() => {
-        if (active && generation === conversationGeneration.current && !clearingConversation.current) setPersistenceStatus("device");
-      })
-      .finally(() => {
-        if (active && generation === conversationGeneration.current && !clearingConversation.current) setThreadReady(true);
-      });
+        setThreadReady(true);
+      } catch {
+        if (!active || generation !== conversationGeneration.current) return;
+        // Without the account copy we can't know the revision, so sending stays disabled until a retry works.
+        setMessages([]);
+        setPersistenceStatus("error");
+      }
+    })();
     return () => {
       active = false;
     };
-  }, [activeConversationId, chooseConversation, mode, resyncGeneration, resolvedScopeId, setMessages, storageKey]);
-
-  // Save after each finished reply (not on every streamed token).
-  useEffect(() => {
-    if (!storageKey || busy || !threadReady) return;
-    if (messages.length && activeConversationIdRef.current) saveMessages(`${storageKey}:${activeConversationIdRef.current}`, messages);
-  }, [storageKey, messages, busy, threadReady, activeConversationId]);
+  }, [activeConversationId, reloadToken, chooseConversation, clearError, mode, scopeId, setMessages]);
 
   function startNewChat(prompt?: string) {
-    if (clearingConversation.current) return;
     const id = crypto.randomUUID();
     conversationGeneration.current += 1;
     activeRequest.current = null;
     pendingSendContext.current = null;
     pendingAnnotationIds.current = [];
     if (busy) void stop();
-    clearingConversation.current = false;
     serverRevision.current = null;
     sentInitial.current = undefined;
+    restoreOnReload.current = null;
     setThreadReady(false);
-    setPersistenceStatus(resolvedScopeId ? "loading" : "device");
+    setPersistenceStatus("loading");
     setMessages([]);
     clearError();
     setInput("");
+    setNotice(null);
     chooseConversation(id);
     onHistoryOpenChange?.(false);
     onStartNewChat?.(id, prompt);
@@ -482,15 +485,7 @@ export function ChatThread({
       const response = await fetch("/api/chat?" + query, { method: "DELETE" });
       if (!response.ok) throw new Error("That chat couldn't be removed. Try again.");
       setHistoryItems((current) => current.filter((entry) => entry.id !== item.id));
-      if (item.mode === "editor") {
-        try {
-          localStorage.removeItem(`kavero:chat:${item.scopeId}:${item.id}`);
-          localStorage.removeItem(`kavero:chat:${item.scopeId}`);
-          localStorage.removeItem(`kavero:chat-decisions:${item.id}`);
-        } catch {
-          // Keep the account delete successful when browser storage is unavailable.
-        }
-      }
+      forgetDecisions(item.id);
       if (item.id === activeConversationIdRef.current) startNewChat();
     } catch (error) {
       setHistoryActionError(error instanceof Error ? error.message : "That chat couldn't be removed. Try again.");
@@ -500,7 +495,7 @@ export function ChatThread({
   }
 
   function openHistoryItem(item: ChatHistoryItem) {
-    if (item.mode === mode && item.scopeId === resolvedScopeId && item.id === activeConversationIdRef.current) {
+    if (item.mode === mode && item.scopeId === scopeId && item.id === activeConversationIdRef.current) {
       onHistoryOpenChange?.(false);
       return;
     }
@@ -508,33 +503,39 @@ export function ChatThread({
   }
 
   const sendPrompt = useCallback((text: string) => {
-    if (!canSend) return;
+    if (!canSend || busyRef.current) return;
+    setNotice(null);
+    setPersistenceStatus("saving");
     pendingSendContext.current = annotations.length ? { value: contextRef.current?.() } : null;
     pendingAnnotationIds.current = annotations.map((annotation) => annotation.id);
     void sendMessage({ text });
   }, [annotations, canSend, sendMessage]);
 
   useEffect(() => {
-    if (!threadReady || !canSend) return;
     const text = initialPrompt?.trim();
-    if (!text || sentInitial.current === text) return;
+    // Once consumed (or cleared), the same prompt can be sent again later.
+    if (!text) {
+      sentInitial.current = undefined;
+      return;
+    }
+    if (!threadReady || !canSend || sentInitial.current === text) return;
     sentInitial.current = text;
     sendPrompt(text);
-    onInitialPromptConsumed?.();
-  }, [initialPrompt, sendPrompt, threadReady]);
+    onInitialPromptConsumedRef.current?.();
+  }, [canSend, initialPrompt, sendPrompt, threadReady]);
 
   const submit = () => {
     const text = input.trim();
     if (!canSend || (!historyOpen && conversationSwitching) || (!text && !annotations.length)) return;
-    clearError();
     const message = text || `Use the attached slide element${annotations.length === 1 ? "" : "s"} as context for this conversation.`;
-    setInput("");
     if (historyOpen) {
+      setInput("");
       startNewChat(message);
       return;
     }
     if (busy || !threadReady) return;
-    if (resolvedScopeId) setPersistenceStatus("saving");
+    clearError();
+    setInput("");
     sendPrompt(message);
   };
 
@@ -564,7 +565,7 @@ export function ChatThread({
                   <button type="button" onClick={() => openHistoryItem(item)} className="grid min-w-0 flex-1 gap-1 px-2 py-1.5 text-start focus-visible:outline-2 focus-visible:outline-ring">
                     <span className="w-full truncate text-xs font-medium" title={item.title}>{item.title}</span>
                     <span className="w-full truncate text-[10px] text-muted-foreground">
-                      {item.scopeId === resolvedScopeId ? "This catalog" : item.catalogTitle || "Catalog " + item.scopeId.slice(0, 8)}
+                      {item.scopeId === scopeId ? "This catalog" : item.catalogTitle || "Catalog " + item.scopeId.slice(0, 8)}
                       <span aria-hidden="true"> · </span>{historyDate(item.updatedAt)}
                     </span>
                   </button>
@@ -585,31 +586,17 @@ export function ChatThread({
           <MessageScroller className="min-h-0 flex-1">
             <MessageScrollerViewport>
               <MessageScrollerContent className="gap-4 p-4">
-                {!messages.length && emptyState}
-                {messages.map((m) => (
-                  <MessageScrollerItem key={m.id} messageId={m.id} scrollAnchor={m.role === "user"}>
-                    <Message align={m.role === "user" ? "end" : "start"}>
-                      <MessageContent className="gap-2">
-                        {m.parts.map((part, i) => {
-                          if (part.type === "text") {
-                            if (!part.text.trim()) return null;
-                            return (
-                              <Bubble key={i} align={m.role === "user" ? "end" : "start"} variant={m.role === "user" ? "muted" : "ghost"}>
-                                <BubbleContent className="min-w-0 max-w-full break-words" dir="auto">
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={markdownComponents}>{part.text}</ReactMarkdown>
-                                </BubbleContent>
-                              </Bubble>
-                            );
-                          }
-                          if (part.type.startsWith("tool-") && renderTool) return <div key={i} className="w-full">{renderTool(part as unknown as ToolPart, m)}</div>;
-                          return null;
-                        })}
-                      </MessageContent>
-                    </Message>
-                  </MessageScrollerItem>
-                ))}
+                {!messages.length && persistenceStatus !== "error" && emptyState}
+                {messages.map((m) => <MessageItem key={m.id} message={m} renderTool={renderTool} />)}
                 {status === "submitted" && (
                   <p className="flex items-center gap-2 text-sm text-muted-foreground"><HugeiconsIcon icon={Loading02Icon} className="size-4 animate-spin" /> Thinking…</p>
+                )}
+                {notice && <p role="status" className="rounded-xl border bg-muted/30 px-3 py-2 text-xs text-muted-foreground">{notice}</p>}
+                {persistenceStatus === "error" && (
+                  <div role="alert" className="grid gap-2 rounded-xl border border-destructive/30 bg-destructive/5 p-3 text-sm">
+                    <p className="text-destructive">This conversation couldn't be loaded.</p>
+                    <Button type="button" size="sm" variant="outline" className="w-fit" onClick={() => resync()}>Try again</Button>
+                  </div>
                 )}
                 {error && (
                   <p role="alert" className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{errorMessage(error)}</p>
@@ -676,9 +663,9 @@ export function ChatThread({
           />
           <InputGroupAddon align="block-end" className="justify-between gap-2 px-2.5 pb-2.5 pt-1">
             <span className="flex min-w-0 items-center gap-1">
-              {!historyOpen && resolvedScopeId && persistenceStatus !== "account" && (
+              {!historyOpen && (persistenceStatus === "loading" || persistenceStatus === "saving") && (
                 <span className="truncate px-1 text-[10px] text-muted-foreground" aria-live="polite">
-                  {persistenceStatus === "loading" ? "Loading chat…" : persistenceStatus === "saving" ? "Saving…" : persistenceStatus === "clearing" ? "Clearing…" : persistenceStatus === "error" ? "Account chat couldn't be cleared" : "Saved on this device"}
+                  {persistenceStatus === "loading" ? "Loading chat…" : "Saving…"}
                 </span>
               )}
               {onStartNewChat && (
@@ -709,16 +696,18 @@ export function ChatThread({
   );
 }
 
-/** Shown instead of the thread when chat can't work yet (signed out, or no model connected). */
-export function ChatUnavailable({ reason }: { reason: "signed-out" | "no-model" }) {
+/** Shown instead of the thread when chat can't work yet (signed out, no model, or a broken personal key). */
+export function ChatUnavailable({ reason, detail }: { reason: "signed-out" | "no-model" | "key-error"; detail?: string | null }) {
+  const title = reason === "signed-out" ? "Sign in to chat" : reason === "key-error" ? "Your AI key couldn't be used" : "Connect an AI model to chat";
+  const body = reason === "signed-out"
+    ? "Chat uses your connected AI model, so it needs an account. Your catalogs stay in this browser either way."
+    : reason === "key-error"
+      ? detail || "Check the key, model and server URL in Settings → AI."
+      : "Add your Claude or OpenRouter key (or a local OpenAI-compatible server) in Settings → AI. Your key stays encrypted on the server.";
   return (
     <div className="m-4 grid gap-2 rounded-xl border p-4 text-sm">
-      <p className="font-medium">{reason === "signed-out" ? "Sign in to chat" : "Connect an AI model to chat"}</p>
-      <p className="text-muted-foreground">
-        {reason === "signed-out"
-          ? "Chat uses your connected AI model, so it needs an account. Your catalogs stay in this browser either way."
-          : "Add your Claude or OpenRouter key (or a local OpenAI-compatible server) in Settings → AI. Your key stays encrypted on the server."}
-      </p>
+      <p className="font-medium">{title}</p>
+      <p className="text-muted-foreground">{body}</p>
       <div>
         <Button size="sm" variant="outline" nativeButton={false} render={<a href={reason === "signed-out" ? "/login" : "/settings#ai"} />}>
           {reason === "signed-out" ? "Sign in" : "Open Settings → AI"}

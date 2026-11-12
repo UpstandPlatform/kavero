@@ -13,6 +13,9 @@ export const chatConversation = pgTable(
     /** `landing` for the landing assistant, or the local/cloud catalog document id. */
     scopeId: text("scope_id").notNull(),
     messages: jsonb("messages").$type<unknown[]>().notNull().default([]),
+    /** First user prompt (denormalized so the history list never reads transcripts). */
+    title: text("title"),
+    messageCount: integer("message_count").notNull().default(0),
     revision: integer("revision").notNull().default(1),
     createdAt: timestamp("created_at").defaultNow().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()).notNull(),

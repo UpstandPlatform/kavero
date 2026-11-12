@@ -96,7 +96,7 @@ export function slideMenu(a: EditorActions, slideId: string, index: number, coun
 }
 
 export function labelOf(type?: string) {
-  return ({ text: "Text", shape: "Shape", image: "Image", product: "Product", "product-grid": "Product grid", html: "HTML block", button: "Button", video: "Video", icon: "Icon" } as Record<string, string>)[type ?? ""] ?? "Element";
+  return ({ text: "Text", shape: "Shape", image: "Image", product: "Product", "product-grid": "Product grid", html: "HTML block", button: "Button", video: "Video", icon: "Icon", markdown: "Markdown", table: "Table", path: "Path" } as Record<string, string>)[type ?? ""] ?? "Element";
 }
 
 /** Eye icon helper for the layers panel. */

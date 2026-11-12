@@ -1,21 +1,17 @@
 import type { Context as ApiContext } from "@Kavero/api/context";
-import { SecretBox } from "@Kavero/api/services/secret-box";
-import { providerFromEnv, type AiEnv } from "@Kavero/ai";
 import type { NextRequest } from "next/server";
 
-import { objectStorage } from "./modules/storage/object-storage";
+import { objectStorage, testObjectStorage } from "./modules/storage/object-storage";
 import { ENV } from "./env.server";
-import { db } from "./services";
-
-const secretBox = new SecretBox(ENV.BETTER_AUTH_SECRET);
-// AI_PROVIDER / ANTHROPIC_API_KEY / OPENAI_API_KEY / AI_BASE_URL / AI_MODEL; null = offline planner only.
-const ai = providerFromEnv(process.env as AiEnv);
-import { auth } from "./services";
+import { allowPrivateUrls, platform, runtimeConfig, secretBox, serverAiProvider } from "./platform";
+import { auth, db } from "./services";
 
 export async function createContext(req: NextRequest): Promise<ApiContext> {
-  const session = await auth.api.getSession({
-    headers: req.headers,
-  });
+  const [session, ai, allowLocalUrls] = await Promise.all([
+    auth.api.getSession({ headers: req.headers }),
+    serverAiProvider(),
+    allowPrivateUrls(),
+  ]);
   return {
     db,
     session,
@@ -24,10 +20,14 @@ export async function createContext(req: NextRequest): Promise<ApiContext> {
     secretBox,
     ai,
     appUrl: ENV.BETTER_AUTH_URL,
-    allowLocalUrls: process.env.NODE_ENV !== "production",
+    allowLocalUrls,
+    config: runtimeConfig,
+    platform,
+    testStorage: testObjectStorage,
     deleteObjects: async (keys) => {
       // Files are content-addressed per catalog, so these keys belong to the deleted catalog only.
-      await Promise.all(keys.map((k) => objectStorage().delete(k)));
+      const storage = await objectStorage();
+      await Promise.all(keys.map((k) => storage.delete(k)));
     },
   };
 }

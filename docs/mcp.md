@@ -102,6 +102,10 @@ Templates: `minimal`, `studio`, `dark-luxury`, `atelier`, `maison`, `tech`, `nat
 | `slide_add_element` | write | `catalogId`, `slideId`, `elements[]` (up to 50) |
 | `slide_update_element` | write | `catalogId`, `elementId`, `changes` (deep-merged; arrays replace) |
 | `slide_remove_element` | write | `catalogId`, `elementId` |
+| `slide_add_markdown` | write | `catalogId`, `slideId`, `markdown` (≤ 20,000 characters), `position?`, `style?`, `name?` |
+| `markdown_update` | write | `catalogId`, `elementId`, `markdown?`, `style?` |
+| `slide_add_table` | write | `catalogId`, `slideId`, `columns[]` + `rows[][]` **or** `csv`, `header?` (default true), `position?`, `style?`, `name?` |
+| `table_update` | write | `catalogId`, `elementId`, `ops[]?` (applied in order as one change), `style?` |
 
 Backgrounds: `{"kind":"color","color":"token:primary"}`, `{"kind":"gradient","from":"#111","to":"#333","angle":135}`, `{"kind":"image","assetId":"ast_…"}`.
 
@@ -116,6 +120,13 @@ Element JSON:
 // shape — rect | ellipse | triangle | line | arrow
 {"type":"shape","position":{"x":0,"y":0,"width":640,"height":1080},"content":{"shape":"rect"},"style":{"fill":"token:accent"}}
 
+// path — a pen-tool line or shape, scaled to its box. Send SVG path data ("d", first subpath; M L H V C S Q T Z,
+// arcs become straight lines) with an optional viewBox, or "points": anchors normalized to the box (0..1) with
+// optional bezier handles "in"/"out" relative to the anchor, plus "closed". fill is optional ("none" = open stroke).
+{"type":"path","position":{"x":200,"y":300,"width":600,"height":300},
+ "content":{"d":"M10 80 C40 10 65 10 95 80","viewBox":{"width":100,"height":100}},
+ "style":{"stroke":"token:primary","strokeWidth":6,"lineCap":"round","lineJoin":"round","dash":[],"fill":"none"}}
+
 // image (assetId from asset_import)
 {"type":"image","position":{"x":1000,"y":120,"width":800,"height":840},"content":{"assetId":"ast_…","alt":"Leather bag"},"style":{"fit":"cover","borderRadius":16}}
 
@@ -129,6 +140,37 @@ Element JSON:
 // html — sandboxed, scripts removed; theme as CSS variables
 {"type":"html","position":{…},"content":{"html":"<h2>Free shipping</h2>","css":"h2{color:var(--kv-primary)}"}}
 ```
+
+Markdown and tables:
+
+```jsonc
+// markdown — GitHub-flavored; raw HTML is ignored, links only http(s)/mailto/tel. Sizes in document pixels.
+{"type":"markdown","position":{…},"content":{"markdown":"# Agenda
+
+- [x] Launch
+- [ ] Review"},
+ "style":{"baseFontSize":24,"fontFamily":"token:body","headingFontFamily":"token:heading","color":"token:text","linkColor":"token:primary","align":"start"}}
+
+// table — up to 50 columns × 500 rows, 1,000 characters per cell; rows hold cell text in column order
+{"type":"table","position":{…},
+ "content":{"header":true,"columns":[{"id":"c1","label":"Item"},{"id":"c2","label":"Price","align":"end","format":"currency"}],
+            "rows":[["Pen","1.5"],["Book","12"]]},
+ "style":{"fontSize":20,"headerBackground":"token:primary","headerColor":"token:on-primary","zebra":true,"borderColor":"token:muted","borderWidth":1,"density":"normal"}}
+```
+
+`slide_add_table` takes `columns` as labels (`["Item","Price"]`) or objects (`{"label":"Price","align":"end","format":"currency","width":2}`), and numbers in `rows` are stored as text; or pass `csv` (comma, semicolon or tab separated; the first row becomes the header). Column formats: `text` (as typed), `number`, `currency` (catalog currency), `percent`, `date`. `table_update` ops (0-based body row/column indexes; the header is not a row):
+
+| Op | Fields |
+| --- | --- |
+| `setCell` | `row`, `column`, `value` |
+| `setCells` | `row`, `column`, `values[][]` (grows the table when needed) |
+| `insertRows` / `deleteRows` | `index`, `count?`; `insertRows` also takes `values[][]` |
+| `insertColumns` / `deleteColumns` | `index`, `count?`; `insertColumns` also takes `labels[]` |
+| `moveRow` / `moveColumn` | `from`, `to` |
+| `updateColumn` | `column`, `changes` (`label`, `align`, `format`, `width`) |
+| `setHeader` | `header` |
+
+`catalog_get` outlines show markdown as plain text (with its first heading as `title`) and tables as `columns`, `rows` (count), `header` and their first rows as text.
 
 Colors: hex or theme tokens `token:background`, `token:text`, `token:muted`, `token:primary`, `token:on-primary`, `token:accent`. Prefer tokens so `catalog_apply_theme` restyles everything.
 
@@ -182,7 +224,11 @@ A family stored in the catalog is used instead of Google Fonts for that name, so
 | Tool | Input |
 | --- | --- |
 | `catalog_set_transition` | `catalogId`, `slideId`, `type` (`none`, `fade`, `morph`, `slide`, `push`, `zoom`, `wipe`, `flip`), `durationMs?`, `direction?`. `morph` moves elements shared with the previous slide (same `morphKey`/id, layer `name`, or unique content) |
-| `catalog_animate_element` | `catalogId`, `elementId`, `category` (`entrance`, `emphasis`, `exit`), `preset` (`fade`, `slide`, `scale`, `bounce`, `rotate`, `blur`, `float`, `pulse`), `trigger?` (`on-enter`, `after-previous`, `with-previous`), `durationMs?`, `delayMs?`, `direction?` |
+| `catalog_animate_element` | `catalogId`, `elementId`, `category` (`entrance`, `emphasis`, `exit`, `keyframes`), `preset` (`appear`, `fade`, `slide`, `scale`, `bounce`, `rotate`, `spin`, `flip`, `zoom`, `grow`, `shrink`, `rise`, `blur`, `float`, `pulse`; paths also `draw`, `erase`, `trace`; `custom` for keyframes), `trigger?` (`on-enter`, `after-previous`, `with-previous`, `on-click`), `durationMs?`, `delayMs?`, `direction?`, `easing?` (`linear`, `ease-in`, `ease-out`, `ease-in-out`, `spring`), `reverse?`, `fillAfterDraw?`, `iterations?`, `loop?`, `playDirection?` (`normal`, `alternate`), `keyframes?` |
+
+Path animations: **draw** (entrance) reveals the stroke from the path start to its end (`reverse: true` goes end → start; `fillAfterDraw: true` fades the fill in afterwards), **erase** (exit) removes it the same way, **trace** (emphasis) runs a short dash along the path — add `loop: true` to repeat it until the slide ends.
+
+Keyframes: `{"category":"keyframes","preset":"custom","durationMs":2000,"loop":true,"playDirection":"alternate","keyframes":[{"offset":0,"y":0,"easing":"ease-in-out"},{"offset":0.5,"y":-40,"scale":1.1},{"offset":1,"y":0}]}`. Each keyframe has an `offset` (0–1) and any of `x`, `y` (px offsets), `scale`, `rotation` (degrees), `opacity` (0–1) and, for paths, `drawProgress` (0–1); its `easing` shapes the motion to the next keyframe. Properties a keyframe leaves out are interpolated between the keyframes that set them.
 
 ### Preview, export, publish
 

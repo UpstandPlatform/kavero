@@ -5,6 +5,7 @@ import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import { toast } from "sonner";
 
 import { FALLBACK_IMAGE_SIZE } from "./use-catalog-editor";
+import { isMarkdownFile, markdownElementInput, tableInputFromClipboard, type ContentElementInput } from "./content/content-elements";
 
 /** Platform-aware shortcut labels: ⌘ on macOS, Ctrl elsewhere. */
 export const isMac = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
@@ -44,7 +45,14 @@ export const SHORTCUTS: { group: string; keys: string; label: string }[] = [
   { group: "View", keys: "Ctrl+Wheel", label: "Zoom around pointer" },
   { group: "View", keys: "Ctrl+0", label: "Zoom to fit" },
   { group: "View", keys: "?", label: "Show shortcuts" },
-  { group: "Canvas", keys: "Double-click", label: "Edit text" },
+  { group: "Canvas", keys: "Double-click", label: "Edit text, or a path's points" },
+  { group: "Pen", keys: "P", label: "Pen tool: draw a path" },
+  { group: "Pen", keys: "Click / Drag", label: "Add a corner point / a curved point" },
+  { group: "Pen", keys: "Alt+Drag", label: "Break the handles of a point apart" },
+  { group: "Pen", keys: "Shift+Click", label: "Snap to 45°" },
+  { group: "Pen", keys: "Click first point", label: "Close the path" },
+  { group: "Pen", keys: "Enter / Esc / Double-click", label: "Finish the path (Esc with one point cancels)" },
+  { group: "Pen", keys: "Delete", label: "Remove the selected point while editing points" },
   { group: "Canvas", keys: "Hold mouse wheel + drag", label: "Pan canvas" },
   { group: "Canvas", keys: "Alt+Drag", label: "Move without snapping" },
   { group: "Canvas", keys: "Shift+Drag", label: "Move on one axis / keep proportions" },
@@ -145,6 +153,16 @@ export function createActions({ editor, run, uploadImage }: ActionDeps) {
     async paste(event?: ClipboardEvent, at?: { x: number; y: number }, targetSlideId?: string) {
       if (targetSlideId && doc().slides.some((s) => s.id === targetSlideId)) editor.setActiveSlide(targetSlideId);
       const data = event?.clipboardData;
+      const addContent = (content: ContentElementInput) => {
+        event?.preventDefault();
+        const { size: [w, h], ...element } = content;
+        const pos = at ?? { x: Math.round((W - w) / 2), y: Math.round((H - h) / 2) };
+        const r = run({ type: "element.add", slideId: slide().id, element: { ...element, position: { ...pos, width: w, height: h, rotation: 0 } } as unknown as NewElement });
+        if (r) editor.select(r.createdIds);
+      };
+      // Spreadsheet cells become a table. Excel also puts a picture of the cells on the clipboard; the cells win.
+      const pastedTable = data ? tableInputFromClipboard(data.getData("text/plain"), { width: W, height: H }) : null;
+      if (pastedTable) return addContent(pastedTable);
       const files = data ? [...data.files].filter((f) => f.type.startsWith("image/")) : [];
       if (files.length) {
         event?.preventDefault();
@@ -174,6 +192,12 @@ export function createActions({ editor, run, uploadImage }: ActionDeps) {
         else a.pasteSlide(clip.slide, targetSlideId);
         return;
       }
+      // Cells copied from a spreadsheet become a table; a markdown file becomes a markdown block.
+      const markdownFile = data ? [...data.files].find(isMarkdownFile) : undefined;
+      const content = markdownFile
+        ? markdownElementInput(await markdownFile.text(), { width: W, height: H }, markdownFile.name.replace(/\.[^.]+$/, ""))
+        : tableInputFromClipboard(text, { width: W, height: H });
+      if (content) return addContent(content);
       if (text.trim()) {
         event?.preventDefault();
         const lines = text.replace(/\r/g, "").split("\n").slice(0, 200);

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { sanitizeCss, sanitizeHtml } from "./sanitize";
+import { svgPathToAnchors } from "./path";
 
 export const CURRENT_SCHEMA_VERSION = 1;
 
@@ -145,9 +146,35 @@ export const slideTransitionSchema = z.object({
   spring: springSchema.optional(),
 });
 
+/** Animatable properties of a keyframe; values are offsets from the element's resting state. */
+export const KEYFRAME_PROPERTIES = ["x", "y", "scale", "rotation", "opacity", "drawProgress"] as const;
+export type KeyframeProperty = (typeof KEYFRAME_PROPERTIES)[number];
+
+/**
+ * One keyframe of a "keyframes" animation. Properties left out are interpolated
+ * between the neighbouring keyframes that set them (like CSS @keyframes).
+ * `easing` shapes the motion from this keyframe to the next one.
+ */
+export const keyframeSchema = z.object({
+  id: z.string().min(1).max(64).optional(),
+  /** Position in the animation, 0 (start) to 1 (end). */
+  offset: z.number().min(0).max(1),
+  /** Horizontal offset in px. */
+  x: z.number().min(-100_000).max(100_000).optional(),
+  /** Vertical offset in px. */
+  y: z.number().min(-100_000).max(100_000).optional(),
+  scale: z.number().min(0).max(100).optional(),
+  /** Degrees, added to the element's rotation. */
+  rotation: z.number().min(-36_000).max(36_000).optional(),
+  opacity: z.number().min(0).max(1).optional(),
+  /** Paths only: visible fraction of the stroke, 0 to 1. */
+  drawProgress: z.number().min(0).max(1).optional(),
+  easing: easingSchema.default("linear"),
+});
+
 export const elementAnimationSchema = z.object({
   id,
-  category: z.enum(["entrance", "exit", "emphasis", "motion-path"]),
+  category: z.enum(["entrance", "exit", "emphasis", "motion-path", "keyframes"]),
   preset: z.enum([
     "appear",
     "fade",
@@ -165,6 +192,10 @@ export const elementAnimationSchema = z.object({
     "float",
     "pulse",
     "custom",
+    // Paths: reveal the stroke from start to end (entrance), remove it (exit), run a dash along it (emphasis).
+    "draw",
+    "erase",
+    "trace",
   ]),
   trigger: z
     .enum(["on-enter", "after-previous", "with-previous", "on-click"])
@@ -180,6 +211,18 @@ export const elementAnimationSchema = z.object({
   direction: directionSchema.optional(),
   // motion-path / custom: points relative to the element's origin
   path: z.array(z.object({ x: z.number(), y: z.number() })).optional(),
+  /** Keyframes animations: the keyframes, kept in offset order. */
+  keyframes: z.array(keyframeSchema).max(50).optional(),
+  /** Emphasis and keyframes: how many times to play (default 1). */
+  iterations: z.number().int().min(1).max(100).optional(),
+  /** Emphasis and keyframes: repeat until the slide ends. */
+  loop: z.boolean().optional(),
+  /** Emphasis and keyframes: "alternate" plays every second iteration backwards. */
+  playDirection: z.enum(["normal", "alternate"]).optional(),
+  /** Draw, erase and trace: run along the path from its end to its start. */
+  reverse: z.boolean().optional(),
+  /** Draw: fade the fill in after the stroke is complete (erase: fade it out first). */
+  fillAfterDraw: z.boolean().optional(),
 });
 
 /** A serializable reference to a trusted extension effect; no shader source is stored in a catalog. */
@@ -415,12 +458,42 @@ export const productGridElementSchema = z.object({
   }),
 });
 
+/** SVG primitives an icon may use. Icons are stored as data, never as raw SVG markup. */
+export const ICON_SVG_TAGS = ["path", "circle", "rect", "line", "polyline", "polygon", "ellipse"] as const;
+export const ICON_SVG_ATTRIBUTES = ["d", "cx", "cy", "r", "rx", "ry", "x", "y", "width", "height", "x1", "y1", "x2", "y2", "points", "fill"] as const;
+const ICON_ATTRIBUTE_SET = new Set<string>(ICON_SVG_ATTRIBUTES);
+/** Geometry only: digits, path commands, separators. `fill` is limited to currentColor or none. */
+const ICON_VALUE = /^[0-9A-Za-z .,+-]*$/;
+export const iconNodeSchema = z
+  .tuple([
+    z.enum(ICON_SVG_TAGS),
+    z.record(z.string(), z.union([z.string().max(8_000), z.number().finite()])),
+  ])
+  .refine(
+    ([, attributes]) =>
+      Object.entries(attributes).every(([key, value]) =>
+        ICON_ATTRIBUTE_SET.has(key) &&
+        (key === "fill" ? value === "currentColor" || value === "none" : typeof value === "number" || ICON_VALUE.test(value)),
+      ),
+    "Icon shapes may only use geometry attributes.",
+  );
+export type IconNode = z.infer<typeof iconNodeSchema>;
+
+/**
+ * A vector icon on a 24×24 grid (Lucide-compatible). `nodes` holds the shapes so the icon renders
+ * offline, on published pages and in exports without the icon library; icons without `nodes`
+ * render as a named placeholder.
+ */
 export const iconElementSchema = z.object({
   ...elementBase,
   type: z.literal("icon"),
-  content: z.object({ name: catalogText }),
+  content: z.object({
+    name: catalogText,
+    library: z.enum(["lucide"]).optional(),
+    nodes: z.array(iconNodeSchema).max(64).optional(),
+  }),
   style: z
-    .object({ color: color.default("token:text") })
+    .object({ color: color.default("token:text"), strokeWidth: z.number().min(0.25).max(6).optional() })
     .default({ color: "token:text" }),
 });
 
@@ -494,7 +567,168 @@ export const htmlElementSchema = z.object({
   style: z.object({ background: color.optional() }).default({}),
 });
 
+// ---- Markdown and table elements (content blocks) ----
+
+/** Longest markdown source a markdown element stores. */
+export const MAX_MARKDOWN_CHARACTERS = 20_000;
+/** Table limits keep the editor, renderer and PowerPoint export responsive. */
+export const TABLE_LIMITS = { columns: 50, rows: 500, cellCharacters: 1_000, labelCharacters: 200, totalCharacters: 200_000 } as const;
+
+const blockAlign = z.enum(["start", "center", "end", "justify"]);
+const blockDirection = z.enum(["auto", "ltr", "rtl"]);
+
+/**
+ * GitHub-flavored markdown, rendered without raw HTML (HTML in the source is shown as text or dropped).
+ * Sizes are document pixels, like text elements.
+ */
+export const markdownStyleSchema = z.object({
+  fontFamily: z.string().max(200).default("token:body"),
+  headingFontFamily: z.string().max(200).default("token:heading"),
+  baseFontSize: z.number().min(4).max(400).default(20),
+  color: color.default("token:text"),
+  headingColor: color.default("token:text"),
+  linkColor: color.default("token:primary"),
+  lineHeight: z.number().min(0.8).max(4).default(1.45),
+  align: blockAlign.default("start"),
+  direction: blockDirection.default("auto"),
+  background: color.optional(),
+});
+
+export const markdownElementSchema = z.object({
+  ...elementBase,
+  type: z.literal("markdown"),
+  content: z.object({ markdown: z.string().max(MAX_MARKDOWN_CHARACTERS) }),
+  style: markdownStyleSchema.default(markdownStyleSchema.parse({})),
+});
+
+export const TABLE_COLUMN_FORMATS = ["text", "number", "currency", "percent", "date"] as const;
+
+export const tableColumnSchema = z.object({
+  id: z.string().min(1).max(64),
+  label: z.string().max(TABLE_LIMITS.labelCharacters).default(""),
+  align: z.enum(["start", "center", "end"]).default("start"),
+  /** Relative width; columns without one share the remaining space equally. */
+  width: z.number().min(0.1).max(100).optional(),
+  format: z.enum(TABLE_COLUMN_FORMATS).default("text"),
+});
+
+/**
+ * Tabular data: columns describe the header and formatting, rows hold cell text in column order.
+ * Shorter rows are padded with empty cells; rows longer than the column list are rejected.
+ */
+export const tableContentSchema = z
+  .object({
+    columns: z.array(tableColumnSchema).min(1).max(TABLE_LIMITS.columns),
+    rows: z.array(z.array(z.string().max(TABLE_LIMITS.cellCharacters)).max(TABLE_LIMITS.columns)).max(TABLE_LIMITS.rows),
+    /** Show column labels as a header row. */
+    header: z.boolean().default(true),
+  })
+  .superRefine((table, ctx) => {
+    const ids = new Set<string>();
+    table.columns.forEach((column, index) => {
+      if (ids.has(column.id)) ctx.addIssue({ code: "custom", path: ["columns", index, "id"], message: `Duplicate column id "${column.id}".` });
+      ids.add(column.id);
+    });
+    let characters = 0;
+    for (const [index, row] of table.rows.entries()) {
+      if (row.length > table.columns.length) {
+        ctx.addIssue({ code: "custom", path: ["rows", index], message: `Row ${index + 1} has ${row.length} cells but the table has ${table.columns.length} columns.` });
+        return;
+      }
+      for (const cell of row) characters += cell.length;
+    }
+    if (characters > TABLE_LIMITS.totalCharacters) ctx.addIssue({ code: "custom", path: ["rows"], message: `A table can hold at most ${TABLE_LIMITS.totalCharacters.toLocaleString()} characters.` });
+  })
+  .transform((table) => ({
+    ...table,
+    rows: table.rows.map((row) => (row.length === table.columns.length ? row : [...row, ...Array<string>(table.columns.length - row.length).fill("")])),
+  }));
+
+export const tableStyleSchema = z.object({
+  fontFamily: z.string().max(200).default("token:body"),
+  fontSize: z.number().min(4).max(200).default(18),
+  color: color.default("token:text"),
+  headerBackground: color.default("token:primary"),
+  headerColor: color.default("token:on-primary"),
+  /** Alternate row shading. Without a zebraColor, rows are tinted with the theme's muted color. */
+  zebra: z.boolean().default(true),
+  zebraColor: color.optional(),
+  /** Body cell background; transparent when unset. */
+  background: color.optional(),
+  borderColor: color.default("token:muted"),
+  borderWidth: z.number().min(0).max(8).default(1),
+  /** Cell padding in document pixels, scaled by density. */
+  cellPadding: z.number().min(0).max(64).default(10),
+  density: z.enum(["compact", "normal", "comfortable"]).default("normal"),
+  direction: blockDirection.default("auto"),
+});
+
+export const tableElementSchema = z.object({
+  ...elementBase,
+  type: z.literal("table"),
+  content: tableContentSchema,
+  style: tableStyleSchema.default(tableStyleSchema.parse({})),
+});
+
+const pathCoordinate = z.number().min(-1_000).max(1_000);
+const pathVec = z.object({ x: pathCoordinate, y: pathCoordinate });
+
+/** One anchor of a vector path, normalized to the element box (0..1); handles are offsets from the anchor. */
+export const pathPointSchema = z.object({
+  x: pathCoordinate,
+  y: pathCoordinate,
+  in: pathVec.optional(),
+  out: pathVec.optional(),
+  kind: z.enum(["corner", "smooth"]).optional(),
+});
+
+/**
+ * Path geometry. Agents may send SVG path data instead of anchors:
+ * `{ "d": "M0 0 C…", "viewBox": { "width": 100, "height": 100 } }` is converted
+ * to anchors (first subpath only) when the element is validated.
+ */
+export const pathContentSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) return value;
+    const raw = value as Record<string, unknown>;
+    if (typeof raw.d !== "string" || Array.isArray(raw.points)) return value;
+    const { d, viewBox, ...rest } = raw;
+    try {
+      const box = typeof viewBox === "object" && viewBox !== null ? viewBox as { x?: number; y?: number; width: number; height: number } : undefined;
+      const parsed = svgPathToAnchors((d as string).slice(0, 50_000), box && Number(box.width) > 0 && Number(box.height) > 0 ? box : undefined);
+      return { ...rest, points: parsed.points, closed: typeof rest.closed === "boolean" ? rest.closed : parsed.closed };
+    } catch {
+      return value; // reported as a missing `points` issue below
+    }
+  },
+  z.object({
+    points: z.array(pathPointSchema).min(2, { message: "A path needs at least two points" }).max(2_000),
+    closed: z.boolean().default(false),
+  }),
+);
+
+export const pathStyleSchema = z.object({
+  stroke: color.default("token:text"),
+  strokeWidth: z.number().min(0).max(500).default(4),
+  lineCap: z.enum(["butt", "round", "square"]).default("round"),
+  lineJoin: z.enum(["miter", "round", "bevel"]).default("round"),
+  /** Dash pattern in px (e.g. [12, 8]); empty for a solid line. */
+  dash: z.array(z.number().min(0).max(1_000)).max(8).default([]),
+  /** Optional fill; leave unset (or "none") for an open stroke. */
+  fill: color.optional(),
+});
+
+/** A freeform vector path drawn with the pen tool, scaled to its element box. */
+export const pathElementSchema = z.object({
+  ...elementBase,
+  type: z.literal("path"),
+  content: pathContentSchema,
+  style: pathStyleSchema.default(pathStyleSchema.parse({})),
+});
+
 export const catalogElementSchema = z.discriminatedUnion("type", [
+  markdownElementSchema,
+  tableElementSchema,
   htmlElementSchema,
   textElementSchema,
   imageElementSchema,
@@ -505,6 +739,7 @@ export const catalogElementSchema = z.discriminatedUnion("type", [
   iconElementSchema,
   videoElementSchema,
   buttonElementSchema,
+  pathElementSchema,
 ]);
 
 // ---- Slides, assets, products, document ----
@@ -772,3 +1007,13 @@ export type ExtensionElement = z.infer<typeof extensionElementSchema>;
 export type CatalogExtensionState = z.infer<typeof catalogExtensionSchema>;
 export type CatalogDocument = z.infer<typeof catalogDocumentSchema>;
 export type ElementPosition = z.infer<typeof positionSchema>;
+export type MarkdownElement = z.infer<typeof markdownElementSchema>;
+export type MarkdownStyle = z.infer<typeof markdownStyleSchema>;
+export type TableElement = z.infer<typeof tableElementSchema>;
+export type TableContent = z.infer<typeof tableContentSchema>;
+export type TableColumn = z.infer<typeof tableColumnSchema>;
+export type TableStyle = z.infer<typeof tableStyleSchema>;
+export type TableColumnFormat = (typeof TABLE_COLUMN_FORMATS)[number];
+export type Keyframe = z.infer<typeof keyframeSchema>;
+export type PathPoint = z.infer<typeof pathPointSchema>;
+export type PathElement = z.infer<typeof pathElementSchema>;

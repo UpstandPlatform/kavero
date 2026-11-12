@@ -28,14 +28,26 @@ export class BrowserBusyError extends Error {
   }
 }
 
-/** Chrome instances allowed at once in this process (PDF, images, video, previews together). */
-const MAX_BROWSERS = Math.max(1, Number(process.env.KAVERO_MAX_BROWSERS) || 2);
 // Per process, and shared across dev hot reloads / route bundles.
-const g = globalThis as unknown as { __kaveroBrowserSlots?: { active: number; waiting: (() => void)[] } };
+// `limit`: Chrome instances allowed at once (PDF, images, video, previews together).
+const g = globalThis as unknown as { __kaveroBrowserSlots?: { active: number; waiting: (() => void)[]; limit?: number } };
 const slots = (g.__kaveroBrowserSlots ??= { active: 0, waiting: [] });
+slots.limit ??= Math.max(1, Number(process.env.KAVERO_MAX_BROWSERS) || 2);
+const limit = () => slots.limit ?? 2;
+
+/** Changes how many exports may run at once (Admin → System → Parallel exports). Takes effect immediately. */
+export function setMaxBrowsers(n: number) {
+  if (!Number.isFinite(n)) return;
+  slots.limit = Math.max(1, Math.min(64, Math.floor(n)));
+  // A higher limit lets queued exports start now.
+  while (slots.active < limit() && slots.waiting.length) {
+    slots.active++;
+    slots.waiting.shift()!();
+  }
+}
 
 async function acquireSlot(timeoutMs: number): Promise<() => void> {
-  if (slots.active >= MAX_BROWSERS) {
+  if (slots.active >= limit()) {
     await new Promise<void>((resolve, reject) => {
       const grant = () => {
         clearTimeout(timer);
@@ -53,7 +65,8 @@ async function acquireSlot(timeoutMs: number): Promise<() => void> {
     if (released) return;
     released = true;
     // Hand the slot straight to the next waiter, or free it.
-    const next = slots.waiting.shift();
+    // After the limit was lowered, free slots until we're back under it.
+    const next = slots.active <= limit() ? slots.waiting.shift() : undefined;
     if (next) next();
     else slots.active--;
   };

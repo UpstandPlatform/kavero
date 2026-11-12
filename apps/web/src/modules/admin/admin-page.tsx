@@ -26,6 +26,8 @@ import { authClient } from "@/lib/auth-client";
 import { makeTRPCClient } from "@/utils/trpc";
 import { confirmAction } from "@/components/confirm-dialog";
 
+import { SystemTab } from "./system-tab";
+
 let client: ReturnType<typeof makeTRPCClient> | null = null;
 const api = () => (client ??= makeTRPCClient());
 
@@ -35,13 +37,14 @@ type UserRow = Awaited<ReturnType<Api["admin"]["users"]["list"]["query"]>>["user
 type SiteRow = Awaited<ReturnType<Api["admin"]["sites"]["list"]["query"]>>["sites"][number];
 type ActivityPage = Awaited<ReturnType<Api["admin"]["activity"]["query"]>>;
 type ActivityRow = ActivityPage["rows"][number];
-type Tab = "overview" | "users" | "sites" | "activity" | "settings";
+type Tab = "overview" | "users" | "sites" | "activity" | "settings" | "system";
 const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
   { id: "overview", label: "Overview", icon: <HugeiconsIcon icon={DashboardCircleIcon} /> },
   { id: "users", label: "Users", icon: <HugeiconsIcon icon={UserGroupIcon} /> },
   { id: "sites", label: "Published sites", icon: <HugeiconsIcon icon={GlobeIcon} /> },
   { id: "activity", label: "Activity", icon: <HugeiconsIcon icon={ScrollIcon} /> },
-  { id: "settings", label: "Sign-ups", icon: <HugeiconsIcon icon={Settings02Icon} /> },
+  { id: "settings", label: "Sign-ups", icon: <HugeiconsIcon icon={UserCheck01Icon} /> },
+  { id: "system", label: "System", icon: <HugeiconsIcon icon={Settings02Icon} /> },
 ];
 
 const fmtBytes = (n: number) => (n < 1024 ? `${n} B` : n < 1024 ** 2 ? `${(n / 1024).toFixed(0)} KB` : n < 1024 ** 3 ? `${(n / 1024 ** 2).toFixed(1)} MB` : `${(n / 1024 ** 3).toFixed(2)} GB`);
@@ -93,13 +96,14 @@ export function AdminPage() {
   return (
     <div className="mx-auto w-full max-w-4xl px-4 py-8">
       <h1 className="mb-1 flex items-center gap-2 text-2xl font-semibold tracking-tight"><HugeiconsIcon icon={Shield01Icon} className="size-6" /> Admin</h1>
-      <p className="mb-6 text-sm text-muted-foreground">Manage accounts, sign-ups and published sites on this Kavero server.</p>
+      <p className="mb-6 text-sm text-muted-foreground">Manage accounts, sign-ups, published sites and server settings.</p>
       <PageTabs label="Admin" tabs={TABS} value={tab} onChange={(id) => { setTab(id); history.replaceState(null, "", `#${id}`); }} />
       {tab === "overview" && <OverviewTab onOpen={(t) => { setTab(t); history.replaceState(null, "", `#${t}`); }} />}
       {tab === "users" && <UsersTab />}
       {tab === "sites" && <SitesTab />}
       {tab === "activity" && <ActivityTab />}
       {tab === "settings" && <SignupsTab />}
+      {tab === "system" && <SystemTab />}
     </div>
   );
 }

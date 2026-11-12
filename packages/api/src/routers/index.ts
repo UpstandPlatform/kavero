@@ -4,6 +4,7 @@ import { aiRouter } from "./ai";
 import { catalogRouter } from "./catalog";
 import { integrationsRouter } from "./integrations";
 import { publicationRouter } from "./publication";
+import { systemRouter } from "./system";
 import { workspaceRouter } from "./workspace";
 
 export const appRouter = router({
@@ -13,6 +14,7 @@ export const appRouter = router({
   ai: aiRouter,
   admin: adminRouter,
   workspace: workspaceRouter,
+  system: systemRouter,
   healthCheck: publicProcedure.query(() => {
     return "OK";
   }),

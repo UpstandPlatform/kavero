@@ -8,7 +8,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
 import { TRPCError } from "@trpc/server";
 import { and, desc, eq } from "drizzle-orm";
 
-import { assertPublicUrl, safeFetch } from "./safe-fetch";
+import { assertPublicUrl, limitResponseBody, safeFetch } from "./safe-fetch";
 import type { SecretBox } from "./secret-box";
 
 export interface ConnectionInput {
@@ -30,6 +30,59 @@ export interface ToolInfo {
 
 const CALL_TIMEOUT_MS = 30_000;
 const MAX_RESULT_CHARS = 2_000_000;
+/** Bytes a remote MCP server may send in one HTTP response (or SSE stream) before it is cut off. */
+export const MAX_MCP_RESPONSE_BYTES = 6 * 1024 * 1024;
+export const MCP_TOOL_LIMITS = {
+  maxTools: 200,
+  maxResources: 200,
+  maxNameChars: 200,
+  maxTitleChars: 200,
+  maxDescriptionChars: 2_000,
+  maxSchemaChars: 32_000,
+  /** The whole stored tool/resource list. */
+  maxTotalChars: 512_000,
+} as const;
+
+const clip = (value: unknown, max: number) => (typeof value === "string" && value ? value.slice(0, max) : undefined);
+
+/**
+ * Bound what a (possibly malicious) server can make us store and later send to every browser:
+ * tool count, text lengths and input schema size. Oversized schemas are dropped, not truncated.
+ */
+export function sanitizeToolList(tools: readonly unknown[]): ToolInfo[] {
+  const result: ToolInfo[] = [];
+  let total = 0;
+  const seen = new Set<string>();
+  for (const raw of tools.slice(0, MCP_TOOL_LIMITS.maxTools * 2)) {
+    if (result.length >= MCP_TOOL_LIMITS.maxTools) break;
+    if (!raw || typeof raw !== "object") continue;
+    const tool = raw as Record<string, unknown>;
+    if (typeof tool.name !== "string" || !tool.name || tool.name.length > MCP_TOOL_LIMITS.maxNameChars || seen.has(tool.name)) continue;
+    let inputSchema: unknown;
+    try {
+      const json = tool.inputSchema === undefined ? undefined : JSON.stringify(tool.inputSchema);
+      inputSchema = json !== undefined && json.length <= MCP_TOOL_LIMITS.maxSchemaChars ? JSON.parse(json) : undefined;
+    } catch {
+      inputSchema = undefined;
+    }
+    const info: ToolInfo = { name: tool.name, title: clip(tool.title, MCP_TOOL_LIMITS.maxTitleChars), description: clip(tool.description, MCP_TOOL_LIMITS.maxDescriptionChars), inputSchema };
+    const size = JSON.stringify(info).length;
+    if (total + size > MCP_TOOL_LIMITS.maxTotalChars) break;
+    total += size;
+    seen.add(tool.name);
+    result.push(info);
+  }
+  return result;
+}
+
+export function sanitizeResourceList(resources: readonly unknown[]): { uri: string; name?: string }[] {
+  return resources.flatMap((raw) => {
+    if (!raw || typeof raw !== "object") return [];
+    const resource = raw as Record<string, unknown>;
+    if (typeof resource.uri !== "string" || !resource.uri || resource.uri.length > 2_000) return [];
+    return [{ uri: resource.uri, name: clip(resource.name, MCP_TOOL_LIMITS.maxNameChars) }];
+  }).slice(0, MCP_TOOL_LIMITS.maxResources);
+}
 
 /**
  * Connections to external MCP servers (remote: Streamable HTTP or SSE).
@@ -41,7 +94,7 @@ export class McpConnectionService {
 
   async list(userId: string) {
     const rows = await this.db.select().from(mcpConnection).where(eq(mcpConnection.userId, userId)).orderBy(desc(mcpConnection.createdAt));
-    return rows.map(({ encryptedSecret, ...r }) => ({ ...r, hasSecret: !!encryptedSecret, tools: ((r.capabilities as { tools?: ToolInfo[] } | null)?.tools ?? []) }));
+    return rows.map(({ encryptedSecret, ...r }) => ({ ...r, hasSecret: !!encryptedSecret, tools: sanitizeToolList((r.capabilities as { tools?: unknown[] } | null)?.tools ?? []) }));
   }
 
   private async owned(userId: string, id: string) {
@@ -89,7 +142,7 @@ export class McpConnectionService {
     return { ok: true };
   }
 
-  private async connect(row: typeof mcpConnection.$inferSelect) {
+  private async connect(row: typeof mcpConnection.$inferSelect, signal: AbortSignal) {
     const url = await assertPublicUrl(row.url, this.opts);
     const headers: Record<string, string> = {};
     if (row.encryptedSecret) {
@@ -98,12 +151,17 @@ export class McpConnectionService {
       if (row.authType === "header" && row.authHeader) headers[row.authHeader] = secret;
     }
     const client = new Client({ name: "kavero", version: "0.1.0" });
-    // Every request (including SSE endpoints the server announces) re-checks the address at connect time.
-    const fetch = (u: string | URL, init?: RequestInit) => safeFetch(u, init, this.opts);
+    // Every request (including SSE endpoints the server announces) re-checks the address at connect time,
+    // is aborted with the operation, and is cut off once the server sends more than the byte limit.
+    const fetch = async (u: string | URL, init?: RequestInit) => {
+      const requestSignal = init?.signal ? AbortSignal.any([init.signal, signal]) : signal;
+      const response = await safeFetch(u, { ...init, signal: requestSignal }, this.opts);
+      return limitResponseBody(response, MAX_MCP_RESPONSE_BYTES, "The connected server sent too much data");
+    };
     const transport = row.transport === "sse"
       ? new SSEClientTransport(url, { requestInit: { headers }, fetch })
       : new StreamableHTTPClientTransport(url, { requestInit: { headers }, fetch });
-    await withTimeout(client.connect(transport), CALL_TIMEOUT_MS, "Connecting timed out");
+    await client.connect(transport, { signal, timeout: CALL_TIMEOUT_MS });
     return client;
   }
 
@@ -111,11 +169,12 @@ export class McpConnectionService {
   async check(userId: string, id: string) {
     const row = await this.owned(userId, id);
     let client: Client | null = null;
+    const signal = AbortSignal.timeout(CALL_TIMEOUT_MS * 2);
     try {
-      client = await this.connect(row);
-      const tools = (await withTimeout(client.listTools(), CALL_TIMEOUT_MS, "Listing tools timed out")).tools.map((t) => ({ name: t.name, title: t.title, description: t.description, inputSchema: t.inputSchema }));
+      client = await this.connect(row, signal);
+      const tools = sanitizeToolList((await client.listTools(undefined, { signal, timeout: CALL_TIMEOUT_MS })).tools);
       const resources = client.getServerCapabilities()?.resources
-        ? (await client.listResources().catch(() => ({ resources: [] }))).resources.map((r) => ({ uri: r.uri, name: r.name }))
+        ? sanitizeResourceList((await client.listResources(undefined, { signal, timeout: CALL_TIMEOUT_MS }).catch(() => ({ resources: [] }))).resources)
         : [];
       await this.db.update(mcpConnection).set({ status: "ok", lastError: null, capabilities: { tools, resources, server: client.getServerVersion() }, lastCheckedAt: new Date() }).where(eq(mcpConnection.id, id));
       return { id, status: "ok" as const, tools, resources };
@@ -137,9 +196,10 @@ export class McpConnectionService {
     }
     validateToolArguments(args);
     let client: Client | null = null;
+    const signal = AbortSignal.timeout(CALL_TIMEOUT_MS * 2);
     try {
-      client = await this.connect(row);
-      const result = await withTimeout(client.callTool({ name, arguments: args }), CALL_TIMEOUT_MS, "The tool took too long");
+      client = await this.connect(row, signal);
+      const result = await client.callTool({ name, arguments: args }, undefined, { signal, timeout: CALL_TIMEOUT_MS });
       if (JSON.stringify(result).length > MAX_RESULT_CHARS) throw new Error("The tool returned too much data; narrow the request");
       await this.db.update(mcpConnection).set({ lastSyncAt: new Date(), status: "ok", lastError: null }).where(eq(mcpConnection.id, id));
       return result as { content?: { type: string; text?: string }[]; structuredContent?: unknown; isError?: boolean };
@@ -211,11 +271,4 @@ function validateToolArguments(args: Record<string, unknown>) {
 /** Never echo credentials back in error messages. */
 function scrub(message: string, row: { encryptedSecret: string | null }) {
   return row.encryptedSecret ? message.replace(/Bearer\s+\S+/gi, "Bearer ***") : message;
-}
-
-function withTimeout<T>(p: Promise<T>, ms: number, message: string): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const t = setTimeout(() => reject(new Error(message)), ms);
-    p.then((v) => { clearTimeout(t); resolve(v); }, (e) => { clearTimeout(t); reject(e); });
-  });
 }

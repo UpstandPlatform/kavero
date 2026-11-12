@@ -28,6 +28,9 @@ function signature(el: CatalogElement): string | null {
     case "video": return `video:${el.content.assetId ?? el.content.url ?? ""}`;
     case "icon": return `icon:${el.content.name}`;
     case "html": return `html:${el.content.html.length}:${el.content.html.slice(0, 200)}`;
+    case "markdown": return el.content.markdown.trim() ? `markdown:${el.content.markdown.slice(0, 200)}` : null;
+    case "table": return `table:${el.content.columns.map((column) => column.label).join("|")}:${el.content.rows.length}`;
+    case "path": return `path:${el.content.closed ? "z" : ""}:${JSON.stringify(el.content.points).slice(0, 300)}`;
   }
 }
 
@@ -157,5 +160,10 @@ export function morphElement(a: CatalogElement, b: CatalogElement, t: number, re
   const opacity = lerp(a.opacity, b.opacity, t);
   const to = { ...b, position, style, opacity, animations: [] } as CatalogElement;
   if (same(a.content, b.content)) return { to, mix: 1 };
+  // Paths with the same anchor count reshape smoothly instead of cross-fading.
+  if (a.type === "path" && b.type === "path" && a.content.points.length === b.content.points.length && a.content.closed === b.content.closed) {
+    const points = b.content.points.map((q, i) => mixValue(a.content.points[i], q, t, resolve)) as typeof b.content.points;
+    return { to: { ...to, content: { ...b.content, points } } as CatalogElement, mix: 1 };
+  }
   return { to, from: { ...a, position, style, opacity, animations: [] } as CatalogElement, mix: t };
 }

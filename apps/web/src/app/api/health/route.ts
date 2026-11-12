@@ -47,7 +47,7 @@ async function checkStorage() {
   const key = `health/probe-${randomUUID()}`;
   const probe = new Uint8Array([1]);
   try {
-    const storage = objectStorage();
+    const storage = await objectStorage();
     await withTimeout(storage.put(key, probe));
     const read = await withTimeout(storage.get(key));
     await withTimeout(storage.delete(key));

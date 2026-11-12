@@ -1,4 +1,4 @@
-import { resolveToken, type CatalogDocument } from "@Kavero/catalog-engine";
+import { pathToSvgD, resolveToken, type CatalogDocument } from "@Kavero/catalog-engine";
 
 const esc = (s: string) => s.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`);
 
@@ -31,6 +31,13 @@ export function slideThumbnail(doc: CatalogDocument): string {
           parts.push(`<text x="${tx}" y="${y + el.style.fontSize}" font-size="${el.style.fontSize}" font-weight="${el.style.fontWeight}" font-family="${esc(resolveToken(doc, el.style.fontFamily, "fonts"))}, sans-serif" text-anchor="${anchor}" fill="${c(el.style.color)}"${t}>${esc(line.slice(0, 60))}</text>`);
           break;
         }
+        case "path": {
+          const s = el.style;
+          const fill = !s.fill || s.fill === "none" ? "none" : c(s.fill);
+          const stroke = s.strokeWidth > 0 ? c(s.stroke) : "none";
+          parts.push(`<path transform="translate(${x} ${y})${rotation ? ` rotate(${rotation} ${w / 2} ${h / 2})` : ""}" d="${esc(pathToSvgD(el.content.points, el.content.closed, w, h))}" fill="${fill}" stroke="${stroke}" stroke-width="${s.strokeWidth}" stroke-linecap="${s.lineCap}" stroke-linejoin="${s.lineJoin}"${s.dash.length ? ` stroke-dasharray="${s.dash.join(" ")}"` : ""}/>`);
+          break;
+        }
         case "image":
         case "video":
           parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${h}" fill="#d1d5db"${t}/>`);
@@ -40,6 +47,14 @@ export function slideThumbnail(doc: CatalogDocument): string {
           const gap = el.style.gap;
           const cw = (w - gap * (cols - 1)) / cols;
           for (let i = 0; i < cols; i++) parts.push(`<rect x="${x + i * (cw + gap)}" y="${y}" width="${cw}" height="${Math.min(h, cw * 1.3)}" rx="${el.style.borderRadius}" fill="#9ca3af" fill-opacity="0.25"/>`);
+          break;
+        }
+        case "table": {
+          // Header band and row lines.
+          const rows = Math.min(el.content.rows.length + (el.content.header ? 1 : 0), 12) || 1;
+          const rh = h / rows;
+          if (el.content.header) parts.push(`<rect x="${x}" y="${y}" width="${w}" height="${rh}" fill="${c(el.style.headerBackground)}"${t}/>`);
+          for (let i = 1; i < rows; i++) parts.push(`<rect x="${x}" y="${y + i * rh}" width="${w}" height="${Math.max(1, el.style.borderWidth)}" fill="${c(el.style.borderColor)}" fill-opacity="0.6"${t}/>`);
           break;
         }
         default:

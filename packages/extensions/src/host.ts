@@ -1,4 +1,5 @@
 import { ExtensionEventBus, type ExtensionEvents } from "./events";
+import { effectiveGrants, type EffectiveGrants, type InstalledExtension } from "./grants";
 import { ExtensionHookRegistry } from "./hooks";
 import {
   EXTENSION_API_VERSION,
@@ -8,6 +9,9 @@ import {
   type ExtensionCapability,
   type ExtensionManifest,
 } from "./manifest";
+import { compareSemver, isSemver, isVersionCompatible } from "./versions";
+
+export type { InstalledExtension } from "./grants";
 
 export type JsonValue = string | number | boolean | null | JsonValue[] | { [key: string]: JsonValue };
 export type ExtensionCleanup = () => void | Promise<void>;
@@ -61,12 +65,6 @@ export interface ExtensionMigrationState {
   data: Record<string, JsonValue>;
 }
 
-export interface InstalledExtension {
-  version: string;
-  enabled: boolean;
-  grantedCapabilities?: readonly string[];
-}
-
 export interface ContributedExtension<Context, Contribution, Events extends object = ExtensionEvents, Hooks extends Record<string, unknown> = Record<string, unknown>> {
   definition: ExtensionDefinition<Context, Contribution, Events, Hooks>;
   contribution: Contribution;
@@ -88,18 +86,33 @@ export class ExtensionHost<Context = unknown, Contribution = unknown, Events ext
     onError?: (error: unknown, source: string) => void;
     validateContribution?: (manifest: ExtensionManifest, contribution: Contribution) => void;
     hookCapabilities?: Partial<Record<keyof Hooks, readonly ExtensionCapability[]>>;
+    /**
+     * Capabilities the current user confirmed for an extension (outside the shared document).
+     * When provided, document grants only take effect once confirmed; see `effectiveGrants`.
+     */
+    confirmedGrants?: (extensionId: string) => readonly string[] | undefined;
+    /** Maximum run time of one hook handler. */
+    hookTimeoutMs?: number;
+    /** Validate each hook handler's result; an invalid result is discarded and reported. */
+    validateHook?: (hook: string, value: unknown) => boolean;
   } = {}) {
     this.reportError = (error, source) => {
       try { options.onError?.(error, source); } catch { /* diagnostics must not break the editor */ }
     };
     this.events = new ExtensionEventBus((error, event) => this.reportError(error, `event:${String(event)}`));
-    this.hooks = new ExtensionHookRegistry<Hooks>();
+    this.hooks = new ExtensionHookRegistry<Hooks>({
+      handlerTimeoutMs: options.hookTimeoutMs,
+      validate: options.validateHook,
+      onError: (error, hook, extensionId) => this.reportError(error, `hook:${hook}:${extensionId}`),
+    });
+    this.confirmedGrants = options.confirmedGrants;
     this.validateContribution = options.validateContribution;
     this.hookCapabilities = options.hookCapabilities ?? {};
     this.apiVersion = options.apiVersion ?? EXTENSION_API_VERSION;
   }
 
   private readonly apiVersion: string;
+  private readonly confirmedGrants?: (extensionId: string) => readonly string[] | undefined;
 
   register(definition: ExtensionDefinition<Context, Contribution, Events, Hooks>): () => Promise<void> {
     const manifest = extensionManifestSchema.parse(definition.manifest);
@@ -134,24 +147,55 @@ export class ExtensionHost<Context = unknown, Contribution = unknown, Events ext
     return [...this.definitions.values()].sort((a, b) => a.manifest.name.localeCompare(b.manifest.name));
   }
 
+  /** Effective capability grants for an installed (or default-enabled) extension. See `effectiveGrants`. */
+  grantsFor(id: string, installed: Record<string, InstalledExtension> | null | undefined = {}): EffectiveGrants {
+    const definition = this.definitions.get(id);
+    if (!definition) return { granted: [], unconfirmed: [], missing: [], complete: false };
+    const confirmed = this.confirmedGrants ? (this.confirmedGrants(id) ?? []) : undefined;
+    return effectiveGrants(definition.manifest, installed?.[id], confirmed);
+  }
+
+  /** Whether stored state written by `version` can run with this host's bundle of the extension. */
+  isCompatibleVersion(id: string, version: string) {
+    const definition = this.definitions.get(id);
+    return !!definition && isVersionCompatible(version, definition.manifest.version);
+  }
+
   isEnabled(id: string, installed: Record<string, InstalledExtension> | null | undefined = {}): boolean {
     const definition = this.definitions.get(id);
     if (!definition) return false;
     const record = installed?.[id];
-    if (!record) return definition.manifest.defaultEnabled === true;
-    if (record.version !== definition.manifest.version || !record.enabled) return false;
-    const grants = record.grantedCapabilities ?? [];
-    return definition.manifest.capabilities.every((capability) => grants.includes(capability));
+    if (!record) return definition.manifest.defaultEnabled === true && this.grantsFor(id, installed).complete;
+    if (!record.enabled || !isVersionCompatible(record.version, definition.manifest.version)) return false;
+    return this.grantsFor(id, installed).complete;
   }
 
+  /**
+   * True when the catalog enables a compatible extension and grants all it needs, but this user has
+   * not confirmed some of those grants. The host should ask before activating it.
+   */
+  needsConsent(id: string, installed: Record<string, InstalledExtension> | null | undefined = {}): boolean {
+    const definition = this.definitions.get(id);
+    const record = installed?.[id];
+    if (!definition || !record?.enabled || !isVersionCompatible(record.version, definition.manifest.version)) return false;
+    const grants = this.grantsFor(id, installed);
+    return !grants.complete && grants.unconfirmed.length > 0 && grants.missing.every((capability) => grants.unconfirmed.includes(capability));
+  }
+
+  /**
+   * Whether stored state can be brought to this bundle's version. Registered migrations run when
+   * present; versions in the same major line need none. Downgrades are never migrated.
+   */
   canMigrate(id: string, storedVersion: string): boolean {
     const definition = this.definitions.get(id);
     if (!definition || !isSemver(storedVersion)) return false;
     const targetVersion = definition.manifest.version;
+    if (compareSemver(storedVersion, targetVersion) > 0) return false;
     let version = storedVersion;
     for (let i = 0; i < 32 && version !== targetVersion; i += 1) {
       const migration = definition.migrations?.[version];
-      if (!migration || compareSemver(migration.toVersion, version) <= 0 || compareSemver(migration.toVersion, targetVersion) > 0) return false;
+      if (!migration) return isVersionCompatible(version, targetVersion);
+      if (compareSemver(migration.toVersion, version) <= 0 || compareSemver(migration.toVersion, targetVersion) > 0) return false;
       version = migration.toVersion;
     }
     return version === targetVersion;
@@ -164,7 +208,11 @@ export class ExtensionHost<Context = unknown, Contribution = unknown, Events ext
     let state: ExtensionInstalledState = structuredClone(stored);
     for (let i = 0; i < 32 && state.version !== definition.manifest.version; i += 1) {
       const migration = definition.migrations?.[state.version];
-      if (!migration) throw new Error(`Missing extension migration from ${state.version}.`);
+      if (!migration) {
+        // canMigrate guarantees the remaining step stays within one major line.
+        state = { ...state, version: definition.manifest.version };
+        break;
+      }
       const migrated = migration.migrate({ settings: structuredClone(state.settings), data: structuredClone(state.data) });
       if (!isJsonMap(migrated.settings) || !isJsonMap(migrated.data)) throw new Error(`Extension "${id}" migration produced invalid stored data.`);
       state = { ...state, version: migration.toVersion, settings: structuredClone(migrated.settings), data: structuredClone(migrated.data) };
@@ -211,14 +259,12 @@ export class ExtensionHost<Context = unknown, Contribution = unknown, Events ext
     if (installation ? !this.isEnabled(id, { [id]: installation }) : definition.manifest.defaultEnabled !== true) {
       throw new Error(`Extension "${id}" is not installed and enabled for this catalog.`);
     }
-    const rawGrants = installation?.grantedCapabilities ?? definition.manifest.capabilities;
-    if (rawGrants.some((capability) => !EXTENSION_CAPABILITIES.includes(capability as ExtensionCapability))) {
+    if ((installation?.grantedCapabilities ?? []).some((capability) => !EXTENSION_CAPABILITIES.includes(capability as ExtensionCapability))) {
       throw new Error(`Extension "${id}" received an unknown capability grant.`);
     }
-    const grantedCapabilities = definition.manifest.capabilities.filter((capability) => rawGrants.includes(capability));
-    const missing = definition.manifest.capabilities.filter((capability) => !grantedCapabilities.includes(capability));
-    if (missing.length) throw new Error(`Grant required capabilities before activating "${id}": ${missing.join(", ")}.`);
-    const granted = new Set(grantedCapabilities);
+    const resolution = this.grantsFor(id, installation ? { [id]: installation } : {});
+    if (!resolution.complete) throw new Error(`Grant required capabilities before activating "${id}": ${resolution.missing.join(", ")}.`);
+    const granted = new Set(resolution.granted);
     let active = true;
     const lifetimeCleanups: (() => void)[] = [];
     const track = (dispose: () => void) => {
@@ -362,39 +408,6 @@ function assertStorageAccess(
 export interface ExtensionInstalledState extends InstalledExtension, ExtensionMigrationState {
   settings: Record<string, JsonValue>;
   data: Record<string, JsonValue>;
-}
-
-function isSemver(version: string) {
-  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(version);
-}
-
-function compareSemver(a: string, b: string) {
-  const parse = (version: string) => {
-    const [core, prerelease] = version.split("-");
-    return { numbers: (core ?? "").split(".").map((part) => Number.parseInt(part, 10)), prerelease: prerelease?.split(".") };
-  };
-  const left = parse(a);
-  const right = parse(b);
-  for (let i = 0; i < 3; i += 1) {
-    const delta = (left.numbers[i] ?? 0) - (right.numbers[i] ?? 0);
-    if (delta) return Math.sign(delta);
-  }
-  if (left.prerelease === undefined && right.prerelease === undefined) return 0;
-  if (left.prerelease === undefined) return 1;
-  if (right.prerelease === undefined) return -1;
-  for (let i = 0; i < Math.max(left.prerelease.length, right.prerelease.length); i += 1) {
-    const aPart = left.prerelease[i];
-    const bPart = right.prerelease[i];
-    if (aPart === undefined) return -1;
-    if (bPart === undefined) return 1;
-    if (aPart === bPart) continue;
-    const aNumeric = /^\d+$/.test(aPart);
-    const bNumeric = /^\d+$/.test(bPart);
-    if (aNumeric && bNumeric) return Number(aPart) < Number(bPart) ? -1 : 1;
-    if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
-    return aPart < bPart ? -1 : 1;
-  }
-  return 0;
 }
 
 function requiresCatalogRead(event: PropertyKey) {

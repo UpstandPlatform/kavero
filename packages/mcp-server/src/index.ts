@@ -23,6 +23,8 @@ import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
+import { CONTENT_ELEMENT_HELP, contentElementOutline, contentElementText, registerContentTools } from "./content-tools";
+
 export interface McpHost {
   /** PNG of a slide in its finished state (headless Chrome). Optional. */
   renderPreview?: (doc: CatalogDocument, slideIndex: number) => Promise<Uint8Array>;
@@ -64,6 +66,9 @@ const ELEMENT_HELP = `Element JSON (positions in document pixels; see catalog_ge
 - product-grid: {"type":"product-grid","position":{...},"content":{"columns":3,"products":[{"productId":"prd_..."}]}}
 - button:  {"type":"button","position":{...},"content":{"label":"Shop now","href":"https://..."}}
 - html:    {"type":"html","position":{...},"content":{"html":"<h2>Hi</h2>","css":"h2{color:var(--kv-primary)}"}}  (scripts are removed)
+${CONTENT_ELEMENT_HELP}
+- path:    {"type":"path","position":{...},"content":{"d":"M10 80 C40 10 65 10 95 80","viewBox":{"width":100,"height":100}},"style":{"stroke":"token:primary","strokeWidth":6,"lineCap":"round","fill":"none"}}
+           Vector line/shape scaled to its box. Give SVG path data "d" (first subpath; M L H V C S Q T Z) with an optional viewBox, or "points": anchors normalized to the box (0..1) with optional bezier handles "in"/"out" relative to the anchor, plus "closed". Style: stroke, strokeWidth, lineCap butt|round|square, lineJoin miter|round|bevel, dash [px,...], optional fill.
 Colors may be hex or theme tokens: token:background, token:text, token:muted, token:primary, token:on-primary, token:accent.
 Text style: align "start" | "center" | "end" (start = right in RTL catalogs such as language "fa"/"ar"); direction "auto" (default, per paragraph) | "rtl" | "ltr" (use "ltr" for phone numbers or codes inside RTL slides). Do not insert Unicode bidi control characters.
 Images, logos and background photos: add the file with asset_import first, then use its assetId (image element, or slide background {"kind":"image","assetId":...}).`;
@@ -87,7 +92,8 @@ export function outline(doc: CatalogDocument) {
     : el.type === "html" ? el.content.html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 80)
     : el.type === "product" ? `product ${el.content.productId}`
     : el.type === "product-grid" ? `${el.content.products.length} products`
-    : undefined;
+    : el.type === "path" ? `path, ${el.content.points.length} points${el.content.closed ? ", closed" : ""}`
+    : contentElementText(el);
   return {
     id: doc.id,
     title: doc.metadata.title,
@@ -100,7 +106,7 @@ export function outline(doc: CatalogDocument) {
     assets: doc.assets.map((a) => ({ id: a.id, kind: a.kind, name: a.name, ...(a.kind === "font" ? { family: a.family, weight: a.fontWeight ?? 400, style: a.fontStyle ?? "normal" } : {}) })),
     slides: doc.slides.map((s, i) => ({
       index: i, id: s.id, name: s.name, transition: s.transition?.type,
-      elements: s.elements.map((e) => ({ id: e.id, type: e.type, position: e.position, text: text(e), animations: e.animations.length || undefined })),
+      elements: s.elements.map((e) => ({ id: e.id, type: e.type, position: e.position, text: text(e), ...contentElementOutline(e), animations: e.animations.length || undefined })),
     })),
   };
 }
@@ -151,7 +157,7 @@ export function fontSummary(doc: CatalogDocument) {
  * the same services (and validation) as the web app.
  */
 export function createKaveroMcpServer({ db, principal, host }: Ctx) {
-  const server = new McpServer({ name: "kavero", version: "0.1.0" }, { instructions: "Create and edit Kavero product catalogs: slides with text, images, products, shapes and HTML; themes, transitions, animations; previews and website publishing. Call catalog_get first to see ids and page size." });
+  const server = new McpServer({ name: "kavero", version: "0.1.0" }, { instructions: "Create and edit Kavero product catalogs: slides with text, images, products, shapes, markdown, tables and HTML; themes, transitions, animations; previews and website publishing. Call catalog_get first to see ids and page size." });
   const catalogs = new CatalogService(db, host.deleteObjects);
   const pubs = new PublicationService(db);
   const uid = principal.userId;
@@ -305,6 +311,12 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     title: "Remove element", description: "Delete an element.", inputSchema: { catalogId: id, elementId: id }, annotations: { destructiveHint: true },
   }, guard("slide_remove_element", "catalogs:write", async ({ catalogId, elementId }) => ok(await edit(catalogId, [{ type: "element.delete", elementId }]))));
 
+  registerContentTools({
+    server, edit, ok, fail,
+    guard: (name, scope, fn) => guard(name, scope, fn),
+    getDocument: async (catalogId) => (await catalogs.get(uid, catalogId)).document,
+  });
+
   // ---------- Motion ----------
 
   server.registerTool("catalog_set_transition", {
@@ -314,15 +326,32 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
     ok(await edit(catalogId, [{ type: "slide.setTransition", slideId, transition: type === "none" ? null : { type, durationMs, direction } }]))));
 
   server.registerTool("catalog_animate_element", {
-    title: "Animate element", description: "Add an animation to an element. Triggers: on-enter (with slide), after-previous, with-previous.",
+    title: "Animate element",
+    description: "Add an animation to an element. Triggers: on-enter (with slide), after-previous, with-previous, on-click. "
+      + "Path elements also support preset \"draw\" (entrance: reveals the stroke from start to end; reverse=true goes end to start; fillAfterDraw fades the fill in afterwards), "
+      + "\"erase\" (exit counterpart) and \"trace\" (emphasis: a dash runs along the path; set loop=true to repeat until the slide ends). "
+      + "category \"keyframes\" (preset \"custom\") animates keyframes [{offset 0..1, x, y (px offsets), scale, rotation (deg), opacity, drawProgress (paths, 0..1), easing}] with iterations, loop and playDirection normal|alternate. "
+      + "Easings: linear, ease-in, ease-out, ease-in-out, spring.",
     inputSchema: {
       catalogId: id, elementId: id,
-      category: z.enum(["entrance", "exit", "emphasis"]), preset: z.enum(["fade", "slide", "scale", "bounce", "rotate", "blur", "float", "pulse"]),
-      trigger: z.enum(["on-enter", "after-previous", "with-previous"]).optional(), durationMs: z.number().int().min(50).max(60_000).optional(),
+      category: z.enum(["entrance", "exit", "emphasis", "keyframes"]),
+      preset: z.enum(["appear", "fade", "slide", "scale", "bounce", "rotate", "spin", "flip", "zoom", "grow", "shrink", "rise", "blur", "float", "pulse", "draw", "erase", "trace", "custom"]),
+      trigger: z.enum(["on-enter", "after-previous", "with-previous", "on-click"]).optional(), durationMs: z.number().int().min(50).max(60_000).optional(),
       delayMs: z.number().int().min(0).max(60_000).optional(), direction: z.enum(["left", "right", "up", "down"]).optional(),
+      easing: z.enum(["linear", "ease-in", "ease-out", "ease-in-out", "spring"]).optional(),
+      reverse: z.boolean().optional(), fillAfterDraw: z.boolean().optional(),
+      iterations: z.number().int().min(1).max(100).optional(), loop: z.boolean().optional(), playDirection: z.enum(["normal", "alternate"]).optional(),
+      keyframes: z.array(z.object({
+        offset: z.number().min(0).max(1), x: z.number().optional(), y: z.number().optional(), scale: z.number().min(0).max(100).optional(),
+        rotation: z.number().optional(), opacity: z.number().min(0).max(1).optional(), drawProgress: z.number().min(0).max(1).optional(),
+        easing: z.enum(["linear", "ease-in", "ease-out", "ease-in-out", "spring"]).optional(),
+      })).max(50).optional(),
     },
-  }, guard("catalog_animate_element", "catalogs:write", async ({ catalogId, elementId, ...animation }) =>
-    ok(await edit(catalogId, [{ type: "element.addAnimation", elementId, animation }]))));
+  }, guard("catalog_animate_element", "catalogs:write", async ({ catalogId, elementId, keyframes, ...animation }) =>
+    ok(await edit(catalogId, [{
+      type: "element.addAnimation", elementId,
+      animation: { ...animation, ...(keyframes ? { keyframes: keyframes.map((keyframe) => ({ ...keyframe, easing: keyframe.easing ?? "linear" })) } : {}) },
+    }]))));
 
   // ---------- Products ----------
 
