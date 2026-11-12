@@ -1,4 +1,4 @@
-import { ease, gateClickTimeline, matchMorph, nextClickStart, scheduleSlide, transitionStyles } from "@Kavero/animation-engine";
+import { ease, gateClickTimeline, matchMorph, nextClickStart, scheduleSlide, SETTLED_MS, slideHasLoopingAnimation, transitionStyles } from "@Kavero/animation-engine";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 
@@ -22,7 +22,7 @@ interface Transitioning {
 }
 
 const prefersReducedMotion = () => typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
-const SETTLED = 1e9; // a time after every animation has finished
+const SETTLED = SETTLED_MS; // a time after every animation has finished
 
 /**
  * Lightweight, editor-free player for published catalogs: responsive scaling,
@@ -101,7 +101,9 @@ export function Presentation({ doc, resolveAsset, initialSlide, syncHash = true,
   const local = reduced ? SETTLED : gateClickTimeline(animationSchedule, elapsed, clickStep);
   const transitioning = transition !== null && now - transition.startedAt < trTotal;
   const waitingForClick = nextClickAt !== undefined && elapsed >= nextClickAt;
-  const animating = !reduced && ((!waitingForClick && local <= settledAt[index]! + 50) || transitioning);
+  // Looping emphasis/keyframe animations (e.g. a path trace) keep the clock running until the slide changes.
+  const looping = useMemo(() => slideHasLoopingAnimation(slide), [slide]);
+  const animating = !reduced && ((!waitingForClick && (looping || local <= settledAt[index]! + 50)) || transitioning);
   useEffect(() => {
     if (!animating) {
       if (transition && now - transition.startedAt >= trTotal) setTransition(null);

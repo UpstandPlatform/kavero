@@ -10,7 +10,15 @@ import {
   createId,
   elementAnimationSchema,
   slideTransitionSchema,
+  keyframeSchema,
+  pathPointSchema,
+  denormalizePath,
+  normalizePath,
+  pathBounds,
   PRODUCTS_EXTENSION_ID,
+  type Keyframe,
+  type PathElement,
+  type PathPoint,
   type CatalogAsset,
   type CatalogDocument,
   type CatalogElement,
@@ -22,6 +30,7 @@ import {
   type SlideTransition,
 } from "@Kavero/catalog-engine";
 import { createSlideLayoutElements, type SlideLayoutId } from "@Kavero/catalog-engine";
+import { applyTableEdit, type TableOp } from "./table-commands";
 
 /** Distributive Omit so each union member keeps its own shape. */
 type DistributiveOmit<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never;
@@ -46,10 +55,25 @@ export type EditorCommand =
   | { type: "element.setZ"; elementId: string; index: number }
   | { type: "element.group"; elementIds: string[] }
   | { type: "element.ungroup"; groupId: string }
+  /** Cell and structure edits of a table element (see TableOp), applied as one undo step. */
+  | { type: "table.edit"; elementId: string; ops: TableOp[] }
   | { type: "element.addAnimation"; elementId: string; animation: Omit<Partial<ElementAnimation>, "id"> & Pick<ElementAnimation, "category" | "preset"> }
   | { type: "element.updateAnimation"; elementId: string; animationId: string; changes: Partial<Omit<ElementAnimation, "id">> }
   | { type: "element.setAnimationOrder"; elementId: string; animationId: string; toIndex: number }
   | { type: "element.removeAnimation"; elementId: string; animationId: string }
+  /**
+   * Path editing. Points are normalized to the element box (0..1, handles relative
+   * to their anchor). Unless `refit` is false the element box is refitted to the
+   * new outline, keeping the drawing in place on the slide (rotation included).
+   */
+  | { type: "path.setPoints"; elementId: string; points: PathPoint[]; closed?: boolean; refit?: boolean }
+  | { type: "path.updatePoint"; elementId: string; index: number; changes: Partial<PathPoint>; refit?: boolean }
+  | { type: "path.insertPoint"; elementId: string; index: number; point: PathPoint; refit?: boolean }
+  | { type: "path.deletePoint"; elementId: string; index: number; refit?: boolean }
+  /** Keyframes of a "keyframes" animation; they are kept sorted by offset. */
+  | { type: "animation.addKeyframe"; elementId: string; animationId: string; keyframe: Omit<Keyframe, "id" | "easing"> & { id?: string; easing?: Keyframe["easing"] } }
+  | { type: "animation.updateKeyframe"; elementId: string; animationId: string; keyframeId: string; changes: Partial<Omit<Keyframe, "id">> }
+  | { type: "animation.removeKeyframe"; elementId: string; animationId: string; keyframeId: string }
   | { type: "asset.add"; asset: CatalogAsset }
   /** Removes an asset; with removeFromSlides, also removes placements and product references. */
   | { type: "asset.remove"; assetId: string; removeFromSlides?: boolean }
@@ -110,6 +134,63 @@ function checkPosition(p: ElementPosition): ElementPosition {
 
 function normalizeZ(slide: CatalogSlide) {
   slide.elements.sort((a, b) => a.zIndex - b.zIndex).forEach((e, i) => (e.zIndex = i));
+}
+
+function findPath(doc: CatalogDocument, elementId: string): PathElement {
+  const { element } = findElement(doc, elementId);
+  if (element.type !== "path") throw new CommandError(`Element "${elementId}" is not a path`);
+  if (element.locked) throw new CommandError("Element is locked");
+  return element;
+}
+
+const round2 = (v: number) => Math.round(v * 100) / 100;
+
+/**
+ * Fit the element box to its outline after the anchors changed, keeping every
+ * anchor where it is on the slide. The box centre moves in the element's own
+ * (rotated) frame, so rotated paths do not jump.
+ */
+export function refitPathElement(element: PathElement) {
+  const { width: w, height: h, rotation } = element.position;
+  const pixels = denormalizePath(element.content.points, w, h);
+  const bounds = pathBounds(pixels, element.content.closed);
+  const fitted = Math.abs(bounds.x) < 0.01 && Math.abs(bounds.y) < 0.01
+    && Math.abs(Math.max(1, bounds.width) - w) < 0.01 && Math.abs(Math.max(1, bounds.height) - h) < 0.01;
+  if (fitted) return;
+  const { box, points } = normalizePath(pixels, element.content.closed);
+  const dx = box.x + box.width / 2 - w / 2;
+  const dy = box.y + box.height / 2 - h / 2;
+  const th = (rotation * Math.PI) / 180;
+  const cx = element.position.x + w / 2 + dx * Math.cos(th) - dy * Math.sin(th);
+  const cy = element.position.y + h / 2 + dx * Math.sin(th) + dy * Math.cos(th);
+  element.position = {
+    x: round2(cx - box.width / 2), y: round2(cy - box.height / 2),
+    width: round2(box.width), height: round2(box.height), rotation,
+  };
+  element.content.points = points;
+}
+
+function setPathPoints(element: PathElement, points: unknown[], closed: boolean, refit: boolean | undefined) {
+  if (points.length < 2) throw new CommandError("A path needs at least two points");
+  element.content = { points: points.map((point) => pathPointSchema.parse(point)), closed };
+  if (refit !== false) refitPathElement(element);
+}
+
+/** Keyframes with ids, in offset order. */
+function normalizeKeyframes(keyframes: readonly Partial<Keyframe>[] | undefined): Keyframe[] | undefined {
+  if (!keyframes) return undefined;
+  return keyframes
+    .map((keyframe) => keyframeSchema.parse({ ...keyframe, id: keyframe.id ?? createId("kf") }))
+    .map((keyframe, index) => ({ keyframe, index }))
+    .sort((a, b) => a.keyframe.offset - b.keyframe.offset || a.index - b.index)
+    .map(({ keyframe }) => keyframe);
+}
+
+function findAnimation(doc: CatalogDocument, elementId: string, animationId: string) {
+  const { element } = findElement(doc, elementId);
+  const index = element.animations.findIndex((animation) => animation.id === animationId);
+  if (index < 0) throw new CommandError(`Animation "${animationId}" not found`);
+  return { element, index, animation: element.animations[index]! };
 }
 
 /** Apply a command to a draft document in place. The draft must be a private copy. */
@@ -293,12 +374,22 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
     case "element.ungroup":
       for (const s of doc.slides) for (const e of s.elements) if (e.groupId === cmd.groupId) delete e.groupId;
       break;
+    case "table.edit": {
+      const { slide, index, element } = findElement(doc, cmd.elementId);
+      slide.elements[index] = applyTableEdit(element, cmd.ops);
+      break;
+    }
     case "element.addAnimation": {
       const { slide, element } = findElement(doc, cmd.elementId);
       const order = Math.max(-1, ...slide.elements.flatMap((item) => item.animations.map((animation) => animation.order ?? item.zIndex * 100 + item.animations.indexOf(animation)))) + 1;
-      const anim = elementAnimationSchema.parse({ ...cmd.animation, order: cmd.animation.order ?? order, id: createId("anim") });
+      const anim = elementAnimationSchema.parse({
+        ...cmd.animation,
+        keyframes: normalizeKeyframes(cmd.animation.keyframes),
+        order: cmd.animation.order ?? order,
+        id: createId("anim"),
+      });
       element.animations.push(anim);
-      created.push(anim.id);
+      created.push(anim.id, ...(anim.keyframes ?? []).map((keyframe) => keyframe.id!));
       break;
     }
     case "element.updateAnimation": {
@@ -306,7 +397,67 @@ export function applyCommand(doc: CatalogDocument, cmd: EditorCommand): CommandR
       const index = element.animations.findIndex((animation) => animation.id === cmd.animationId);
       if (index < 0) throw new CommandError(`Animation "${cmd.animationId}" not found`);
       const current = element.animations[index]!;
-      element.animations[index] = elementAnimationSchema.parse(deepMerge(current as Record<string, unknown>, cmd.changes));
+      const merged = deepMerge(current as Record<string, unknown>, cmd.changes) as Partial<ElementAnimation>;
+      element.animations[index] = elementAnimationSchema.parse({ ...merged, keyframes: normalizeKeyframes(merged.keyframes) });
+      break;
+    }
+    case "path.setPoints": {
+      const element = findPath(doc, cmd.elementId);
+      setPathPoints(element, cmd.points, cmd.closed ?? element.content.closed, cmd.refit);
+      break;
+    }
+    case "path.updatePoint": {
+      const element = findPath(doc, cmd.elementId);
+      const current = element.content.points[cmd.index];
+      if (!current) throw new CommandError(`Path point ${cmd.index} not found`);
+      const points = [...element.content.points];
+      // Handles set to null/undefined are removed (turns a curve point into a corner).
+      const next = { ...current, ...cmd.changes } as Record<string, unknown>;
+      for (const key of ["in", "out", "kind"]) if (next[key] == null) delete next[key];
+      points[cmd.index] = next as PathPoint;
+      setPathPoints(element, points, element.content.closed, cmd.refit);
+      break;
+    }
+    case "path.insertPoint": {
+      const element = findPath(doc, cmd.elementId);
+      const points = [...element.content.points];
+      points.splice(Math.max(0, Math.min(cmd.index, points.length)), 0, cmd.point);
+      setPathPoints(element, points, element.content.closed, cmd.refit);
+      break;
+    }
+    case "path.deletePoint": {
+      const element = findPath(doc, cmd.elementId);
+      if (!element.content.points[cmd.index]) throw new CommandError(`Path point ${cmd.index} not found`);
+      if (element.content.points.length <= 2) throw new CommandError("A path needs at least two points; delete the element instead");
+      const points = element.content.points.filter((_, index) => index !== cmd.index);
+      setPathPoints(element, points, element.content.closed && points.length > 2, cmd.refit);
+      break;
+    }
+    case "animation.addKeyframe": {
+      const { element, index, animation } = findAnimation(doc, cmd.elementId, cmd.animationId);
+      if (animation.category !== "keyframes") throw new CommandError("Keyframes can only be added to a keyframes animation");
+      const id = cmd.keyframe.id ?? createId("kf");
+      if (animation.keyframes?.some((keyframe) => keyframe.id === id)) throw new CommandError(`Keyframe "${id}" already exists`);
+      element.animations[index] = elementAnimationSchema.parse({ ...animation, keyframes: normalizeKeyframes([...(animation.keyframes ?? []), { ...cmd.keyframe, id }]) });
+      created.push(id);
+      break;
+    }
+    case "animation.updateKeyframe": {
+      const { element, index, animation } = findAnimation(doc, cmd.elementId, cmd.animationId);
+      const keyframes = animation.keyframes ?? [];
+      const at = keyframes.findIndex((keyframe) => keyframe.id === cmd.keyframeId);
+      if (at < 0) throw new CommandError(`Keyframe "${cmd.keyframeId}" not found`);
+      const next = { ...keyframes[at]!, ...cmd.changes, id: cmd.keyframeId } as Record<string, unknown>;
+      // A property set to undefined/null stops being animated by this keyframe.
+      for (const [key, value] of Object.entries(next)) if (value == null) delete next[key];
+      element.animations[index] = elementAnimationSchema.parse({ ...animation, keyframes: normalizeKeyframes(keyframes.map((keyframe, i) => (i === at ? next : keyframe))) });
+      break;
+    }
+    case "animation.removeKeyframe": {
+      const { element, index, animation } = findAnimation(doc, cmd.elementId, cmd.animationId);
+      const keyframes = animation.keyframes ?? [];
+      if (!keyframes.some((keyframe) => keyframe.id === cmd.keyframeId)) throw new CommandError(`Keyframe "${cmd.keyframeId}" not found`);
+      element.animations[index] = elementAnimationSchema.parse({ ...animation, keyframes: keyframes.filter((keyframe) => keyframe.id !== cmd.keyframeId) });
       break;
     }
     case "element.setAnimationOrder": {

@@ -6,17 +6,18 @@ import { useEffect, useState } from "react";
 
 import { builtInExtensionRenderers } from "@/modules/editor/extensions/built-in-renderers";
 import { builtInExtensionEffects } from "@/modules/editor/extensions/built-in-effects";
+import { loadPublicConfig } from "@/lib/public-config";
 import { resolveGiphyMediaUrl } from "@/modules/media/giphy";
 
 /** Client side of the published site: the lightweight player, no editor code. */
 export function PublishedViewer({ doc, slug, ownerNote }: { doc: CatalogDocument; slug: string; ownerNote?: string }) {
   const [giphyUrls, setGiphyUrls] = useState<Record<string, string>>({});
   useEffect(() => {
-    const key = process.env.NEXT_PUBLIC_GIPHY_API_KEY?.trim() ?? "";
-    if (!key) return;
-    const controller = new AbortController();
     const items = doc.assets.filter((asset) => asset.attribution?.provider === "GIPHY" && asset.attribution.providerAssetId);
-    void Promise.all(items.map(async (asset) => [asset.id, await resolveGiphyMediaUrl(asset.attribution!.providerAssetId!, key, controller.signal)] as const))
+    if (!items.length) return;
+    const controller = new AbortController();
+    void loadPublicConfig()
+      .then(({ media: { giphyApiKey: key } }) => (key ? Promise.all(items.map(async (asset) => [asset.id, await resolveGiphyMediaUrl(asset.attribution!.providerAssetId!, key, controller.signal)] as const)) : []))
       .then((resolved) => {
         if (!controller.signal.aborted) setGiphyUrls(Object.fromEntries(resolved.filter((entry): entry is readonly [string, string] => !!entry[1])));
       }).catch(() => undefined);

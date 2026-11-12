@@ -1,10 +1,11 @@
+import { createResilientRateLimiter } from "@Kavero/redis";
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { protectedProcedure, router } from "../index";
 import { McpConnectionService } from "../services/mcp-connection-service";
 import { extractProducts } from "../services/product-extract";
-import { fetchImageAsDataUrl } from "../services/safe-fetch";
+import { fetchImagesWithBudget } from "../services/safe-fetch";
 import { AUDIT_AREAS, SCOPES, audit, listAudit, permissionsToScopes, scopesToPermissions, type Scope } from "../services/audit-service";
 
 const scope = z.enum(Object.keys(SCOPES) as [Scope, ...Scope[]]);
@@ -17,6 +18,19 @@ const connectionInput = z.object({
   secret: z.string().max(4000).optional(),
 });
 const API_KEY_LIST_LIMIT = 100;
+
+/** Each limiter is per user; Redis-backed when configured, with a bounded in-process fallback. */
+const connectionWriteLimiter = createResilientRateLimiter({ namespace: "mcp-connection-write", maxRequests: 20, windowMs: 60_000 });
+const toolCallLimiter = createResilientRateLimiter({ namespace: "mcp-tool-call", maxRequests: 30, windowMs: 60_000 });
+/** Weighted by the number of images requested. */
+const imageFetchLimiter = createResilientRateLimiter({ namespace: "image-fetch", maxRequests: 120, windowMs: 60_000 });
+
+async function rateLimit(limiter: typeof toolCallLimiter, userId: string, message: string, weight = 1) {
+  const decision = await limiter.limit(userId, weight);
+  if (!decision.allowed) throw new TRPCError({ code: "TOO_MANY_REQUESTS", message });
+}
+const CONNECTION_LIMIT_MESSAGE = "Too many connection changes. Wait a minute and try again.";
+const TOOL_LIMIT_MESSAGE = "Too many connected tool calls. Wait a minute and try again.";
 
 /** API keys, audit log and external MCP connections for the signed-in user. */
 export const integrationsRouter = router({
@@ -89,20 +103,33 @@ export const integrationsRouter = router({
 
   connections: router({
     list: protectedProcedure.query(({ ctx }) => connections(ctx).list(ctx.session.user.id)),
-    create: protectedProcedure.input(connectionInput).mutation(({ ctx, input }) => audited(ctx, "mcp-client:create", null, () => connections(ctx).create(ctx.session.user.id, input))),
-    update: protectedProcedure.input(connectionInput.extend({ id: z.string() })).mutation(({ ctx, input: { id, ...rest } }) => audited(ctx, "mcp-client:update", id, () => connections(ctx).update(ctx.session.user.id, id, rest))),
+    create: protectedProcedure.input(connectionInput).mutation(async ({ ctx, input }) => {
+      await rateLimit(connectionWriteLimiter, ctx.session.user.id, CONNECTION_LIMIT_MESSAGE);
+      return audited(ctx, "mcp-client:create", null, () => connections(ctx).create(ctx.session.user.id, input));
+    }),
+    update: protectedProcedure.input(connectionInput.extend({ id: z.string() })).mutation(async ({ ctx, input: { id, ...rest } }) => {
+      await rateLimit(connectionWriteLimiter, ctx.session.user.id, CONNECTION_LIMIT_MESSAGE);
+      return audited(ctx, "mcp-client:update", id, () => connections(ctx).update(ctx.session.user.id, id, rest));
+    }),
     remove: protectedProcedure.input(z.object({ id: z.string() })).mutation(({ ctx, input }) => audited(ctx, "mcp-client:remove", input.id, () => connections(ctx).remove(ctx.session.user.id, input.id))),
-    check: protectedProcedure.input(z.object({ id: z.string() })).mutation(({ ctx, input }) => audited(ctx, "mcp-client:check", input.id, () => connections(ctx).check(ctx.session.user.id, input.id))),
+    check: protectedProcedure.input(z.object({ id: z.string() })).mutation(async ({ ctx, input }) => {
+      await rateLimit(connectionWriteLimiter, ctx.session.user.id, CONNECTION_LIMIT_MESSAGE);
+      return audited(ctx, "mcp-client:check", input.id, () => connections(ctx).check(ctx.session.user.id, input.id));
+    }),
 
     /** Call an explicitly selected tool on a server owned by the signed-in user. */
     invokeTool: protectedProcedure
       .input(z.object({ id: z.string(), tool: z.string().min(1).max(200), args: z.record(z.string(), z.unknown()).default({}) }))
-      .mutation(({ ctx, input }) => callAuditedConnectionTool(ctx, ctx.session.user.id, input)),
+      .mutation(async ({ ctx, input }) => {
+        await rateLimit(toolCallLimiter, ctx.session.user.id, TOOL_LIMIT_MESSAGE);
+        return callAuditedConnectionTool(ctx, ctx.session.user.id, input);
+      }),
 
     /** Call a tool and turn its result into products for the import preview. */
     importProducts: protectedProcedure
       .input(z.object({ id: z.string(), tool: z.string().min(1).max(200), args: z.record(z.string(), z.unknown()).default({}) }))
       .mutation(async ({ ctx, input }) => {
+        await rateLimit(toolCallLimiter, ctx.session.user.id, TOOL_LIMIT_MESSAGE);
         const result = await callAuditedConnectionTool(ctx, ctx.session.user.id, input);
         if (result.isError) {
           const text = result.content?.find((c) => c.type === "text")?.text ?? "The tool reported an error";
@@ -118,14 +145,10 @@ export const integrationsRouter = router({
   fetchImages: protectedProcedure
     .input(z.object({ urls: z.array(z.string().max(2000)).max(30) }))
     .mutation(async ({ ctx, input }) => {
+      if (input.urls.length) await rateLimit(imageFetchLimiter, ctx.session.user.id, "Too many image downloads. Wait a minute and try again.", input.urls.length);
       const allowLocal = ctx.allowLocalUrls ?? false;
-      const results = await Promise.all(input.urls.map(async (url) => {
-        try {
-          return { url, dataUrl: await fetchImageAsDataUrl(url, { allowLocal }) };
-        } catch (e) {
-          return { url, error: (e as Error).message };
-        }
-      }));
+      // Bounded parallelism and a total byte budget keep one request from holding hundreds of MB.
+      const results = await fetchImagesWithBudget(input.urls, { allowLocal, concurrency: 4, maxTotalBytes: 32 * 1024 * 1024 });
       await audit(ctx.db, {
         userId: ctx.session.user.id,
         area: "assets",

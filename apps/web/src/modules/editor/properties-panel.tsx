@@ -23,11 +23,12 @@ import { FontPicker, type AddFont } from "./font-picker";
 import { ProductThumb, productPrice, type ProductUi } from "./product-picker";
 import { useRun } from "./use-catalog-editor";
 import { CodeEditor } from "@/components/code-editor";
+import { MarkdownProperties, TableProperties } from "./content/content-properties";
 
 const FONTS = ["Inter", "Playfair Display", "Space Grotesk", "DM Serif Display", "Montserrat", "Lora", "Poppins", "Roboto", "Georgia", "Arial"];
 
 /** Font family picker: theme tokens, catalog fonts, web fonts, then "From this computer…". */
-function FontSelect({ doc, catalogFonts, value, onChange }: { doc: CatalogDocument; catalogFonts: string[]; value: string; onChange: (v: string) => void }) {
+export function FontSelect({ doc, catalogFonts, value, onChange }: { doc: CatalogDocument; catalogFonts: string[]; value: string; onChange: (v: string) => void }) {
   const web = FONTS.filter((f) => !catalogFonts.includes(f));
   const custom = !catalogFonts.includes(value) && !FONTS.includes(value) && !value.startsWith("token:") ? value : null;
   const items = [
@@ -68,7 +69,7 @@ function FontSelect({ doc, catalogFonts, value, onChange }: { doc: CatalogDocume
   );
 }
 
-function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({ title, children }: { title: string; children: ReactNode }) {
   return (
     <section className="border-b px-3 py-3">
       <h3 className="mb-2 text-[11px] font-semibold tracking-wide text-muted-foreground uppercase">{title}</h3>
@@ -77,7 +78,7 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
   );
 }
 
-function Field({ label, children, compact }: { label: string; children: ReactNode; compact?: boolean }) {
+export function Field({ label, children, compact }: { label: string; children: ReactNode; compact?: boolean }) {
   return (
     <label className={`grid items-center gap-2 text-xs ${compact ? "grid-cols-[auto_minmax(0,1fr)]" : "grid-cols-[72px_minmax(0,1fr)]"}`}>
       <span className="text-muted-foreground">{label}</span>
@@ -87,7 +88,7 @@ function Field({ label, children, compact }: { label: string; children: ReactNod
 }
 
 /** Number input that commits on blur/Enter so typing doesn't spam history. */
-function NumberInput({ value, onCommit, min, max, step = 1, suffix }: { value: number; onCommit: (v: number) => void; min?: number; max?: number; step?: number; suffix?: string }) {
+export function NumberInput({ value, onCommit, min, max, step = 1, suffix }: { value: number; onCommit: (v: number) => void; min?: number; max?: number; step?: number; suffix?: string }) {
   const [draft, setDraft] = useState(String(value));
   useEffect(() => setDraft(String(Math.round(value * 100) / 100)), [value]);
   const commit = () => {
@@ -111,7 +112,7 @@ function NumberInput({ value, onCommit, min, max, step = 1, suffix }: { value: n
 }
 
 /** Color picker with theme swatches; stores "token:x" when a swatch is chosen. */
-function ColorInput({ doc, value, onChange, label }: { doc: CatalogDocument; value: string; onChange: (v: string) => void; label: string }) {
+export function ColorInput({ doc, value, onChange, label }: { doc: CatalogDocument; value: string; onChange: (v: string) => void; label: string }) {
   const resolved = resolveToken(doc, value);
   return (
     <ColorPicker
@@ -249,6 +250,38 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
         </Section>
       )}
 
+      {el.type === "path" && (
+        <Section title="Path">
+          <Field label="Stroke"><ColorInput doc={doc} value={el.style.stroke} label="Path stroke" onChange={(stroke) => update({ style: { stroke } })} /></Field>
+          <div className="grid grid-cols-2 gap-2">
+            <Field compact label="Width"><NumberInput value={el.style.strokeWidth} min={0} max={500} step={0.5} onCommit={(strokeWidth) => update({ style: { strokeWidth } })} /></Field>
+            <Field compact label="Dash">
+              <SimpleSelect size="sm" aria-label="Dash" value={el.style.dash.length ? (el.style.dash[0]! <= el.style.strokeWidth ? "dotted" : "dashed") : "solid"}
+                onValueChange={(v) => update({ style: { dash: v === "dashed" ? [Math.max(4, el.style.strokeWidth * 3), Math.max(3, el.style.strokeWidth * 2)] : v === "dotted" ? [0.01, Math.max(4, el.style.strokeWidth * 2)] : [] } })}
+                options={[{ value: "solid", label: "Solid" }, { value: "dashed", label: "Dashed" }, { value: "dotted", label: "Dotted" }]} />
+            </Field>
+            <Field compact label="Ends">
+              <SimpleSelect size="sm" aria-label="Line ends" value={el.style.lineCap} onValueChange={(lineCap) => update({ style: { lineCap } })}
+                options={[{ value: "round", label: "Round" }, { value: "butt", label: "Flat" }, { value: "square", label: "Square" }]} />
+            </Field>
+            <Field compact label="Joins">
+              <SimpleSelect size="sm" aria-label="Line joins" value={el.style.lineJoin} onValueChange={(lineJoin) => update({ style: { lineJoin } })}
+                options={[{ value: "round", label: "Round" }, { value: "miter", label: "Sharp" }, { value: "bevel", label: "Bevel" }]} />
+            </Field>
+          </div>
+          <label className="flex items-center gap-2 text-xs">
+            <Checkbox checked={!!el.style.fill && el.style.fill !== "none"} onCheckedChange={(checked) => update({ style: { fill: checked === true ? "token:accent" : undefined } })} />
+            Fill
+          </label>
+          {!!el.style.fill && el.style.fill !== "none" && <Field label="Fill color"><ColorInput doc={doc} value={el.style.fill} label="Path fill" onChange={(fill) => update({ style: { fill } })} /></Field>}
+          <label className="flex items-center gap-2 text-xs">
+            <Checkbox checked={el.content.closed} disabled={el.content.points.length < 3} onCheckedChange={(checked) => run({ type: "path.setPoints", elementId: el.id, points: el.content.points, closed: checked === true })} />
+            Closed shape
+          </label>
+          <p className="text-[11px] text-muted-foreground">Double-click the path on the slide to edit its points. {el.content.points.length} points.</p>
+        </Section>
+      )}
+
       {el.type === "image" && (
         <Section title="Image">
           <Field label="Fit">
@@ -275,6 +308,9 @@ export function PropertiesPanel({ editor, doc, slide, selection, addFont, assetU
           </p>
         </Section>
       )}
+
+      {el.type === "markdown" && <MarkdownProperties key={el.id} doc={doc} element={el} catalogFonts={catalogFonts} addFont={addFont} update={update} run={run} />}
+      {el.type === "table" && <TableProperties key={el.id} doc={doc} element={el} catalogFonts={catalogFonts} addFont={addFont} update={update} run={run} />}
 
       <ExtensionDesignProperties properties={visibleExtensionProperties} />
     </div>

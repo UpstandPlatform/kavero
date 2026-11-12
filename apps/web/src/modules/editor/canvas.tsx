@@ -1,6 +1,6 @@
 "use client";
 
-import type { CatalogElement, CatalogSlide, ElementPosition } from "@Kavero/catalog-engine";
+import { normalizePath, type CatalogElement, type CatalogSlide, type ElementPosition, type PathAnchor, type PathPoint } from "@Kavero/catalog-engine";
 import type { Editor, EditorState } from "@Kavero/editor-core";
 import { SlideView, type ExtensionEffectRegistry, type ExtensionRendererRegistry } from "@Kavero/renderer";
 import { Textarea } from "@Kavero/ui/components/textarea";
@@ -10,7 +10,9 @@ import { useContextMenu, type MenuItem } from "./context-menu";
 import type { EditorActions } from "./editor-actions";
 import { TooltipHint } from "@Kavero/ui/components/tooltip";
 import { canvasMenu, elementMenu } from "./editor-menus";
+import { PathPointEditor, PenOverlay } from "./pen-tool";
 import { useRun } from "./use-catalog-editor";
+import { useOpenContentEditor } from "./content/content-editing";
 
 type Handle = "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw";
 const HANDLES: Record<Handle, [number, number]> = {
@@ -47,10 +49,15 @@ export interface CanvasProps {
   highlightedAnnotation?: { slideId: string; elementId: string } | null;
   extensionRenderers?: ExtensionRendererRegistry;
   extensionEffects?: ExtensionEffectRegistry;
+  /** Pen tool: clicks on the slide place path points instead of selecting. */
+  penActive?: boolean;
+  /** Called when a pen drawing is finished or cancelled. */
+  onPenFinished?: () => void;
 }
 
-export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZoomChange, actions, annotationMode = false, onAnnotateElement, onAddElementsToChat, getExtensionElementMenuItems, onCancelAnnotation, highlightedAnnotation, extensionRenderers, extensionEffects }: CanvasProps) {
+export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZoomChange, actions, annotationMode = false, onAnnotateElement, onAddElementsToChat, getExtensionElementMenuItems, onCancelAnnotation, highlightedAnnotation, extensionRenderers, extensionEffects, penActive = false, onPenFinished }: CanvasProps) {
   const openMenu = useContextMenu();
+  const openContentEditor = useOpenContentEditor();
   const run = useRun(editor);
   const doc = state.document;
   const { width: W, height: H } = doc.settings;
@@ -68,11 +75,46 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZo
   const moveFrame = useRef<number | null>(null);
   const [guides, setGuides] = useState<Guide[]>([]);
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** Path in point-edit mode (double-click a path), and its uncommitted points while dragging. */
+  const [pathEditId, setPathEditId] = useState<string | null>(null);
+  const [pathDraft, setPathDraft] = useState<{ id: string; points: PathPoint[] } | null>(null);
   // Pointer capture during drags swallows native dblclick, so detect it ourselves.
   const lastDown = useRef<{ id: string; at: number } | null>(null);
 
   const selected = useMemo(() => new Set(state.selection), [state.selection]);
   const elements = useMemo(() => [...slide.elements].sort((a, b) => a.zIndex - b.zIndex), [slide.elements]);
+  const pathEditEl = pathEditId ? slide.elements.find((e) => e.id === pathEditId) : undefined;
+  const editedPath = pathEditEl?.type === "path" && !pathEditEl.locked && !pathEditEl.hidden ? pathEditEl : undefined;
+  // Render live point drags without committing every pointer move to history.
+  const viewSlide = useMemo(() => !pathDraft ? slide : {
+    ...slide,
+    elements: slide.elements.map((e) => (e.id === pathDraft.id && e.type === "path" ? { ...e, content: { ...e.content, points: pathDraft.points } } : e)),
+  }, [slide, pathDraft]);
+
+  // Leave point editing when the path goes away, gets deselected or the pen takes over.
+  useEffect(() => {
+    if (pathEditId && (!editedPath || !state.selection.includes(pathEditId) || penActive || annotationMode)) {
+      setPathEditId(null);
+      setPathDraft(null);
+    }
+  }, [pathEditId, editedPath, state.selection, penActive, annotationMode]);
+
+  function finishPen(anchors: PathAnchor[], closed: boolean) {
+    const { box, points } = normalizePath(anchors, closed);
+    const r2 = (v: number) => Math.round(v * 100) / 100;
+    const result = run({
+      type: "element.add",
+      slideId: slide.id,
+      element: {
+        type: "path",
+        name: closed ? "Closed path" : "Path",
+        position: { x: r2(box.x), y: r2(box.y), width: r2(box.width), height: r2(box.height), rotation: 0 },
+        content: { points, closed },
+      } as never,
+    });
+    if (result?.createdIds[0]) editor.select([result.createdIds[0]]);
+    onPenFinished?.();
+  }
   const pos = (el: CatalogElement): ElementPosition => ({ ...el.position, ...overrides[el.id] });
 
   function updateGesture(next: Gesture | null) {
@@ -217,6 +259,8 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZo
     }
     if (e.button !== 0 || editingId === el.id) return;
     e.stopPropagation();
+    // While editing a path's points, its body doesn't move; only the anchors and handles respond.
+    if (pathEditId === el.id) return;
     const now = performance.now();
     const isDouble = lastDown.current?.id === el.id && now - lastDown.current.at < 400;
     lastDown.current = { id: el.id, at: now };
@@ -225,6 +269,18 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZo
       e.preventDefault();
       editor.select([el.id]);
       setEditingId(el.id);
+      return;
+    }
+    // Markdown and table elements open their editor dialogs.
+    if (isDouble && !e.shiftKey && (el.type === "markdown" || el.type === "table")) {
+      e.preventDefault();
+      editor.select([el.id]);
+      if (openContentEditor(el.id)) return;
+    }
+    if (isDouble && el.type === "path" && !el.locked && !e.shiftKey) {
+      e.preventDefault();
+      editor.select([el.id]);
+      setPathEditId(el.id);
       return;
     }
     // Clicking any member of a group selects the whole group.
@@ -256,6 +312,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZo
     // Commit an open inline text edit first: unmounting the textarea wouldn't fire its blur.
     if (editingId && document.activeElement instanceof HTMLTextAreaElement) document.activeElement.blur();
     setEditingId(null);
+    setPathEditId(null);
     const p = toDoc(e);
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     if (!e.shiftKey) editor.select([]);
@@ -390,7 +447,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZo
   const marquee = gesture?.kind === "marquee" ? gesture : null;
 
   return (
-    <div ref={wrapRef} className={`relative h-full w-full overflow-auto bg-muted/40 ${gesture?.kind === "pan" ? "cursor-grabbing" : annotationMode ? "cursor-crosshair" : ""}`} onPointerDownCapture={onPanPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onAuxClick={(e) => { if (e.button === 1) e.preventDefault(); }}>
+    <div ref={wrapRef} data-editor-canvas="" className={`relative h-full w-full overflow-auto bg-muted/40 ${gesture?.kind === "pan" ? "cursor-grabbing" : annotationMode ? "cursor-crosshair" : ""}`} onPointerDownCapture={onPanPointerDown} onPointerMove={onPointerMove} onPointerUp={onPointerUp} onPointerCancel={onPointerUp} onAuxClick={(e) => { if (e.button === 1) e.preventDefault(); }}>
       {annotationMode && (
         <div className="pointer-events-none absolute top-3 left-1/2 z-20 -translate-x-1/2 rounded-full border bg-background/95 px-3 py-1.5 text-xs font-medium text-foreground shadow-md backdrop-blur">
           Select slide elements to attach to chat · Esc to finish
@@ -405,7 +462,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZo
         <div ref={slideRef} className="relative shadow-lg ring-1 ring-black/10" style={{ width: W * scale, height: H * scale }}>
           <SlideView
             doc={doc}
-            slide={slide}
+            slide={viewSlide}
             scale={scale}
             mode="edit"
             overrides={overrides}
@@ -452,8 +509,34 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZo
               );
             })}
 
-            {!annotationMode && single && !single.locked && !gesture?.kind.startsWith("m") && editingId !== single.id && (
+            {!annotationMode && !penActive && single && !single.locked && !gesture?.kind.startsWith("m") && editingId !== single.id && pathEditId !== single.id && (
               <SelectionHandles position={pos(single)} scale={scale} onDown={(e, h) => onHandleDown(e, single, h)} />
+            )}
+
+            {editedPath && !penActive && (
+              <PathPointEditor
+                key={editedPath.id}
+                element={editedPath}
+                scale={scale}
+                slideRect={() => slideRef.current?.getBoundingClientRect()}
+                onDraft={(points) => setPathDraft(points ? { id: editedPath.id, points } : null)}
+                onCommit={(points) => run({ type: "path.setPoints", elementId: editedPath.id, points })}
+                onDeletePoint={(index) => {
+                  if (editedPath.content.points.length > 2) run({ type: "path.deletePoint", elementId: editedPath.id, index });
+                }}
+                onExit={() => { setPathEditId(null); setPathDraft(null); }}
+              />
+            )}
+
+            {penActive && !annotationMode && (
+              <PenOverlay
+                scale={scale}
+                width={W}
+                height={H}
+                toDoc={toDoc}
+                onFinish={finishPen}
+                onCancel={() => onPenFinished?.()}
+              />
             )}
 
             {guides.map((g, i) => (

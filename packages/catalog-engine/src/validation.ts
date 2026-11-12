@@ -133,6 +133,9 @@ export function checkExportCompatibility(doc: CatalogDocument, target: ExportTar
       if (target === "pptx" && el.animations.some((a) => a.category === "motion-path" || a.preset === "blur")) {
         warn(p, "Motion paths and blur animations are simplified in PowerPoint.");
       }
+      if (target === "pptx" && el.animations.some((a) => a.category === "keyframes" || a.preset === "draw" || a.preset === "erase" || a.preset === "trace")) {
+        warn(p, "Keyframe and path draw/erase/trace animations play on the web, in presentations and in video, but not in PowerPoint.");
+      }
       if (target === "pptx" && el.effects.length) warn(p, "Shader fills and effects are not exported to PowerPoint yet.");
     });
   });

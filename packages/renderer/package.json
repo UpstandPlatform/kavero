@@ -5,11 +5,14 @@
     ".": "./src/index.ts"
   },
   "scripts": {
-    "check-types": "tsc --noEmit"
+    "check-types": "tsc --noEmit",
+    "test": "bun test"
   },
   "dependencies": {
     "@Kavero/catalog-engine": "workspace:*",
-    "@Kavero/animation-engine": "workspace:*"
+    "@Kavero/animation-engine": "workspace:*",
+    "react-markdown": "^10.1.0",
+    "remark-gfm": "^4.0.1"
   },
   "peerDependencies": {
     "react": "catalog:"
@@ -18,6 +21,9 @@
     "@Kavero/config": "workspace:*",
     "@types/react": "catalog:",
     "react": "catalog:",
-    "typescript": "catalog:"
+    "typescript": "catalog:",
+    "@types/bun": "^1.3.0",
+    "react-dom": "catalog:",
+    "@types/react-dom": "catalog:"
   }
 }

@@ -25,6 +25,10 @@ function toTrpc(e: unknown): never {
   throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: (e as Error).message });
 }
 
+function withTimeout(ms: number, signal?: AbortSignal) {
+  return signal ? AbortSignal.any([AbortSignal.timeout(ms), signal]) : AbortSignal.timeout(ms);
+}
+
 /** Server-side AI: the provider's key never reaches the browser; every call is logged. */
 export class AiService {
   constructor(private readonly db: Database, private readonly provider: LlmProvider | null) {}
@@ -37,11 +41,12 @@ export class AiService {
     await this.db.insert(aiJob).values({ id: randomUUID(), userId, ...entry }).catch(() => undefined);
   }
 
-  async generate(userId: string, input: GenerateInput) {
+  /** `signal` lets a caller (e.g. a chat turn with its own time budget) cancel earlier than the default timeout. */
+  async generate(userId: string, input: GenerateInput, signal?: AbortSignal) {
     await rateLimit(userId);
     const started = Date.now();
     try {
-      const r = await generateCatalog(this.provider, input, AbortSignal.timeout(240_000));
+      const r = await generateCatalog(this.provider, input, withTimeout(240_000, signal));
       await this.log(userId, {
         kind: "generate", prompt: input.brief.slice(0, 4000), status: "ok", source: r.source, model: r.model ?? null,
         inputTokens: r.usage?.inputTokens ?? null, outputTokens: r.usage?.outputTokens ?? null,
@@ -54,13 +59,13 @@ export class AiService {
     }
   }
 
-  async edit(userId: string, document: unknown, slideId: string, instruction: string) {
+  async edit(userId: string, document: unknown, slideId: string, instruction: string, signal?: AbortSignal) {
     await rateLimit(userId);
     const parsed = parseCatalogDocument(document);
     if (!parsed.ok) throw new TRPCError({ code: "BAD_REQUEST", message: "Invalid catalog" });
     const started = Date.now();
     try {
-      const r = await proposeEdit(this.provider, parsed.document, slideId, instruction, AbortSignal.timeout(120_000));
+      const r = await proposeEdit(this.provider, parsed.document, slideId, instruction, withTimeout(120_000, signal));
       await this.log(userId, { kind: "edit", prompt: instruction.slice(0, 4000), status: "ok", source: "ai", model: r.model, summary: r.summary, durationMs: Date.now() - started });
       return r;
     } catch (e) {

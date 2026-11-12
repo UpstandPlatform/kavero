@@ -5,6 +5,7 @@ import { PublicationService } from "@Kavero/api/services/publication-service";
 import { createResilientRateLimiter } from "@Kavero/redis";
 
 import { auth, db } from "@/services";
+import { runtimeConfig } from "@/platform";
 
 export type Publication = NonNullable<Awaited<ReturnType<PublicationService["findBySlug"]>>>;
 export type Access = { kind: "ok"; pub: Publication; isOwner: boolean } | { kind: "password"; pub: Publication } | { kind: "missing" };
@@ -62,12 +63,14 @@ const clientFailures = createResilientRateLimiter({ namespace: "publication-unlo
 
 /**
  * Client address for rate limiting. X-Forwarded-For is only trusted behind a
- * proxy we control (TRUST_PROXY=1, or the number of proxy hops); then the
+ * proxy we control (Admin → System → Reverse proxy hops, or TRUST_PROXY); then the
  * entry that proxy appended is used, not the client-supplied first one.
  * Without it there is no trustworthy per-client address, so null.
  */
 export function clientIp(headers: Headers): string | null {
-  const hops = Number(process.env.TRUST_PROXY === "true" ? 1 : process.env.TRUST_PROXY ?? 0);
+  // Cached settings: refreshed in the background by every request that reads them.
+  void runtimeConfig.refresh();
+  const hops = Number(runtimeConfig.valuesSync("network").trustProxy ?? 0);
   if (!(hops >= 1)) return null;
   const chain = (headers.get("x-forwarded-for") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
   return chain[chain.length - Math.floor(hops)] ?? null;

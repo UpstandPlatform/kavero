@@ -1,5 +1,12 @@
 import type { CatalogDocument, CatalogElement, CatalogSlide, ElementAnimation, SlideTransition } from "@Kavero/catalog-engine";
+
+import { ease, type Easing } from "./easing";
+import { animationSpanMs, drawProgressAt, iterationAt, sampleKeyframes, SETTLED_MS } from "./keyframes";
+
 export * from "./morph";
+export * from "./easing";
+export * from "./keyframes";
+export * from "./path-dash";
 
 /**
  * Deterministic animation runtime. Everything is a pure function of time, so the
@@ -7,23 +14,7 @@ export * from "./morph";
  * produce identical results (the same idea Remotion uses).
  */
 
-// ---------- Easing ----------
-
-export type Easing = ElementAnimation["easing"];
-
 const clamp01 = (t: number) => Math.min(1, Math.max(0, t));
-
-export function ease(easing: Easing, t: number): number {
-  t = clamp01(t);
-  switch (easing) {
-    case "linear": return t;
-    case "ease-in": return t * t * t;
-    case "ease-out": return 1 - (1 - t) ** 3;
-    case "ease-in-out": return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2;
-    // Damped spring that settles at 1, with a small overshoot.
-    case "spring": return t === 1 ? 1 : 1 - Math.exp(-6 * t) * Math.cos(10 * t);
-  }
-}
 
 const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
 
@@ -66,7 +57,7 @@ export function scheduleSlide(slide: CatalogSlide): ScheduledAnimation[] {
         elementId: el.id,
         animation: a,
         startMs: start,
-        endMs: start + a.durationMs,
+        endMs: start + animationSpanMs(a),
         ...(trigger === "on-click" ? { clickIndex } : {}),
         ...(paragraphCount > 1 ? { paragraphIndex } : {}),
       };
@@ -100,6 +91,11 @@ export function slideDurationMs(slide: CatalogSlide): number {
   return Math.max(DEFAULT_SLIDE_MS, lastAnim + 1500);
 }
 
+/** True when an animation on the slide keeps repeating until the slide ends, so playback must keep rendering frames. */
+export function slideHasLoopingAnimation(slide: CatalogSlide): boolean {
+  return slide.elements.some((element) => !element.hidden && element.animations.some((a) => a.loop && (a.category === "emphasis" || a.category === "keyframes")));
+}
+
 // ---------- Element state at time t ----------
 
 export interface VisualState {
@@ -109,9 +105,17 @@ export interface VisualState {
   scale: number;
   rotate: number; // deg
   blur: number; // px
+  /** Paths: visible fraction of the stroke (draw/erase/keyframe drawProgress). */
+  draw: number;
+  /** Paths: which end the visible stroke is attached to. */
+  drawAnchor: "start" | "end";
+  /** Paths: fill opacity multiplier. */
+  fill: number;
+  /** Paths: position (0..1) of the trace dash running along the stroke, when tracing. */
+  trace: number | null;
 }
 
-export const IDENTITY: VisualState = { opacity: 1, x: 0, y: 0, scale: 1, rotate: 0, blur: 0 };
+export const IDENTITY: VisualState = { opacity: 1, x: 0, y: 0, scale: 1, rotate: 0, blur: 0, draw: 1, drawAnchor: "start", fill: 1, trace: null };
 
 function dirVector(dir: ElementAnimation["direction"], distance: number) {
   switch (dir ?? "up") {
@@ -151,21 +155,51 @@ function mix(from: Partial<VisualState>, to: Partial<VisualState>, t: number): V
   const f = { ...IDENTITY, ...from };
   const g = { ...IDENTITY, ...to };
   return {
+    ...IDENTITY,
     opacity: lerp(f.opacity, g.opacity, t), x: lerp(f.x, g.x, t), y: lerp(f.y, g.y, t),
     scale: lerp(f.scale, g.scale, t), rotate: lerp(f.rotate, g.rotate, t), blur: lerp(f.blur, g.blur, t),
   };
 }
 
 function compose(a: VisualState, b: VisualState): VisualState {
-  return { opacity: a.opacity * b.opacity, x: a.x + b.x, y: a.y + b.y, scale: a.scale * b.scale, rotate: a.rotate + b.rotate, blur: a.blur + b.blur };
+  return {
+    opacity: a.opacity * b.opacity, x: a.x + b.x, y: a.y + b.y, scale: a.scale * b.scale, rotate: a.rotate + b.rotate, blur: a.blur + b.blur,
+    draw: a.draw * b.draw,
+    // The animation that is actually hiding part of the stroke decides which end stays visible.
+    drawAnchor: b.draw < 1 ? b.drawAnchor : a.drawAnchor,
+    fill: a.fill * b.fill,
+    trace: b.trace ?? a.trace,
+  };
 }
+
+const isPathPreset = (a: ElementAnimation) => a.preset === "draw" || a.preset === "erase" || a.preset === "trace";
 
 function animationState(s: ScheduledAnimation, t: number): VisualState {
   const a = s.animation;
-  const raw = (t - s.startMs) / Math.max(1, a.durationMs);
+  const elapsed = t - s.startMs;
+  const settled = t >= SETTLED_MS;
+  const raw = elapsed / Math.max(1, a.durationMs);
   const p = clamp01(raw);
   const easing: Easing = a.preset === "bounce" && a.easing === "ease-out" ? "spring" : a.easing;
   const e = ease(easing, p);
+
+  if (a.category === "keyframes") {
+    // Before the start the first keyframe holds and after the end the last one does (CSS fill-mode: both).
+    const it = iterationAt(elapsed, a, settled);
+    const v = sampleKeyframes(a.keyframes ?? [], it.p);
+    return { ...IDENTITY, x: v.x, y: v.y, scale: v.scale, rotate: v.rotation, opacity: v.opacity, draw: v.drawProgress, drawAnchor: a.reverse ? "end" : "start" };
+  }
+
+  if (isPathPreset(a) && a.category !== "motion-path") {
+    if (a.preset === "trace") {
+      const it = iterationAt(elapsed, a, settled);
+      if (!it.active) return IDENTITY;
+      const phase = ease(a.easing, it.p);
+      return { ...IDENTITY, trace: a.reverse ? 1 - phase : phase };
+    }
+    const d = drawProgressAt(elapsed, a);
+    return { ...IDENTITY, draw: d.draw, drawAnchor: d.anchor, fill: d.fill };
+  }
 
   switch (a.category) {
     case "entrance":
@@ -173,15 +207,19 @@ function animationState(s: ScheduledAnimation, t: number): VisualState {
     case "exit":
       return raw <= 0 ? IDENTITY : mix({}, offState(a), e);
     case "emphasis": {
-      if (raw <= 0 || raw >= 1) return IDENTITY;
-      const wave = Math.sin(p * Math.PI); // 0 → 1 → 0
+      // Emphasis effects can repeat (iterations, loop) and alternate.
+      const it = iterationAt(elapsed, a, settled);
+      if (!it.active) return IDENTITY;
+      const q = it.p;
+      const eq = ease(easing, q);
+      const wave = Math.sin(q * Math.PI); // 0 → 1 → 0
       switch (a.preset) {
         case "pulse": return { ...IDENTITY, scale: 1 + 0.12 * wave };
-        case "bounce": return { ...IDENTITY, y: -Math.abs(Math.sin(p * Math.PI * 3)) * 40 * (1 - p) };
-        case "float": return { ...IDENTITY, y: -20 * Math.sin(p * Math.PI * 2) };
+        case "bounce": return { ...IDENTITY, y: -Math.abs(Math.sin(q * Math.PI * 3)) * 40 * (1 - q) };
+        case "float": return { ...IDENTITY, y: -20 * Math.sin(q * Math.PI * 2) };
         case "rotate":
-        case "spin": return { ...IDENTITY, rotate: 360 * e };
-        case "flip": return { ...IDENTITY, rotate: 180 * Math.sin(p * Math.PI) };
+        case "spin": return { ...IDENTITY, rotate: 360 * eq };
+        case "flip": return { ...IDENTITY, rotate: 180 * Math.sin(q * Math.PI) };
         case "grow": return { ...IDENTITY, scale: 1 + 0.24 * wave };
         case "shrink": return { ...IDENTITY, scale: 1 - 0.18 * wave };
         case "blur": return { ...IDENTITY, blur: 8 * wave };

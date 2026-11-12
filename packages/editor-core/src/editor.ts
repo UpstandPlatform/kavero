@@ -64,7 +64,17 @@ export class Editor {
     return () => this.listeners.delete(listener);
   };
 
-  execute(command: EditorCommand, options: { undoable?: boolean } = {}): CommandResult {
+  /**
+   * Apply a command.
+   * - `undoable: false` clears history (for irreversible storage side effects).
+   * - `history: false` applies the change without creating an undo step and carries it into the
+   *   existing history snapshots, so undo/redo of document edits never reverts it. Only supported
+   *   for extension installation and extension storage commands.
+   */
+  execute(command: EditorCommand, options: { undoable?: boolean; history?: boolean } = {}): CommandResult {
+    if (options.history === false && !HISTORYLESS_COMMANDS.has(command.type)) {
+      throw new Error(`"${command.type}" must be recorded in editor history.`);
+    }
     const before = this.doc;
     const draft = structuredClone(before);
     const result = applyCommand(draft, command); // throws on invalid commands; document untouched
@@ -73,7 +83,9 @@ export class Editor {
     draft.revision = before.revision + 1;
     this.doc = draft;
 
-    if (options.undoable === false) {
+    if (options.history === false) {
+      this.carryIntoHistory(command);
+    } else if (options.undoable === false) {
       // Irreversible storage changes (for example deleting an uploaded binary)
       // cannot safely be restored by replaying a document-only history snapshot.
       this.undoStack = [];
@@ -143,6 +155,33 @@ export class Editor {
     this.emit();
   }
 
+  /** Re-apply a history-less extension command to every snapshot so undo/redo keep its effect. */
+  private carryIntoHistory(command: EditorCommand) {
+    const extensionId = (command as { extensionId: string }).extensionId;
+    const patched = new Map<CatalogDocument, CatalogDocument>();
+    const patch = (snapshot: CatalogDocument) => {
+      const known = patched.get(snapshot);
+      if (known) return known;
+      let next = snapshot;
+      const current = snapshot.extensions?.[extensionId];
+      if (current || command.type === "extension.install") {
+        const copy: CatalogDocument = { ...snapshot, extensions: { ...snapshot.extensions } };
+        if (current) copy.extensions[extensionId] = structuredClone(current);
+        try {
+          applyCommand(copy, command);
+          next = copy;
+        } catch {
+          // The snapshot predates the installation; leave it untouched.
+        }
+      }
+      patched.set(snapshot, next);
+      return next;
+    };
+    const rewrite = (entry: HistoryEntry): HistoryEntry => ({ ...entry, before: patch(entry.before), after: patch(entry.after) });
+    this.undoStack = this.undoStack.map(rewrite);
+    this.redoStack = this.redoStack.map(rewrite);
+  }
+
   private pruneSelection() {
     const ids = new Set(this.doc.slides.flatMap((s) => s.elements.map((e) => e.id)));
     this.selection = this.selection.filter((id) => ids.has(id));
@@ -165,6 +204,14 @@ export class Editor {
     for (const l of this.listeners) l(this.state, command);
   }
 }
+
+const HISTORYLESS_COMMANDS = new Set<EditorCommand["type"]>([
+  "extension.install",
+  "extension.setData",
+  "extension.setSetting",
+  "extension.deleteData",
+  "extension.deleteSetting",
+]);
 
 function coalesceKey(cmd: EditorCommand): string | null {
   if (cmd.type === "element.move") return `move:${cmd.elementId}`;

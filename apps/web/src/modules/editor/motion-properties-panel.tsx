@@ -12,7 +12,35 @@ import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { Slider } from "@Kavero/ui/components/slider";
 import { useEffect, useState, type ReactNode } from "react";
 
+import { defaultKeyframes, KeyframeEditor } from "./keyframe-editor";
 import { useRun } from "./use-catalog-editor";
+
+/** Options shared by new and existing animations: path direction/fill and repeats. */
+function AnimationOptions({ value, onChange, path }: {
+  value: Pick<ElementAnimation, "category" | "preset" | "reverse" | "fillAfterDraw" | "iterations" | "loop" | "playDirection">;
+  onChange: (changes: Partial<ElementAnimation>) => void;
+  path: boolean;
+}) {
+  const drawing = path && (value.preset === "draw" || value.preset === "erase");
+  const pathEffect = path && (drawing || value.preset === "trace" || value.category === "keyframes");
+  const repeats = value.category === "emphasis" || value.category === "keyframes";
+  if (!pathEffect && !repeats) return null;
+  return (
+    <div className="grid gap-1.5">
+      {pathEffect && <label className="flex items-center gap-2 text-xs"><Checkbox checked={!!value.reverse} onCheckedChange={(checked) => onChange({ reverse: checked === true })} />Run from the path end to its start</label>}
+      {drawing && <label className="flex items-center gap-2 text-xs"><Checkbox checked={!!value.fillAfterDraw} onCheckedChange={(checked) => onChange({ fillAfterDraw: checked === true })} />{value.preset === "erase" ? "Fade the fill out first" : "Fade the fill in after drawing"}</label>}
+      {repeats && <>
+        <label className="flex items-center gap-2 text-xs"><Checkbox checked={!!value.loop} onCheckedChange={(checked) => onChange({ loop: checked === true })} />Loop until the slide ends</label>
+        <label className="flex items-center gap-2 text-xs"><Checkbox checked={value.playDirection === "alternate"} onCheckedChange={(checked) => onChange({ playDirection: checked === true ? "alternate" : "normal" })} />Alternate (play back and forth)</label>
+        {!value.loop && <label className="grid grid-cols-[72px_minmax(0,1fr)] items-center gap-2 text-xs">
+          <span className="text-muted-foreground">Repeat</span>
+          <SimpleSelect size="sm" aria-label="Number of times to play" value={String(value.iterations ?? 1)} onValueChange={(v) => onChange({ iterations: Number(v) })}
+            options={[1, 2, 3, 4, 5, 10].map((n) => ({ value: String(n), label: n === 1 ? "Once" : `${n} times` }))} />
+        </label>}
+      </>}
+    </div>
+  );
+}
 
 const TRANSITIONS = [
   { value: "none", label: "None" }, { value: "fade", label: "Fade" },
@@ -30,6 +58,28 @@ const PRESETS: { value: ElementAnimation["preset"]; label: string }[] = [
   { value: "shrink", label: "Shrink" }, { value: "rotate", label: "Rotate" },
   { value: "scale", label: "Scale" },
 ];
+/** Path-only effects, each tied to one category. */
+const PATH_PRESETS: { value: ElementAnimation["preset"]; label: string; category: ElementAnimation["category"] }[] = [
+  { value: "draw", label: "Draw", category: "entrance" },
+  { value: "erase", label: "Erase", category: "exit" },
+  { value: "trace", label: "Trace", category: "emphasis" },
+];
+const CATEGORIES = [
+  { value: "entrance", label: "Entrance" }, { value: "exit", label: "Exit" }, { value: "emphasis", label: "Emphasis" },
+  { value: "motion-path", label: "Motion path" }, { value: "keyframes", label: "Keyframes" },
+];
+const isPathPreset = (preset: ElementAnimation["preset"]) => PATH_PRESETS.some((item) => item.value === preset);
+
+/** Effects offered for a category: Draw/Erase/Trace only when every target is a path. */
+function presetOptions(category: ElementAnimation["category"], pathsOnly: boolean) {
+  const path = pathsOnly ? PATH_PRESETS.filter((item) => item.category === category) : [];
+  return [...path.map(({ value, label }) => ({ value, label })), ...PRESETS];
+}
+
+function presetLabel(animation: ElementAnimation) {
+  if (animation.category === "keyframes") return "Keyframes";
+  return PATH_PRESETS.find((item) => item.value === animation.preset)?.label ?? PRESETS.find((item) => item.value === animation.preset)?.label ?? animation.preset;
+}
 const EASINGS = [
   { value: "linear", label: "Linear" }, { value: "ease-in", label: "Ease in" },
   { value: "ease-out", label: "Ease out" }, { value: "ease-in-out", label: "Ease in and out" },
@@ -97,10 +147,18 @@ export function MotionPropertiesPanel({ editor, doc, slide, selection, onPlay }:
   const [newEasing, setNewEasing] = useState<ElementAnimation["easing"]>("ease-out");
   const [pathX, setPathX] = useState(200);
   const [pathY, setPathY] = useState(0);
+  const [newOptions, setNewOptions] = useState<Partial<ElementAnimation>>({});
   const [transitionDuration, setTransitionDuration] = useState(slide.transition?.durationMs ?? 500);
   useEffect(() => setTransitionDuration(slide.transition?.durationMs ?? 500), [slide.id, slide.transition?.durationMs]);
 
   const selected = slide.elements.filter((element) => selection.includes(element.id));
+  const selectionIsPaths = selected.length > 0 && selected.every((element) => element.type === "path");
+  const newPresetOptions = presetOptions(category, selectionIsPaths);
+  // Keep the chosen effect valid for the category and selection (e.g. Draw only for paths, as an entrance).
+  useEffect(() => {
+    if (category === "keyframes" || category === "motion-path") return;
+    if (!newPresetOptions.some((option) => option.value === preset)) setPreset(newPresetOptions[0]!.value);
+  }, [category, preset, newPresetOptions]);
   const animations = slide.elements.flatMap((element) => element.animations.map((animation, index) => ({
     element,
     animation,
@@ -136,19 +194,33 @@ export function MotionPropertiesPanel({ editor, doc, slide, selection, onPlay }:
   }
 
   function addAnimations() {
-    const commands: EditorCommand[] = selected.map((element) => ({
-      type: "element.addAnimation",
-      elementId: element.id,
-      animation: {
-        category, preset: category === "motion-path" ? "custom" : preset, trigger,
-        ...(preset === "slide" || preset === "rise" ? { direction } : {}),
-        ...(category === "motion-path" ? { path: [{ x: pathX, y: pathY }] } : {}),
-        durationMs: duration,
-        delayMs: delay,
-        easing: category === "exit" && newEasing === "ease-out" ? "ease-in" : newEasing,
-        byParagraph: element.type === "text" && byParagraph,
-      },
-    }));
+    const commands: EditorCommand[] = selected.map((element) => {
+      const keyframes = category === "keyframes";
+      // Draw/Erase/Trace only make sense on paths; anything else falls back to a fade.
+      const effect = keyframes || category === "motion-path" ? "custom" : isPathPreset(preset) && element.type !== "path" ? "fade" : preset;
+      const pathOptions = element.type === "path" && (isPathPreset(effect) || keyframes)
+        ? { reverse: newOptions.reverse, ...(effect === "draw" || effect === "erase" ? { fillAfterDraw: newOptions.fillAfterDraw } : {}) }
+        : {};
+      const repeatOptions = category === "emphasis" || keyframes
+        ? { loop: newOptions.loop, playDirection: newOptions.playDirection, iterations: newOptions.loop ? undefined : newOptions.iterations }
+        : {};
+      return {
+        type: "element.addAnimation",
+        elementId: element.id,
+        animation: {
+          category, preset: effect, trigger,
+          ...(preset === "slide" || preset === "rise" ? { direction } : {}),
+          ...(category === "motion-path" ? { path: [{ x: pathX, y: pathY }] } : {}),
+          ...(keyframes ? { keyframes: defaultKeyframes(element) } : {}),
+          ...pathOptions,
+          ...repeatOptions,
+          durationMs: duration,
+          delayMs: delay,
+          easing: category === "exit" && newEasing === "ease-out" ? "ease-in" : newEasing,
+          byParagraph: element.type === "text" && byParagraph,
+        },
+      };
+    });
     run({ type: "batch", label: "Add object animation", commands });
   }
 
@@ -233,7 +305,7 @@ export function MotionPropertiesPanel({ editor, doc, slide, selection, onPlay }:
                     <button type="button" aria-expanded={expanded} onClick={() => { setExpandedAnimationId(expanded ? null : animation.id); editor.select([element.id]); }}
                       className="flex min-w-0 flex-1 items-center gap-2 px-2 py-2 text-start text-xs hover:bg-muted/50">
                       <span className="w-4 shrink-0 text-muted-foreground tabular-nums">{index + 1}</span>
-                      <span className="min-w-0 flex-1 truncate">{element.name || element.type} · {PRESETS.find((item) => item.value === animation.preset)?.label ?? animation.preset}</span>
+                      <span className="min-w-0 flex-1 truncate">{element.name || element.type} · {presetLabel(animation)}{animation.loop ? " ↻" : ""}</span>
                       <span className="shrink-0 text-muted-foreground">{triggerLabel}</span>
                     </button>
                     <div className="flex shrink-0 items-center pe-1">
@@ -245,16 +317,29 @@ export function MotionPropertiesPanel({ editor, doc, slide, selection, onPlay }:
                   {expanded && <div className="grid gap-2 border-t bg-muted/20 p-2">
                     <div className="grid grid-cols-2 gap-2">
                       <SimpleSelect size="sm" aria-label="Animation category" value={animation.category}
-                        onValueChange={(value) => updateAnimation(element.id, animation.id, { category: value as ElementAnimation["category"] })}
-                        options={[{ value: "entrance", label: "Entrance" }, { value: "exit", label: "Exit" }, { value: "emphasis", label: "Emphasis" }, { value: "motion-path", label: "Motion path" }]} />
-                      <SimpleSelect size="sm" aria-label="Animation effect" value={animation.preset} onValueChange={(value) => updateAnimation(element.id, animation.id, { preset: value as ElementAnimation["preset"] })} options={PRESETS} />
+                        onValueChange={(value) => {
+                          const next = value as ElementAnimation["category"];
+                          const options = presetOptions(next, element.type === "path");
+                          updateAnimation(element.id, animation.id, {
+                            category: next,
+                            // Switching category keeps the effect when it still applies, otherwise picks the first that does.
+                            ...(next === "keyframes" ? { preset: "custom" as const, ...(animation.keyframes?.length ? {} : { keyframes: defaultKeyframes(element) }) }
+                              : next !== "motion-path" && !options.some((option) => option.value === animation.preset) ? { preset: options[0]!.value } : {}),
+                          });
+                        }}
+                        options={CATEGORIES} />
+                      {animation.category === "keyframes"
+                        ? <span className="self-center text-[11px] text-muted-foreground">Custom keyframes</span>
+                        : <SimpleSelect size="sm" aria-label="Animation effect" value={animation.preset} onValueChange={(value) => updateAnimation(element.id, animation.id, { preset: value as ElementAnimation["preset"] })} options={presetOptions(animation.category, element.type === "path")} />}
                       <SimpleSelect size="sm" aria-label="Animation start" value={animation.trigger} onValueChange={(value) => updateAnimation(element.id, animation.id, { trigger: value as ElementAnimation["trigger"] })} options={TRIGGERS} />
                       <SimpleSelect size="sm" aria-label="Animation direction" value={animation.direction ?? "left"} disabled={!(["slide", "rise"] as string[]).includes(animation.preset)}
                         onValueChange={(value) => updateAnimation(element.id, animation.id, { direction: value as ElementAnimation["direction"] })} options={DIRECTIONS} />
                       <NumberField label="Time" value={animation.durationMs / 1000} min={0.1} max={30} onCommit={(value) => updateAnimation(element.id, animation.id, { durationMs: Math.round(value * 1000) })} />
                       <NumberField label="Delay" value={animation.delayMs / 1000} min={0} max={30} onCommit={(value) => updateAnimation(element.id, animation.id, { delayMs: Math.round(value * 1000) })} />
                     </div>
-                    <Field label="Easing"><SimpleSelect size="sm" aria-label="Animation easing" value={animation.easing} onValueChange={(value) => updateAnimation(element.id, animation.id, { easing: value as ElementAnimation["easing"] })} options={EASINGS} /></Field>
+                    {animation.category !== "keyframes" && <Field label="Easing"><SimpleSelect size="sm" aria-label="Animation easing" value={animation.easing} onValueChange={(value) => updateAnimation(element.id, animation.id, { easing: value as ElementAnimation["easing"] })} options={EASINGS} /></Field>}
+                    <AnimationOptions value={animation} path={element.type === "path"} onChange={(changes) => updateAnimation(element.id, animation.id, changes)} />
+                    {animation.category === "keyframes" && <KeyframeEditor element={element} animation={animation} run={run} />}
                     {animation.category === "motion-path" && <div className="grid grid-cols-2 gap-2">
                       <NumberField label="Path X" value={animation.path?.[animation.path.length - 1]?.x ?? 200} min={-10000} max={10000} step={10} onCommit={(value) => updateAnimation(element.id, animation.id, { path: [{ x: value, y: animation.path?.[animation.path.length - 1]?.y ?? 0 }] })} />
                       <NumberField label="Path Y" value={animation.path?.[animation.path.length - 1]?.y ?? 0} min={-10000} max={10000} step={10} onCommit={(value) => updateAnimation(element.id, animation.id, { path: [{ x: animation.path?.[animation.path.length - 1]?.x ?? 200, y: value }] })} />
@@ -269,14 +354,17 @@ export function MotionPropertiesPanel({ editor, doc, slide, selection, onPlay }:
         {selected.length > 0 && <>
           <p className="text-[10px] text-muted-foreground">Add to {selected.length === 1 ? selected[0]!.name || selected[0]!.type : `${selected.length} selected elements`}</p>
           <div className="grid grid-cols-2 gap-2">
-            <SimpleSelect size="sm" aria-label="New animation category" value={category} onValueChange={(value) => setCategory(value as typeof category)} options={[{ value: "entrance", label: "Entrance" }, { value: "exit", label: "Exit" }, { value: "emphasis", label: "Emphasis" }, { value: "motion-path", label: "Motion path" }]} />
-            <SimpleSelect size="sm" aria-label="New animation effect" value={preset} onValueChange={(value) => setPreset(value as ElementAnimation["preset"])} options={PRESETS} />
+            <SimpleSelect size="sm" aria-label="New animation category" value={category} onValueChange={(value) => setCategory(value as typeof category)} options={CATEGORIES} />
+            {category === "keyframes"
+              ? <span className="self-center text-[11px] text-muted-foreground">Edit keyframes after adding</span>
+              : <SimpleSelect size="sm" aria-label="New animation effect" value={preset} onValueChange={(value) => setPreset(value as ElementAnimation["preset"])} options={newPresetOptions} />}
             <SimpleSelect size="sm" aria-label="New animation start" value={trigger} onValueChange={(value) => setTrigger(value as ElementAnimation["trigger"])} options={TRIGGERS} />
             <SimpleSelect size="sm" aria-label="New animation direction" value={direction} disabled={!(["slide", "rise"] as string[]).includes(preset)} onValueChange={(value) => setDirection(value as typeof direction)} options={DIRECTIONS} />
             <NumberField label="Time" value={duration / 1000} min={0.1} max={30} onCommit={(value) => setDuration(Math.round(value * 1000))} />
             <NumberField label="Delay" value={delay / 1000} min={0} max={30} onCommit={(value) => setDelay(Math.round(value * 1000))} />
           </div>
-          <Field label="Easing"><SimpleSelect size="sm" aria-label="New animation easing" value={newEasing} onValueChange={(value) => setNewEasing(value as ElementAnimation["easing"])} options={EASINGS} /></Field>
+          {category !== "keyframes" && <Field label="Easing"><SimpleSelect size="sm" aria-label="New animation easing" value={newEasing} onValueChange={(value) => setNewEasing(value as ElementAnimation["easing"])} options={EASINGS} /></Field>}
+          <AnimationOptions value={{ ...newOptions, category, preset: category === "keyframes" ? "custom" : preset }} path={selectionIsPaths} onChange={(changes) => setNewOptions((current) => ({ ...current, ...changes }))} />
           {category === "motion-path" && <div className="grid grid-cols-2 gap-2">
             <NumberField label="Path X" value={pathX} min={-10000} max={10000} step={10} onCommit={setPathX} />
             <NumberField label="Path Y" value={pathY} min={-10000} max={10000} step={10} onCommit={setPathY} />

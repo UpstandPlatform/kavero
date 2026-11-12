@@ -23,7 +23,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   const pub = await service.findBySlug(slug);
   if (!pub || (pub.visibility !== "public" && pub.visibility !== "unlisted")) return new Response("Not found", { status: 404 });
 
-  const storage = objectStorage();
+  const storage = await objectStorage();
   const key = `publications/${pub.id}/og-v${pub.version}.png`;
   let png = pub.ogImageKey === key ? await storage.get(key) : null;
 

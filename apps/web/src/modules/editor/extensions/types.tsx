@@ -1,5 +1,5 @@
 import type { CatalogDocument, CatalogElement, CatalogElementType, CatalogSlide, ElementEffect } from "@Kavero/catalog-engine";
-import type { Editor, EditorCommand } from "@Kavero/editor-core";
+import { checkExtensionCommandOwnership, type Editor, type EditorCommand } from "@Kavero/editor-core";
 import type { ExtensionCapability, ExtensionDefinition, ExtensionEvents, ExtensionHost, ExtensionManifest, JsonValue } from "@Kavero/extensions";
 import type { ExtensionElementEffectRenderer, ExtensionElementRenderer } from "@Kavero/renderer";
 import type { PptxExtensionElementRenderer } from "@Kavero/export-pptx";
@@ -25,16 +25,40 @@ export interface EditorExtensionIntegrationApi {
   callTool(connectionId: string, tool: string, args: Record<string, JsonValue>): Promise<unknown>;
 }
 
+/** A connected-service call an extension wants to make; shown to the user before it runs. */
+export interface EditorIntegrationCallRequest {
+  extensionId: string;
+  extensionName: string;
+  connection: EditorMcpConnection;
+  tool: string;
+  args: Record<string, JsonValue>;
+  /** True when the user has not yet allowed this extension to use this connection. */
+  firstUse: boolean;
+}
+
+/** Host-owned consent for connected-service calls; extensions cannot bypass it. */
+export interface EditorIntegrationConsent {
+  isConnectionAllowed(extensionId: string, connectionId: string): boolean;
+  allowConnection(extensionId: string, connectionId: string): void;
+  confirmCall(request: EditorIntegrationCallRequest): Promise<boolean>;
+}
+
+/** Thrown when the user declines a connected tool call. */
+export class ExtensionCallCancelledError extends Error {
+  override name = "ExtensionCallCancelledError";
+}
+
 /** Raw host context stays inside the editor shell and is converted to a capability-scoped facade before contribution. */
 export interface EditorExtensionHostContext {
   editor: Editor;
-  activeSlideId: string;
-  assetUrls: Record<string, string>;
+  readonly activeSlideId: string;
+  readonly assetUrls: Record<string, string>;
   products: ProductUi;
   insertProduct(productId: string): void;
   insertGrid(productIds: string[]): void;
   importProducts(): void;
   integrations: EditorExtensionIntegrationApi;
+  integrationConsent: EditorIntegrationConsent;
 }
 
 export interface EditorExtensionContext {
@@ -137,7 +161,7 @@ export interface EditorExtensionHooks extends Record<string, unknown> {
 export type EditorExtension = ExtensionDefinition<EditorExtensionContext, EditorExtensionContribution, ExtensionEvents, EditorExtensionHooks>;
 export type EditorExtensionHost = ExtensionHost<EditorExtensionContext, EditorExtensionContribution, ExtensionEvents, EditorExtensionHooks>;
 
-const EDITOR_ELEMENT_TYPES = new Set(["text", "image", "shape", "product", "product-grid", "icon", "extension", "video", "button", "html"]);
+const EDITOR_ELEMENT_TYPES = new Set(["text", "image", "shape", "product", "product-grid", "icon", "extension", "video", "button", "html", "markdown", "table", "path"]);
 
 export function validateEditorExtensionContribution(manifest: ExtensionManifest, contribution: EditorExtensionContribution) {
   if (!contribution || typeof contribution !== "object") throw new Error("Extension contribution must be an object.");
@@ -254,15 +278,23 @@ export function scopeEditorExtensionContext(
       throw new Error(`Extension "${manifest.name}" does not have the "${capability}" capability.`);
     }
   };
+  // Documents are immutable snapshots, so one private copy per revision is enough. The copy is
+  // made lazily on first read and reused until the document changes.
+  let snapshot: { source: CatalogDocument; copy: CatalogDocument } | null = null;
+  const readDocument = () => {
+    requireCapability("catalog.read");
+    const source = context.editor.getDocument();
+    if (snapshot?.source !== source) snapshot = { source, copy: structuredClone(source) };
+    return snapshot.copy;
+  };
   const editor: ExtensionEditorApi = Object.freeze({
-    getDocument: () => {
-      requireCapability("catalog.read");
-      return structuredClone(context.editor.getDocument());
-    },
+    getDocument: readDocument,
     execute: (command: EditorCommand) => {
       requireCapability("catalog.write");
       const safeCommand = structuredClone(command);
       validateExtensionCommand(safeCommand, requireCapability);
+      // Dry-run first: an extension may not create, change or remove another extension's content.
+      checkExtensionCommandOwnership(context.editor.getDocument(), safeCommand, manifest.id);
       return context.editor.execute(safeCommand);
     },
   });
@@ -287,22 +319,37 @@ export function scopeEditorExtensionContext(
       context.products.import();
     },
   });
+  let pendingCall = false;
   const integrations: EditorExtensionIntegrationApi = Object.freeze({
     listConnections: () => {
       requireCapability("integrations.call");
       return context.integrations.listConnections().then((connections) => structuredClone(connections));
     },
-    callTool: (connectionId: string, tool: string, args: Record<string, JsonValue>) => {
+    /** Every call is confirmed by the user through the host, whatever the extension's own UI does. */
+    callTool: async (connectionId: string, tool: string, args: Record<string, JsonValue>) => {
       requireCapability("integrations.call");
-      if (!/^[A-Za-z0-9_-]{1,128}$/.test(connectionId) || !tool.trim() || tool.length > 200) throw new Error("Choose a valid connected service tool.");
-      return context.integrations.callTool(connectionId, tool, structuredClone(args));
+      if (typeof connectionId !== "string" || typeof tool !== "string" || !/^[A-Za-z0-9_-]{1,128}$/.test(connectionId) || !tool.trim() || tool.length > 200) {
+        throw new Error("Choose a valid connected service tool.");
+      }
+      const safeArgs = structuredClone(args);
+      if (pendingCall) throw new Error("Another connected tool call is already waiting for confirmation.");
+      pendingCall = true;
+      try {
+        const connection = (await context.integrations.listConnections()).find((candidate) => candidate.id === connectionId);
+        if (!connection) throw new Error("That connected service is no longer available.");
+        if (!connection.tools.some((candidate) => candidate.name === tool)) throw new Error("Choose a tool listed by this connected service.");
+        const firstUse = !context.integrationConsent.isConnectionAllowed(manifest.id, connectionId);
+        const confirmed = await context.integrationConsent.confirmCall({ extensionId: manifest.id, extensionName: manifest.name, connection: structuredClone(connection), tool, args: structuredClone(safeArgs), firstUse });
+        if (!confirmed) throw new ExtensionCallCancelledError("The connected tool call was cancelled.");
+        if (firstUse) context.integrationConsent.allowConnection(manifest.id, connectionId);
+      } finally {
+        pendingCall = false;
+      }
+      return context.integrations.callTool(connectionId, tool, safeArgs);
     },
   });
-  return Object.freeze({
+  const scoped = {
     editor,
-    get doc() { requireCapability("catalog.read"); return structuredClone(context.editor.getDocument()); },
-    get activeSlideId() { requireCapability("catalog.read"); return context.activeSlideId; },
-    get assetUrls() { requireCapability("assets.read"); return { ...context.assetUrls }; },
     products,
     integrations,
     insertProduct: (productId: string) => {
@@ -325,7 +372,15 @@ export function scopeEditorExtensionContext(
       requireCapability("network.fetch");
       context.importProducts();
     },
+  };
+  // Capability-checked reads are non-enumerable: tooling that walks props (React dev
+  // logging, spreads, JSON) must not trip a permission error the extension never asked for.
+  Object.defineProperties(scoped, {
+    doc: { get: () => readDocument(), enumerable: false },
+    activeSlideId: { get: () => { requireCapability("catalog.read"); return context.activeSlideId; }, enumerable: false },
+    assetUrls: { get: () => { requireCapability("assets.read"); return { ...context.assetUrls }; }, enumerable: false },
   });
+  return Object.freeze(scoped) as typeof scoped & { readonly doc: ReturnType<typeof readDocument>; readonly activeSlideId: string; readonly assetUrls: Record<string, string> };
 }
 
 function validateExtensionCommand(command: unknown, requireCapability: (capability: ExtensionCapability) => void) {

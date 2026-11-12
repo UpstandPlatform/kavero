@@ -3,11 +3,9 @@ import { createHash } from "node:crypto";
 import { AiCredentialService } from "@Kavero/api/services/ai-credential-service";
 import { CatalogService } from "@Kavero/api/services/catalog-service";
 import { MAX_FONT_BYTES, downloadFont, googleFontFaces, sniffFont } from "@Kavero/api/services/font-files";
-import { SecretBox } from "@Kavero/api/services/secret-box";
 import { imageSize } from "@Kavero/api/services/image-size";
 import { fetchImageAsDataUrl } from "@Kavero/api/services/safe-fetch";
 import { audit, isBanned, permissionsToScopes, type ApiKeyPrincipal } from "@Kavero/api/services/audit-service";
-import { providerFromEnv, type AiEnv } from "@Kavero/ai";
 import { user } from "@Kavero/db/schema/auth";
 import { eq } from "drizzle-orm";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
@@ -18,12 +16,11 @@ import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/
 import { renderOrigin } from "@/modules/export/access";
 import { objectStorage } from "@/modules/storage/object-storage";
 import { ENV } from "@/env.server";
+import { allowPrivateUrls, platform, secretBox, serverAiProvider } from "@/platform";
 import { auth, db } from "@/services";
 
 export const runtime = "nodejs";
 
-const aiProvider = providerFromEnv(process.env as AiEnv);
-const secretBox = new SecretBox(ENV.BETTER_AUTH_SECRET);
 
 const unauthorized = (message: string) =>
   Response.json({ jsonrpc: "2.0", error: { code: -32001, message }, id: null }, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="kavero"' } });
@@ -49,14 +46,15 @@ export async function POST(request: Request) {
   // address this request happened to arrive on (an internal or localhost name).
   const origin = new URL(ENV.BETTER_AUTH_URL).origin;
   // Desktop local mode: editor links open in the Kavero app (kavero://), which is signed in.
-  const localMode = process.env.KAVERO_LOCAL_MODE === "1";
+  const localMode = platform.edition === "desktop";
+  const allowLocal = await allowPrivateUrls();
   const catalogs = new CatalogService(db);
   /** Store image or font bytes for a cloud catalog; same bytes → same asset id (no duplicates). */
   const storeImage = async (catalogRowId: string, bytes: Uint8Array, mimeType: string) => {
     const hash = createHash("sha256").update(bytes).digest("hex");
     const assetId = `ast_${hash.slice(0, 16)}`;
     const storageKey = `catalogs/${catalogRowId}/${hash}`;
-    await objectStorage().put(storageKey, bytes);
+    await (await objectStorage()).put(storageKey, bytes);
     await catalogs.recordAsset({ catalogId: catalogRowId, assetId, mimeType, bytes: bytes.byteLength, hash, storageKey });
     return { id: assetId, mimeType, bytes: bytes.byteLength, hash, ...(imageSize(bytes) ?? {}) };
   };
@@ -66,7 +64,7 @@ export async function POST(request: Request) {
     for (const a of doc.assets) {
       if (a.kind === "video") continue;
       const file = await catalogs.findAsset(principal.userId, doc.id, a.id);
-      const bytes = file && (await objectStorage().get(file.storageKey));
+      const bytes = file && (await (await objectStorage()).get(file.storageKey));
       if (bytes) assets[a.id] = `data:${file.mimeType};base64,${Buffer.from(bytes).toString("base64")}`;
       else if (a.attribution?.provider !== "GIPHY" && /^https:\/\//i.test(a.uri)) assets[a.id] = a.uri;
     }
@@ -79,7 +77,7 @@ export async function POST(request: Request) {
       publicUrl: (slug) => `${origin}/c/${slug}`,
       editorUrl: (documentId) => (localMode ? `kavero://editor/${encodeURIComponent(documentId)}` : `${origin}/editor/${encodeURIComponent(documentId)}`),
       importImage: async (catalogRowId, url) => {
-        const dataUrl = await fetchImageAsDataUrl(url, { allowLocal: process.env.NODE_ENV !== "production" });
+        const dataUrl = await fetchImageAsDataUrl(url, { allowLocal });
         const [, mimeType = "", b64 = ""] = /^data:([^;]+);base64,([A-Za-z0-9+/=]*)$/.exec(dataUrl) ?? [];
         return storeImage(catalogRowId, Uint8Array.from(Buffer.from(b64, "base64")), mimeType);
       },
@@ -90,7 +88,7 @@ export async function POST(request: Request) {
       },
       importFont: async (catalogRowId, source) => {
         if ("url" in source) {
-          const { bytes, mimeType } = await downloadFont(source.url, { allowLocal: process.env.NODE_ENV !== "production" });
+          const { bytes, mimeType } = await downloadFont(source.url, { allowLocal });
           return storeImage(catalogRowId, bytes, mimeType);
         }
         if (source.bytes.byteLength > MAX_FONT_BYTES) throw new Error("Font files must be under 15 MB");
@@ -102,9 +100,10 @@ export async function POST(request: Request) {
       renderPdf: async (doc) => renderPdf({ doc, assets: await loadAssets(doc), baseUrl: renderOrigin(request) }),
       deleteObjects: async (keys) => {
         // Files are content-addressed per catalog, so these keys belong to the deleted catalog only.
-        await Promise.all(keys.map((k) => objectStorage().delete(k)));
+        const storage = await objectStorage();
+        await Promise.all(keys.map((k) => storage.delete(k)));
       },
-      ai: (await new AiCredentialService(db, secretBox, { allowLocal: process.env.NODE_ENV !== "production", appUrl: ENV.BETTER_AUTH_URL }).provider(principal.userId).catch(() => null)) ?? aiProvider,
+      ai: (await new AiCredentialService(db, secretBox, { allowLocal, appUrl: ENV.BETTER_AUTH_URL }).provider(principal.userId).catch(() => null)) ?? (await serverAiProvider()),
     },
   });
   const transport = new WebStandardStreamableHTTPServerTransport({ sessionIdGenerator: undefined, enableJsonResponse: true });

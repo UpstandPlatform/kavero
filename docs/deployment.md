@@ -2,6 +2,31 @@
 
 Kavero ships as one Next.js server (`apps/web`, standalone output), Postgres and Redis. Binary assets live in object storage (a local folder or an S3-compatible bucket). PDF, video and preview exports need headless Chromium and ffmpeg on the server.
 
+## Editions
+
+One codebase, three editions with the same core features:
+
+| Edition | How it's selected | Differences |
+| --- | --- | --- |
+| Self-hosted | default | Accounts and sign-ups as configured in Admin; no plan limits. |
+| Desktop | set by the desktop app (`KAVERO_LOCAL_MODE=1`) | One automatic local account, embedded database, private network allowed by default, in-app updates. |
+| Cloud | `KAVERO_EDITION=cloud` | Adds the plans module: per-account limits (cloud catalogs, published sites, storage, AI requests on the server's model) set in **Admin → System → Plan limits**. Billing providers plug into the same entitlements interface (`packages/api/src/platform`). |
+
+## Admin-managed settings
+
+Most runtime settings don't need environment variables: an admin sets them in **Admin → System** and they apply within seconds on every instance, without a restart:
+
+- **Media storage**: filesystem or S3-compatible (bucket, region, endpoint, keys, path-style), with a **Test storage** button.
+- **AI model**: the server-wide provider, model, API keys and base URL.
+- **Media library**: Openverse and GIPHY.
+- **Network and security**: private network access, reverse proxy hops.
+- **Exports**: parallel Chrome exports.
+- **Plan limits** (cloud only).
+
+Credentials are encrypted (AES-256-GCM) before they're stored in the database, and never sent back to the browser. A matching environment variable still works: when it's set, it wins and the field shows as locked in the admin panel. That suits infrastructure-as-code setups and keeps existing deployments working unchanged.
+
+Keep these in the environment: `DATABASE_URL`, `BETTER_AUTH_SECRET`, `BETTER_AUTH_URL`, `KAVERO_ENCRYPTION_KEY`, `REDIS_URL`, `NODE_ENV`, and file paths (`KAVERO_STORAGE_DIR`, `KAVERO_CHROME_PATH`, `FFMPEG_PATH`).
+
 ## Environment
 
 Declared in `apps/web/.env.schema` (varlock). Values come from the process environment, `apps/web/.env`, or `.env.local`. Run `bunx varlock load` in `apps/web` to check what resolves.
@@ -12,6 +37,8 @@ Declared in `apps/web/.env.schema` (varlock). Values come from the process envir
 | `DATABASE_URL` | yes | — | Postgres connection string. Sensitive. |
 | `REDIS_URL` | no | unset | Redis connection string for shared rate limits, Better Auth session lookups and short-lived caches. When omitted or unavailable, these use bounded process-local fallback storage. Sensitive if it contains credentials. |
 | `BETTER_AUTH_SECRET` | yes | — | ≥ 32 random chars (`openssl rand -base64 48`). Signs sessions **and** derives the key that encrypts stored MCP connection credentials: rotating it signs everyone out and makes saved connection tokens unreadable (they must be re-entered). |
+| `KAVERO_ENCRYPTION_KEY` | recommended | unset | ≥ 32 random chars. Encrypts stored credentials (AI keys, MCP tokens, admin settings) independently of `BETTER_AUTH_SECRET`, so that secret can be rotated. Values saved before you set it stay readable. Back it up: losing it makes stored credentials unreadable. Sensitive. |
+| `KAVERO_EDITION` | no | `self-hosted` | `self-hosted`, `cloud` or `desktop` (the desktop app sets it implicitly). |
 | `BETTER_AUTH_URL` | yes | — | Public origin, e.g. `https://kavero.example.com`. Public. Used for auth, trusted origins, sitemap and robots. |
 | `STORAGE_DRIVER` | no | `filesystem` | `filesystem` or `s3`. |
 | `KAVERO_STORAGE_DIR` | no | `<cwd>/.storage` | Folder for the filesystem driver. `/data/storage` in the Docker image. |
@@ -69,7 +96,10 @@ Create new migrations in development with `bun run db:generate` after changing `
 | --- | --- | --- |
 | `KAVERO_RENDER_URL` | `BETTER_AUTH_URL` | Address the export browser uses to reach the app. Set an internal address when the server can't reach its own public URL (the Docker compose file sets `http://127.0.0.1:3001`). |
 | `KAVERO_MAX_BROWSERS` | `2` | Headless Chrome exports (PDF, JPG, video, previews) running at once; others queue, then get "busy, try again". |
-| `TRUST_PROXY` | unset | Set to `true` (or the number of proxy hops) behind a reverse proxy, so password-protected sites can rate-limit wrong passwords per visitor. Without it only a per-site limit applies. |
+| `TRUST_PROXY` | unset | Set to `true` (or the number of proxy hops) behind a reverse proxy, so password-protected sites can rate-limit wrong passwords per visitor. Without it only a per-site limit applies. Also in Admin → System. |
+| `KAVERO_ALLOW_PRIVATE_URLS` | on for desktop and development | Lets MCP connections, AI servers and imports reach localhost/LAN addresses. Also in Admin → System. |
+
+`KAVERO_MAX_BROWSERS`, `TRUST_PROXY`, the `S3_*`, `STORAGE_DRIVER`, `AI_*`, `*_API_KEY` and `NEXT_PUBLIC_*` media variables can all be managed in Admin → System instead.
 
 Export requests are capped at 60 MB and page sizes at 10000 px. Export browsers can only load the app itself, Google Fonts and public HTTPS addresses.
 

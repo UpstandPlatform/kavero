@@ -6,6 +6,8 @@ import { readLimited } from "@Kavero/api/services/safe-fetch";
 
 import { db, auth } from "@/services";
 import { objectStorage } from "@/modules/storage/object-storage";
+import { quotaFor } from "@Kavero/api/platform/quota";
+import { platform } from "@/platform";
 
 export const runtime = "nodejs";
 
@@ -44,7 +46,12 @@ export async function PUT(request: Request, { params }: Ctx) {
   const hash = createHash("sha256").update(bytes).digest("hex");
   const storageKey = `catalogs/${target.catalogId}/${hash}`;
   try {
-    await objectStorage().put(storageKey, bytes);
+    await quotaFor({ db, platform }).assertStorage(uid, bytes.byteLength);
+  } catch (error) {
+    return Response.json({ error: (error as Error).message }, { status: 403 });
+  }
+  try {
+    await (await objectStorage()).put(storageKey, bytes);
     await service.recordAsset({ catalogId: target.catalogId, assetId, mimeType: type, bytes: bytes.byteLength, hash, storageKey });
   } catch (error) {
     await audit(db, { userId: uid, area: "assets", action: "asset:upload", target: `${id}/${assetId}`, outcome: "error" });
@@ -61,7 +68,7 @@ export async function GET(request: Request, { params }: Ctx) {
   const { id, assetId } = await params;
   const asset = await new CatalogService(db).findAsset(uid, id, assetId);
   if (!asset) return Response.json({ error: "Not found" }, { status: 404 });
-  const bytes = await objectStorage().get(asset.storageKey);
+  const bytes = await (await objectStorage()).get(asset.storageKey);
   if (!bytes) return Response.json({ error: "File missing from storage" }, { status: 404 });
   return new Response(new Blob([bytes as BlobPart], { type: asset.mimeType }), {
     headers: {

@@ -11,8 +11,7 @@ import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { Textarea } from "@Kavero/ui/components/textarea";
 import { toast } from "sonner";
 
-import { confirmAction } from "@/components/confirm-dialog";
-import type { EditorExtensionContext } from "./types";
+import { ExtensionCallCancelledError, type EditorExtensionContext } from "./types";
 
 type IntegrationsApi = EditorExtensionContext["integrations"];
 type Connection = Awaited<ReturnType<IntegrationsApi["listConnections"]>>[number];
@@ -104,18 +103,14 @@ function ConnectedToolsPanel({ integrations }: { integrations: IntegrationsApi }
       toast.error((error as Error).message);
       return;
     }
-    const confirmed = await confirmAction({
-      title: `Run ${selectedTool.title || selectedTool.name}?`,
-      description: `This calls “${selectedTool.name}” on ${selectedConnection.name}. It may make changes in that connected service. Review the arguments before continuing.\n\nArguments: ${JSON.stringify(args).slice(0, 700)}`,
-      confirmLabel: "Run tool",
-    });
-    if (!confirmed) return;
     setLoading(true);
     setResult(null);
     try {
+      // The editor host asks the user to confirm every call before it runs.
       const output = await integrations.callTool(selectedConnection.id, selectedTool.name, args);
       setResult(stringifyResult(output));
     } catch (error) {
+      if (error instanceof ExtensionCallCancelledError) return;
       const message = (error as Error).message || "The connected tool failed.";
       setResult(message);
       toast.error(message);

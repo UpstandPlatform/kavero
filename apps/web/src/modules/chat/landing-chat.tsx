@@ -14,9 +14,10 @@ import { useEffect, useRef, useState } from "react";
 import { authClient } from "@/lib/auth-client";
 import { builtInExtensionRenderers } from "@/modules/editor/extensions/built-in-renderers";
 import { builtInExtensionEffects } from "@/modules/editor/extensions/built-in-effects";
-import { saveLocalCatalog } from "@/modules/catalog/local-catalogs";
+import { localCatalogs, saveLocalCatalog } from "@/modules/catalog/local-catalogs";
 import { makeTRPCClient } from "@/utils/trpc";
 
+import { rememberCatalogImported, wasCatalogImported } from "./chat-local-state";
 import { ChatThread, type ToolPart } from "./chat-thread";
 
 const SUGGESTIONS = [
@@ -38,7 +39,8 @@ export function LandingPrompt() {
   const { data: session, isPending } = authClient.useSession();
   const [aiReady, setAiReady] = useState<boolean | null>(null);
   const [prompt, setPrompt] = useState("");
-  const [started, setStarted] = useState<string | null>(null);
+  // Each prompt from the home page starts its own conversation (a fresh id), instead of appending to the last one.
+  const [started, setStarted] = useState<{ prompt: string; conversationId: string } | null>(null);
 
   useEffect(() => {
     if (!session) return;
@@ -48,7 +50,7 @@ export function LandingPrompt() {
   const start = (text: string) => {
     const t = text.trim();
     if (!t) return;
-    if (session && aiReady) return setStarted(t);
+    if (session && aiReady) return setStarted({ prompt: t, conversationId: crypto.randomUUID() });
     // No model to chat with: the dashboard's Generate with AI uses the built-in planner.
     router.push(`/dashboard?generate=1&brief=${encodeURIComponent(t.slice(0, 2000))}` as Route);
   };
@@ -60,7 +62,7 @@ export function LandingPrompt() {
           <p className="flex items-center gap-2 text-sm font-medium"><HugeiconsIcon icon={SparklesIcon} className="size-4" /> Kavero assistant</p>
           <Button variant="ghost" size="icon-sm" aria-label="Close chat" onClick={() => setStarted(null)}><HugeiconsIcon icon={Cancel01Icon} /></Button>
         </div>
-        <ChatThread mode="landing" scopeId="landing" storageKey="kavero:chat:landing" initialPrompt={started} renderTool={(part) => <CreateCatalogPart part={part} />} placeholder="Reply or add details…" className="min-h-0 flex-1" />
+        <ChatThread key={started.conversationId} mode="landing" scopeId="landing" conversationId={started.conversationId} initialPrompt={started.prompt} renderTool={renderCreateCatalog} placeholder="Reply or add details…" className="min-h-0 flex-1" />
       </div>
     );
   }
@@ -114,16 +116,33 @@ export function LandingPrompt() {
 
 type CreateOutput = { document: CatalogDocument; title: string; slides: number };
 
+const renderCreateCatalog = (part: ToolPart) => <CreateCatalogPart part={part} />;
+
+/**
+ * Save a chat-created catalog into this browser once. Reopening the conversation later must not
+ * overwrite edits made since, or bring back a catalog the user deleted.
+ */
+async function importCreatedCatalog(doc: CatalogDocument): Promise<"saved" | "removed"> {
+  if (await localCatalogs().getSummary(doc.id)) {
+    rememberCatalogImported(doc.id);
+    return "saved";
+  }
+  if (wasCatalogImported(doc.id)) return "removed";
+  await saveLocalCatalog(doc);
+  rememberCatalogImported(doc.id);
+  return "saved";
+}
+
 /** The catalog the assistant created: saved to this browser once, then shown with a preview. */
 function CreateCatalogPart({ part }: { part: ToolPart }) {
-  const saved = useRef(false);
-  const [state, setState] = useState<"saving" | "saved" | "error">("saving");
+  const handled = useRef(false);
+  const [state, setState] = useState<"saving" | "saved" | "removed" | "error">("saving");
   const output = part.state === "output-available" ? (part.output as CreateOutput) : null;
 
   useEffect(() => {
-    if (!output || saved.current) return;
-    saved.current = true;
-    saveLocalCatalog(output.document).then(() => setState("saved"), () => setState("error"));
+    if (!output || handled.current) return;
+    handled.current = true;
+    importCreatedCatalog(output.document).then(setState, () => setState("error"));
   }, [output]);
 
   if (part.type !== "tool-create_catalog") return null;
@@ -134,14 +153,25 @@ function CreateCatalogPart({ part }: { part: ToolPart }) {
   const doc = output.document;
   const cover = doc.slides[0];
   const width = 280;
+  const restore = () => {
+    setState("saving");
+    saveLocalCatalog(doc).then(() => {
+      rememberCatalogImported(doc.id);
+      setState("saved");
+    }, () => setState("error"));
+  };
   return (
     <div className="flex flex-wrap items-center gap-4 rounded-xl border bg-background p-3">
       {cover && <div className="overflow-hidden rounded-lg border"><SlideView doc={doc} slide={cover} scale={width / doc.settings.width} extensionRenderers={builtInExtensionRenderers} extensionEffects={builtInExtensionEffects} /></div>}
       <div className="grid min-w-0 flex-1 gap-1">
         <p className="truncate font-medium" dir="auto">{output.title}</p>
-        <p className="text-xs text-muted-foreground">{output.slides} slides · {state === "saved" ? "saved in this browser" : state === "error" ? "couldn't save in this browser" : "saving…"}</p>
+        <p className="text-xs text-muted-foreground">{output.slides} slides · {state === "saved" ? "saved in this browser" : state === "removed" ? "removed from this browser" : state === "error" ? "couldn't save in this browser" : "saving…"}</p>
         <div className="mt-1">
-          <Button size="sm" disabled={state !== "saved"} nativeButton={false} render={<Link href={`/editor/${doc.id}` as Route} />}><HugeiconsIcon icon={Presentation01Icon} /> Open in editor</Button>
+          {state === "removed" ? (
+            <Button size="sm" variant="outline" onClick={restore}>Add it again</Button>
+          ) : (
+            <Button size="sm" disabled={state !== "saved"} nativeButton={false} render={<Link href={`/editor/${doc.id}` as Route} />}><HugeiconsIcon icon={Presentation01Icon} /> Open in editor</Button>
+          )}
         </div>
       </div>
     </div>

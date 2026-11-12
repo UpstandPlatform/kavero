@@ -13,7 +13,7 @@ export async function GET(request: Request, { params }: { params: Promise<{ slug
   if (access.kind !== "ok") return new Response("Not found", { status: 404 });
   const asset = await publications().publicAsset(access.pub.id, assetId);
   if (!asset) return new Response("Not found", { status: 404 });
-  const bytes = await objectStorage().get(asset.storageKey);
+  const bytes = await (await objectStorage()).get(asset.storageKey);
   if (!bytes) return new Response("Not found", { status: 404 });
   const open = access.pub.visibility === "public" || access.pub.visibility === "unlisted";
   return new Response(new Blob([bytes as BlobPart], { type: asset.mimeType }), {

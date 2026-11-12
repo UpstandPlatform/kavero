@@ -1,8 +1,8 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { CodeIcon, Delete02Icon, Film01Icon, Image01Icon, LayoutGridIcon, Link02Icon, LockIcon, PuzzleIcon, SquareIcon, SquareUnlock01Icon, StarIcon, Tag01Icon, TextIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
-import type { CatalogElement, CatalogSlide } from "@Kavero/catalog-engine";
+import { CodeIcon, Delete02Icon, ParagraphBulletsPoint01Icon, PenTool01Icon, Table01Icon, Film01Icon, Image01Icon, LayoutGridIcon, Link02Icon, LockIcon, PuzzleIcon, SquareIcon, SquareUnlock01Icon, StarIcon, Tag01Icon, TextIcon, ViewIcon, ViewOffIcon } from "@hugeicons/core-free-icons";
+import { markdownTitle, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor } from "@Kavero/editor-core";
 import { Input } from "@Kavero/ui/components/input";
 import { useRef, useState, type ReactNode } from "react";
@@ -15,6 +15,8 @@ import { elementMenu, labelOf } from "./editor-menus";
 const ICONS: Record<CatalogElement["type"], ReactNode> = {
   text: <HugeiconsIcon icon={TextIcon} />, shape: <HugeiconsIcon icon={SquareIcon} />, image: <HugeiconsIcon icon={Image01Icon} />, product: <HugeiconsIcon icon={Tag01Icon} />, "product-grid": <HugeiconsIcon icon={LayoutGridIcon} />,
   html: <HugeiconsIcon icon={CodeIcon} />, button: <HugeiconsIcon icon={Link02Icon} />, video: <HugeiconsIcon icon={Film01Icon} />, icon: <HugeiconsIcon icon={StarIcon} />, extension: <HugeiconsIcon icon={PuzzleIcon} />,
+  markdown: <HugeiconsIcon icon={ParagraphBulletsPoint01Icon} />, table: <HugeiconsIcon icon={Table01Icon} />,
+  path: <HugeiconsIcon icon={PenTool01Icon} />,
 };
 
 /** A short readable name for a layer row. */
@@ -23,6 +25,9 @@ export function layerName(el: CatalogElement) {
   if (el.type === "text") return el.content.paragraphs.map((p) => p.map((r) => r.text).join("")).join(" ").trim().slice(0, 40) || "Empty text";
   if (el.type === "shape") return el.content.shape === "rect" ? "Rectangle" : el.content.shape[0]!.toUpperCase() + el.content.shape.slice(1);
   if (el.type === "button") return `Button: ${el.content.label}`;
+  if (el.type === "markdown") return markdownTitle(el.content.markdown).slice(0, 40) || "Markdown";
+  if (el.type === "table") return `Table: ${el.content.columns.map((column) => column.label).filter(Boolean).join(", ").slice(0, 32) || `${el.content.rows.length} rows`}`;
+  if (el.type === "path") return el.content.closed ? "Closed path" : "Path";
   return labelOf(el.type);
 }
 

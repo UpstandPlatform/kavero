@@ -3,6 +3,7 @@ import { z } from "zod";
 import { protectedProcedure, router } from "../index";
 import { MIN_PASSWORD_LENGTH, PublicationService } from "../services/publication-service";
 import { audit } from "../services/audit-service";
+import { quotaFor } from "../platform/quota";
 
 const catalogId = z.string().min(1).max(100);
 
@@ -26,6 +27,7 @@ export const publicationRouter = router({
     .mutation(async ({ ctx, input }) => {
       const userId = ctx.session.user.id;
       try {
+        await quotaFor(ctx).assertCanPublish(userId, input.catalogId);
         const result = await new PublicationService(ctx.db).publish(userId, input);
         await audit(ctx.db, { userId, action: "publication:publish", target: input.catalogId, outcome: "ok", details: { slug: result.slug, visibility: input.visibility, version: result.version } });
         return result;

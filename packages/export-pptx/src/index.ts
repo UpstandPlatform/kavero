@@ -1,9 +1,11 @@
 import {
-  AVAILABILITY_LABELS, cardDisplay, discountPercent, documentDirection, formatMoney, resolveToken,
+  AVAILABILITY_LABELS, cardDisplay, discountPercent, documentDirection, formatMoney, iconSvgMarkup, pathSegments, resolveToken,
   productCardStyleSchema, productGridStyleSchema, PRODUCTS_EXTENSION_ID,
-  type CatalogDocument, type CatalogElement, type ExtensionElement, type Product, type ProductCardStyle,
+  type CatalogDocument, type CatalogElement, type ExtensionElement, type PathPoint, type Product, type ProductCardStyle,
 } from "@Kavero/catalog-engine";
 import PptxGenJS from "pptxgenjs";
+
+import { addMarkdownElement, addTableElement, type ContentExportContext } from "./content-elements";
 
 /**
  * Editable PowerPoint export. Every element becomes a native object (text box,
@@ -16,7 +18,10 @@ import PptxGenJS from "pptxgenjs";
  *   product/grid  → picture + text boxes per card
  *   button        → rounded shape with a hyperlink
  *   html          → its text as an editable text box (styling is web-only)
+ *   markdown      → editable text box (headings, emphasis, links, bullets, numbering)
+ *   table         → native PowerPoint table (header, zebra rows, borders, column widths)
  *   video         → poster image or placeholder
+ *   path          → custom geometry (lines and cubic curves), stroke and optional fill
  *   transitions / animations → not supported by PptxGenJS; reported as warnings
  */
 
@@ -59,10 +64,40 @@ export function toHex(color: string | undefined, fallback = "000000"): string {
   return fallback;
 }
 
+/** UTF-8 safe base64 that works in browsers and on the server. */
+function toBase64(text: string) {
+  const bytes = new TextEncoder().encode(text);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary);
+}
+
 /** First strong character decides direction (like CSS dir="auto"). */
 export function textIsRtl(text: string, fallback: boolean): boolean {
   const m = /[A-Za-z\u00C0-\u024F\u0370-\u03FF\u0400-\u04FF]|[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.exec(text);
   return m ? /[\u0590-\u08FF\uFB1D-\uFDFF\uFE70-\uFEFF]/.test(m[0]) : fallback;
+}
+
+type PptxPathPoint = NonNullable<PptxGenJS.ShapeProps["points"]>[number];
+
+/**
+ * Pen-tool anchors as PowerPoint custom geometry (inches inside the shape box):
+ * straight segments become lines, curved ones cubic beziers.
+ */
+export function pathToPptxPoints(points: readonly PathPoint[], closed: boolean, w: number, h: number): PptxPathPoint[] {
+  const round = (v: number) => Math.round(v * 10_000) / 10_000;
+  const out: PptxPathPoint[] = [];
+  const first = points[0];
+  if (!first) return out;
+  out.push({ x: round(first.x * w), y: round(first.y * h), moveTo: true });
+  for (const segment of pathSegments(points, closed, w, h)) {
+    const straight = segment.c1.x === segment.p0.x && segment.c1.y === segment.p0.y && segment.c2.x === segment.p3.x && segment.c2.y === segment.p3.y;
+    out.push(straight
+      ? { x: round(segment.p3.x), y: round(segment.p3.y) }
+      : { x: round(segment.p3.x), y: round(segment.p3.y), curve: { type: "cubic", x1: round(segment.c1.x), y1: round(segment.c1.y), x2: round(segment.c2.x), y2: round(segment.c2.y) } });
+  }
+  if (closed) out.push({ close: true });
+  return out;
 }
 
 function htmlToText(html: string): string {
@@ -264,6 +299,16 @@ export async function exportPptx<T = Blob>(doc: CatalogDocument, opts: PptxOptio
         if (text) s.addText(text, { ...box(el), fontFace: font("token:body"), fontSize: 18, color: color("token:text"), valign: "top", margin: 0.1, fit: "shrink" });
         return;
       }
+      case "markdown":
+      case "table": {
+        const ctx: ContentExportContext = {
+          slide: s, doc, box: box(el), color, font, pt, isRtl: (text) => textIsRtl(text, docRtl),
+          warn: (message) => warnings.add(message), transparency: transparency(el),
+        };
+        if (el.type === "markdown") addMarkdownElement(ctx, el);
+        else addTableElement(ctx, el);
+        return;
+      }
       case "video": {
         const poster = asset(el.content.posterAssetId);
         warnings.add("Videos are exported as their poster image.");
@@ -271,9 +316,31 @@ export async function exportPptx<T = Blob>(doc: CatalogDocument, opts: PptxOptio
         else placeholder(s, el, "Video");
         return;
       }
-      case "icon":
-        placeholder(s, el, el.content.name);
+      case "icon": {
+        if (!el.content.nodes?.length) {
+          placeholder(s, el, el.content.name);
+          return;
+        }
+        const svg = iconSvgMarkup(el.content.nodes, { color: `#${color(el.style.color)}`, strokeWidth: el.style.strokeWidth, size: 96 });
+        s.addImage({ data: `data:image/svg+xml;base64,${toBase64(svg)}`, ...box(el), sizing: { type: "contain", w: box(el).w, h: box(el).h } });
         return;
+      }
+      case "path": {
+        const st = el.style;
+        const b = box(el);
+        const hasStroke = st.strokeWidth > 0 && st.stroke !== "none";
+        const hasFill = !!st.fill && st.fill !== "none" && st.fill !== "transparent";
+        // PptxGenJS supports custom geometry at runtime but leaves "custGeom" out of its shape-name type.
+        s.addShape("custGeom" as PptxGenJS.SHAPE_NAME, {
+          ...b,
+          points: pathToPptxPoints(el.content.points, el.content.closed, b.w, b.h),
+          fill: hasFill ? { color: color(st.fill), transparency: transparency(el) } : { type: "none" },
+          line: hasStroke
+            ? { color: color(st.stroke), width: pt(st.strokeWidth), transparency: transparency(el), dashType: st.dash.some((v) => v > 0) ? "dash" : "solid" }
+            : { type: "none" },
+        });
+        return;
+      }
     }
   }
 

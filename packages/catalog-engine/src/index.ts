@@ -1,4 +1,5 @@
 export * from "./schema";
+export * from "./path";
 export * from "./document";
 export * from "./validation";
 export * from "./products";
@@ -8,3 +9,7 @@ export * from "./blocks";
 export * from "./examples";
 export * from "./sanitize";
 export * from "./net";
+export * from "./icons";
+export * from "./markdown";
+export * from "./table";
+export * from "./table-import";

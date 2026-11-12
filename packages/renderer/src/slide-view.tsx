@@ -14,10 +14,13 @@ import {
   type ElementPosition,
   type Product,
 } from "@Kavero/catalog-engine";
-import { elementStateAt, matchMorph, morphElement, scheduleSlide, stateToCss, type ScheduledAnimation } from "@Kavero/animation-engine";
+import { elementStateAt, matchMorph, morphElement, scheduleSlide, SETTLED_MS, stateToCss, type ScheduledAnimation } from "@Kavero/animation-engine";
 import { Component, createContext, memo, useContext, useMemo, type CSSProperties, type ErrorInfo, type ReactNode } from "react";
 
 import { fontFaceCss, googleFontsUrls } from "./fonts";
+import { MarkdownView } from "./markdown-view";
+import { TableView } from "./table-view";
+import { PathShape } from "./path-view";
 
 /** Turns an asset id into a displayable URL (blob:, https:, data:). */
 export type AssetResolver = (assetId: string) => string | undefined;
@@ -42,8 +45,23 @@ export type ExtensionRendererRegistry = Readonly<Record<string, ExtensionElement
 export type ExtensionElementEffectRenderer = (props: { element: CatalogElement; effect: ElementEffect; context: ExtensionRendererContext; children: ReactNode }) => ReactNode;
 export type ExtensionEffectRegistry = Readonly<Record<string, ExtensionElementEffectRenderer>>;
 
-class ExtensionRenderBoundary extends Component<{ extensionId: string; kind: string; mode: "edit" | "present"; children: ReactNode }, { failed: boolean }> {
-  state = { failed: false };
+interface ExtensionRenderBoundaryProps {
+  extensionId: string;
+  kind: string;
+  mode: "edit" | "present";
+  /** The boundary retries rendering whenever one of these values changes (element data, renderer). */
+  resetKeys: readonly unknown[];
+  children: ReactNode;
+}
+
+/** Isolates one extension renderer; like ElementRenderBoundary it recovers once its inputs change. */
+class ExtensionRenderBoundary extends Component<ExtensionRenderBoundaryProps, { failed: boolean; resetKeys: readonly unknown[] }> {
+  state = { failed: false, resetKeys: this.props.resetKeys };
+
+  static getDerivedStateFromProps(props: ExtensionRenderBoundaryProps, state: { failed: boolean; resetKeys: readonly unknown[] }) {
+    const changed = props.resetKeys.length !== state.resetKeys.length || props.resetKeys.some((value, index) => !Object.is(value, state.resetKeys[index]));
+    return changed ? { failed: false, resetKeys: props.resetKeys } : null;
+  }
 
   static getDerivedStateFromError() {
     return { failed: true };
@@ -184,9 +202,6 @@ export const SlideView = memo(function SlideView({
   );
 });
 
-/** A time after every element animation has finished. */
-const SETTLED_MS = 1e9;
-
 export interface MorphViewProps {
   doc: CatalogDocument;
   from: CatalogSlide;
@@ -264,7 +279,7 @@ const ElementFrame = memo(function ElementFrame({ element, position: p, schedule
     const Renderer = extensionEffects?.[`${effect.extensionId}/${effect.effectId}`];
     if (!Renderer) return children;
     return (
-      <ExtensionRenderBoundary key={`${effect.id}:${effect.effectId}`} extensionId={effect.extensionId} kind={effect.effectId} mode={mode}>
+      <ExtensionRenderBoundary key={`${effect.id}:${effect.effectId}`} extensionId={effect.extensionId} kind={effect.effectId} mode={mode} resetKeys={[element, effect, Renderer]}>
         <Renderer element={element} effect={effect} context={effectContext}>{children}</Renderer>
       </ExtensionRenderBoundary>
     );
@@ -396,7 +411,7 @@ export const ElementBody = memo(function ElementBody({ element: el, schedule, ti
     case "extension": {
       const Renderer = extensionRenderers?.[el.extensionId];
       if (Renderer) return (
-        <ExtensionRenderBoundary extensionId={el.extensionId} kind={el.kind} mode={mode}>
+        <ExtensionRenderBoundary extensionId={el.extensionId} kind={el.kind} mode={mode} resetKeys={[el, Renderer]}>
           <Renderer element={el} context={{ doc, resolveAsset, mode }} />
         </ExtensionRenderBoundary>
       );
@@ -420,10 +435,25 @@ export const ElementBody = memo(function ElementBody({ element: el, schedule, ti
       if (!src) return <Placeholder label="Video" show={mode === "edit"} />;
       return <video src={src} poster={poster} autoPlay={mode === "present" && el.style.autoplay} loop={el.style.loop} muted={el.style.muted} controls={mode === "present"} playsInline style={{ ...fill, objectFit: "cover", display: "block" }} />;
     }
-    case "icon":
-      return <Placeholder label={el.content.name} show={mode === "edit"} />;
+    case "icon": {
+      if (!el.content.nodes?.length) return <Placeholder label={el.content.name} show={mode === "edit"} />;
+      const stroke = color(el.style.color);
+      return (
+        <svg viewBox="0 0 24 24" width="100%" height="100%" fill="none" stroke={stroke} strokeWidth={el.style.strokeWidth ?? 2} strokeLinecap="round" strokeLinejoin="round" role="img" aria-label={el.content.name} style={{ display: "block", color: stroke }}>
+          {el.content.nodes.map(([Tag, attributes], index) => <Tag key={index} {...attributes} />)}
+        </svg>
+      );
+    }
+    case "markdown":
+      if (!el.content.markdown.trim()) return <Placeholder label="Markdown" show={mode === "edit"} />;
+      return <MarkdownView markdown={el.content.markdown} doc={doc} style={el.style} mode={mode} />;
+    case "table":
+      return <TableView element={el} doc={doc} />;
     case "html":
       return <HtmlBlock html={el.content.html} css={el.content.css} background={el.style.background ? color(el.style.background) : undefined} interactive={mode === "present"} />;
+    case "path":
+      // Draw/erase/trace and keyframed drawProgress act on the stroke itself, not on the element layer.
+      return <PathShape element={el} color={color} state={schedule && timeMs !== undefined && el.animations.length ? elementStateAt(schedule, el.id, timeMs) : undefined} />;
   }
 });
 

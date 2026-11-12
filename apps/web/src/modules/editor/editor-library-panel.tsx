@@ -22,6 +22,7 @@ import { MotionPropertiesPanel } from "./motion-properties-panel";
 import { PropertiesPanel, type ExtensionDesignPropertyContent } from "./properties-panel";
 import type { AddFont } from "./font-picker";
 import { useRun } from "./use-catalog-editor";
+import { usePublicConfig } from "@/lib/public-config";
 
 export type EditorLibraryTab = "design" | "motion" | "templates" | "blocks" | "media" | "uploads";
 
@@ -237,8 +238,9 @@ function MediaLibrary({ editor, doc, slide, assetUrls, uploadImage, userId, setE
   const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [searchError, setSearchError] = useState<string | null>(null);
-  const giphyKey = process.env.NEXT_PUBLIC_GIPHY_API_KEY?.trim() ?? "";
-  const openverseEnabled = process.env.NEXT_PUBLIC_OPENVERSE_ENABLED?.trim().toLowerCase() === "true";
+  const { media } = usePublicConfig();
+  const giphyKey = media.giphyApiKey;
+  const openverseEnabled = media.openverseEnabled;
   const sources: Array<"stock" | "gifs"> = [
     ...(openverseEnabled ? ["stock" as const] : []),
     ...(giphyKey ? ["gifs" as const] : []),

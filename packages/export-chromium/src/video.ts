@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 
-import { buildTimeline, frameAt, scheduleSlide } from "@Kavero/animation-engine";
+import { buildTimeline, frameAt, scheduleSlide, slideHasLoopingAnimation } from "@Kavero/animation-engine";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 
 import { ffmpegPath, launchBrowser } from "./browser";
@@ -29,7 +29,7 @@ function staticFrameKey(doc: CatalogDocument, t: number, timeline: ReturnType<ty
   if (f.transition) return null;
   if (f.current.localMs < settledAt[f.current.slideIndex]!) return null;
   const slide = doc.slides[f.current.slideIndex]!;
-  if (slide.elements.some((e) => e.type === "video")) return null;
+  if (slide.elements.some((e) => e.type === "video") || slideHasLoopingAnimation(slide)) return null;
   return `slide:${f.current.slideIndex}`;
 }
 

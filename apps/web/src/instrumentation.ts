@@ -5,7 +5,15 @@
  * migrations separately (see docs/deployment.md) and leave it unset.
  */
 export async function register() {
-  if (process.env.NEXT_RUNTIME !== "nodejs" || process.env.KAVERO_AUTO_MIGRATE !== "1") return;
+  if (process.env.NEXT_RUNTIME !== "nodejs") return;
+  await migrate();
+  // Admin settings (Admin → System) are loaded once here and then refreshed as they're used.
+  const { initPlatform } = await import("./platform");
+  await initPlatform().catch((error) => console.error("[kavero] platform init failed:", error));
+}
+
+async function migrate() {
+  if (process.env.KAVERO_AUTO_MIGRATE !== "1") return;
   const folder = process.env.KAVERO_MIGRATIONS_DIR;
   if (!folder) throw new Error("KAVERO_AUTO_MIGRATE needs KAVERO_MIGRATIONS_DIR");
   const { runMigrations } = await import("@Kavero/db");
