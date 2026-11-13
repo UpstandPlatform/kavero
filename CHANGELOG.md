@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.12.1](https://github.com/UpstandPlatform/kavero/compare/v0.12.0...v0.12.1) - 2026-11-13
+
+### Features
+
+- **ai:** Add configurable media generation ([29e2fe9](https://github.com/UpstandPlatform/kavero/commit/29e2fe91dfbc83f95b03cc71d2c65b79e2dae6df))
+
 ## [0.12.0](https://github.com/UpstandPlatform/kavero/compare/v0.11.0...v0.12.0) - 2026-11-12
 
 ### Features
