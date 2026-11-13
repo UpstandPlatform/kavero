@@ -20,7 +20,7 @@ import { addMarkdownElement, addTableElement, type ContentExportContext } from "
  *   html          → its text as an editable text box (styling is web-only)
  *   markdown      → editable text box (headings, emphasis, links, bullets, numbering)
  *   table         → native PowerPoint table (header, zebra rows, borders, column widths)
- *   video         → poster image or placeholder
+ *   video         → embedded video with its poster image as the cover
  *   path          → custom geometry (lines and cubic curves), stroke and optional fill
  *   transitions / animations → not supported by PptxGenJS; reported as warnings
  */
@@ -310,10 +310,19 @@ export async function exportPptx<T = Blob>(doc: CatalogDocument, opts: PptxOptio
         return;
       }
       case "video": {
+        const data = asset(el.content.assetId);
         const poster = asset(el.content.posterAssetId);
-        warnings.add("Videos are exported as their poster image.");
-        if (poster) s.addImage({ data: poster, ...box(el), sizing: { type: "cover", w: box(el).w, h: box(el).h } });
-        else placeholder(s, el, "Video");
+        if (!data?.startsWith("data:video/mp4;")) {
+          warnings.add(data
+            ? "Only MP4 videos are embedded in PowerPoint; this video format was replaced with its poster image."
+            : "A video is missing from this catalog and was replaced with its poster image.");
+          if (poster) s.addImage({ data: poster, ...box(el), sizing: { type: "cover", w: box(el).w, h: box(el).h } });
+          else placeholder(s, el, "Missing video");
+          return;
+        }
+        const pngPoster = poster?.startsWith("data:image/png;base64,") ? poster : undefined;
+        if (poster && !pngPoster) warnings.add("A video cover must be PNG for PowerPoint export; the video was embedded without its custom cover.");
+        s.addMedia({ type: "video", data, cover: pngPoster, extn: data.slice(5, data.indexOf(";")).split("/")[1] || "mp4", ...box(el) });
         return;
       }
       case "icon": {

@@ -143,12 +143,23 @@ export const integrationsRouter = router({
 
   /** Download product images server-side (with SSRF checks) so the browser can store them locally. */
   fetchImages: protectedProcedure
-    .input(z.object({ urls: z.array(z.string().max(2000)).max(30) }))
+    .input(z.object({
+      urls: z.array(z.string().max(2000)).max(30),
+      maxBytes: z.number().int().min(1).max(25 * 1024 * 1024).default(8 * 1024 * 1024),
+    }).refine((input) => input.maxBytes <= 8 * 1024 * 1024 || input.urls.length <= 1, {
+      path: ["urls"], message: "Large image downloads must be fetched one at a time.",
+    }))
     .mutation(async ({ ctx, input }) => {
       if (input.urls.length) await rateLimit(imageFetchLimiter, ctx.session.user.id, "Too many image downloads. Wait a minute and try again.", input.urls.length);
       const allowLocal = ctx.allowLocalUrls ?? false;
-      // Bounded parallelism and a total byte budget keep one request from holding hundreds of MB.
-      const results = await fetchImagesWithBudget(input.urls, { allowLocal, concurrency: 4, maxTotalBytes: 32 * 1024 * 1024 });
+      // Keep large single-file imports bounded while allowing the 25 MB generated-video/GIF limit.
+      const largeSingle = input.urls.length === 1 && input.maxBytes > 8 * 1024 * 1024;
+      const results = await fetchImagesWithBudget(input.urls, {
+        allowLocal,
+        concurrency: largeSingle ? 1 : 4,
+        maxImageBytes: input.maxBytes,
+        maxTotalBytes: largeSingle ? input.maxBytes : 32 * 1024 * 1024,
+      });
       await audit(ctx.db, {
         userId: ctx.session.user.id,
         area: "assets",

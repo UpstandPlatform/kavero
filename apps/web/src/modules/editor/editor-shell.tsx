@@ -4,7 +4,8 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Add01Icon, ArrowLeft01Icon, CircleIcon, Clock01Icon, CodeIcon, Copy01Icon, Delete02Icon, DragDropVerticalIcon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PenTool01Icon, PlayIcon, Presentation01Icon, PuzzleIcon, Redo02Icon, SquareIcon, TextIcon, Undo02Icon, Upload01Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
 import { createBlankSlide, createId, parseCatalogDocument, productCardStyleSchema, productGridStyleSchema, PRODUCTS_EXTENSION_ID, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
-import { CatalogFonts, SlideView } from "@Kavero/renderer";
+import type { ExtensionInstalledState, JsonValue } from "@Kavero/extensions";
+import { CatalogFonts, SlideView, type ExtensionEffectRegistry } from "@Kavero/renderer";
 import { Button } from "@Kavero/ui/components/button";
 import { Input } from "@Kavero/ui/components/input";
 import { TooltipHint } from "@Kavero/ui/components/tooltip";
@@ -14,7 +15,7 @@ import { toast } from "sonner";
 
 import { Canvas } from "./canvas";
 import type { AddFont } from "./font-picker";
-import { ContextMenuProvider, useContextMenu } from "./context-menu";
+import { ContextMenuProvider, useContextMenu, type MenuItem } from "./context-menu";
 import { createActions, kbd } from "./editor-actions";
 import { slideMenu } from "./editor-menus";
 import { ExportMenu } from "./export-menu";
@@ -27,20 +28,26 @@ import { ProductPickerDialog, type PickOptions, type ProductUi } from "./product
 import { PublishDialog } from "./publish-dialog";
 import { PreviewPlayer } from "./preview-player";
 import { EditorLibraryPanel, type EditorLibraryTab } from "./editor-library-panel";
+import type { ExtensionDesignPropertyContent } from "./properties-panel";
 import { RailButton, ToolRail } from "./tool-rail";
 import { Workspace, WorkspaceMenu, useWorkspace } from "./workspace";
 import { EditorChat, type EditorChatAnnotationRef } from "@/modules/chat/editor-chat";
 import { authClient } from "@/lib/auth-client";
+import { makeTRPCClient } from "@/utils/trpc";
 import { pullCatalog, refreshFromCloud } from "@/modules/catalog/cloud-sync";
 import { localCatalogs } from "@/modules/catalog/local-catalogs";
 
 import { FALLBACK_IMAGE_SIZE, useCatalogEditor, useEditorState, useRun, type SaveStatus } from "./use-catalog-editor";
 import { CLOUD_LABEL, useCloudAutoSync } from "./use-cloud-autosync";
+import { builtInExtensionEffects, builtInExtensionRenderers, createEditorExtensionHost } from "./extensions/registry";
 import { ExtensionStoreDialog } from "./extensions/extension-store-dialog";
+import { describeCapability } from "./extensions/extension-store-dialog";
+import { scopeEditorExtensionContext, type EditorExportFormat, type EditorExtensionDesignPropertySection, type EditorExtensionDesignPropertyTarget, type EditorExtensionHostContext } from "./extensions/types";
 import { useEditorExtensions } from "./extensions/use-editor-extensions";
 import { ExtensionUiBoundary } from "./extensions/extension-ui-boundary";
 import { ContentEditingContext } from "./content/content-editing";
 import { useContentTools } from "./content/content-tools";
+import { confirmAction } from "@/components/confirm-dialog";
 
 export function CatalogEditorPage({ catalogId }: { catalogId: string }) {
   const { data: session, isPending } = authClient.useSession();
@@ -78,7 +85,7 @@ export function CatalogEditorPage({ catalogId }: { catalogId: string }) {
 }
 
 function LoadedEditor({ catalogId, userId }: { catalogId: string; userId: string | null }) {
-  const { editor, loadError, assetUrls, saveStatus, uploadImage, removeUpload, setExternalAssetUrl, uploadFont, reloadFromStorage, keepMine } = useCatalogEditor(catalogId);
+  const { editor, loadError, assetUrls, saveStatus, uploadImage, uploadVideo, removeUpload, setExternalAssetUrl, uploadFont, reloadFromStorage, keepMine } = useCatalogEditor(catalogId);
   const cloudStatus = useCloudAutoSync(catalogId, userId, saveStatus);
   if (loadError) {
     return (
@@ -91,13 +98,28 @@ function LoadedEditor({ catalogId, userId }: { catalogId: string; userId: string
   if (!editor) return <p className="p-8 text-sm text-muted-foreground">Opening catalog…</p>;
   return (
     <ContextMenuProvider>
-      <EditorShell editor={editor} userId={userId} assetUrls={assetUrls} saveStatus={saveStatus} cloudLabel={CLOUD_LABEL[cloudStatus]} uploadImage={uploadImage} removeUpload={removeUpload} setExternalAssetUrl={setExternalAssetUrl} uploadFont={uploadFont} onReload={reloadFromStorage} onKeepMine={keepMine} />
+      <EditorShell editor={editor} userId={userId} assetUrls={assetUrls} saveStatus={saveStatus} cloudLabel={CLOUD_LABEL[cloudStatus]} uploadImage={uploadImage} uploadVideo={uploadVideo} removeUpload={removeUpload} setExternalAssetUrl={setExternalAssetUrl} uploadFont={uploadFont} onReload={reloadFromStorage} onKeepMine={keepMine} />
     </ContextMenuProvider>
   );
 }
 
 const SAVE_LABEL: Record<SaveStatus, string> = { saved: "Saved", saving: "Saving…", unsaved: "Unsaved changes", error: "Save failed", conflict: "Not saved: changed elsewhere" };
-function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, uploadImage, removeUpload, setExternalAssetUrl, uploadFont, onReload, onKeepMine }: {
+let extensionApiClient: ReturnType<typeof makeTRPCClient> | null = null;
+const extensionApi = () => (extensionApiClient ??= makeTRPCClient());
+
+function ContributedDesignPropertySection({ extensionId, section, target }: {
+  extensionId: string;
+  section: EditorExtensionDesignPropertySection;
+  target: EditorExtensionDesignPropertyTarget;
+}) {
+  return <ExtensionUiBoundary extensionId={`${extensionId}/${section.id}`}><ContributedDesignPropertyContent section={section} target={target} /></ExtensionUiBoundary>;
+}
+
+function ContributedDesignPropertyContent({ section, target }: { section: EditorExtensionDesignPropertySection; target: EditorExtensionDesignPropertyTarget }) {
+  return <>{section.render(target)}</>;
+}
+
+function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, uploadImage, uploadVideo, removeUpload, setExternalAssetUrl, uploadFont, onReload, onKeepMine }: {
   onReload: () => void;
   onKeepMine: () => void;
   cloudLabel: string | null;
@@ -106,6 +128,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   assetUrls: Record<string, string>;
   saveStatus: SaveStatus;
   uploadImage: (f: File, attribution?: NonNullable<CatalogDocument["assets"][number]["attribution"]>) => Promise<{ assetId: string; width: number; height: number }>;
+  uploadVideo: (f: File) => Promise<{ assetId: string; width: number; height: number }>;
   removeUpload: (assetId: string) => Promise<void>;
   setExternalAssetUrl: (assetId: string, url: string) => void;
   uploadFont: AddFont;
@@ -564,7 +587,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                     ))}
                   </div>
                   <div className="min-h-0 min-w-0 flex-1 overflow-hidden">
-                    <EditorLibraryPanel tab={libraryTab} editor={editor} doc={doc} slide={slide} selection={state.selection} assetUrls={assetUrls} addFont={uploadFont} productUi={productUi} extensionProperties={extensionProperties} onPlay={() => setPreviewing("play")} userId={userId} uploadImage={uploadImage} removeUpload={removeUpload} setExternalAssetUrl={setExternalAssetUrl} />
+                    <EditorLibraryPanel tab={libraryTab} editor={editor} doc={doc} slide={slide} selection={state.selection} assetUrls={assetUrls} addFont={uploadFont} productUi={productUi} extensionProperties={extensionProperties} onPlay={() => setPreviewing("play")} userId={userId} uploadImage={uploadImage} uploadVideo={uploadVideo} removeUpload={removeUpload} setExternalAssetUrl={setExternalAssetUrl} />
                   </div>
                 </div>
               ),
@@ -586,6 +609,8 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
                 editor={editor}
                 doc={doc}
                 assetUrls={assetUrls}
+                uploadImage={uploadImage}
+                uploadVideo={uploadVideo}
                 historyOpen={chatHistoryOpen}
                 onHistoryOpenChange={setChatHistoryOpen}
                 annotations={chatAnnotations}

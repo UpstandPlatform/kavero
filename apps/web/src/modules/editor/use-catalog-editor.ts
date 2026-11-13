@@ -41,6 +41,21 @@ function imageSize(url: string): Promise<{ width: number; height: number }> {
   });
 }
 
+function videoSize(blob: Blob): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(blob);
+    const video = document.createElement("video");
+    video.preload = "metadata";
+    video.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      if (video.videoWidth > 0 && video.videoHeight > 0) resolve({ width: video.videoWidth, height: video.videoHeight });
+      else reject(new Error("Could not read this video's dimensions"));
+    };
+    video.onerror = () => { URL.revokeObjectURL(url); reject(new Error("Could not read this video")); };
+    video.src = url;
+  });
+}
+
 type EditorControls = { flush: () => Promise<void>; keepMine: () => void };
 
 // Lets code outside the editor tree (exports, publishing) wait for the live document to be stored.
@@ -249,6 +264,28 @@ export function useCatalogEditor(catalogId: string) {
     [editor, catalogId],
   );
 
+  const uploadVideo = useCallback(
+    async (file: File): Promise<{ assetId: string; width: number; height: number }> => {
+      if (!editor) throw new Error("Editor not ready");
+      if (!new Set(["video/mp4", "video/webm"]).has(file.type)) throw new Error("Choose an MP4 or WebM video");
+      if (file.size > 25 * 1024 * 1024) throw new Error("Videos must be under 25 MB");
+      const hash = await sha256(file);
+      const repo = localCatalogs();
+      const doc = editor.getDocument();
+      const existing = doc.assets.find((asset) => asset.hash === hash);
+      if (existing) return { assetId: existing.id, width: existing.width || doc.settings.width * 0.45, height: existing.height || doc.settings.height * 0.45 };
+      const assetId = createId("ast");
+      const url = URL.createObjectURL(file);
+      urlsRef.current.push(url);
+      const { width, height } = await videoSize(file);
+      await repo.putAsset({ id: assetId, catalogId, blob: file, hash });
+      setAssetUrls((current) => ({ ...current, [assetId]: url }));
+      editor.execute({ type: "asset.add", asset: { id: assetId, kind: "video", mimeType: file.type, name: file.name, uri: `local://${assetId}`, width, height, bytes: file.size, hash } });
+      return { assetId, width, height };
+    },
+    [editor, catalogId],
+  );
+
   const removeUpload = useCallback(async (assetId: string) => {
     if (!editor) throw new Error("Editor not ready");
     const asset = editor.getDocument().assets.find((candidate) => candidate.id === assetId);
@@ -308,7 +345,7 @@ export function useCatalogEditor(catalogId: string) {
     [editor, catalogId],
   );
 
-  return { editor, loadError, assetUrls, saveStatus, uploadImage, removeUpload, setExternalAssetUrl, uploadFont, flushSave, reloadFromStorage, keepMine };
+  return { editor, loadError, assetUrls, saveStatus, uploadImage, uploadVideo, removeUpload, setExternalAssetUrl, uploadFont, flushSave, reloadFromStorage, keepMine };
 }
 
 const EMPTY = () => () => {};

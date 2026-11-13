@@ -24,12 +24,24 @@ export interface VideoOptions {
  * Frames that can't differ from the previous one: no transition is running and
  * every element animation on the slide has finished. Those reuse the last screenshot.
  */
-function staticFrameKey(doc: CatalogDocument, t: number, timeline: ReturnType<typeof buildTimeline>, settledAt: number[]): string | null {
+function referencesGif(value: unknown, gifAssetIds: ReadonlySet<string>, gifProductIds: ReadonlySet<string>): boolean {
+  if (typeof value === "string") return gifAssetIds.has(value) || gifProductIds.has(value);
+  if (Array.isArray(value)) return value.some((item) => referencesGif(item, gifAssetIds, gifProductIds));
+  if (value && typeof value === "object") return Object.values(value).some((item) => referencesGif(item, gifAssetIds, gifProductIds));
+  return false;
+}
+
+function staticFrameKey(doc: CatalogDocument, t: number, timeline: ReturnType<typeof buildTimeline>, settledAt: number[], gifAssetIds: ReadonlySet<string>, gifProductIds: ReadonlySet<string>): string | null {
   const f = frameAt(timeline, t);
   if (f.transition) return null;
   if (f.current.localMs < settledAt[f.current.slideIndex]!) return null;
   const slide = doc.slides[f.current.slideIndex]!;
-  if (slide.elements.some((e) => e.type === "video") || slideHasLoopingAnimation(slide)) return null;
+  if (
+    slide.elements.some((element) => element.type === "video")
+    || slideHasLoopingAnimation(slide)
+    || (slide.background.kind === "image" && gifAssetIds.has(slide.background.assetId))
+    || slide.elements.some((element) => referencesGif(element.content, gifAssetIds, gifProductIds))
+  ) return null;
   return `slide:${f.current.slideIndex}`;
 }
 
@@ -47,6 +59,8 @@ export async function renderVideo(opts: VideoOptions): Promise<{ frames: number;
     const tr = seg.transition ? seg.transition.delayMs + seg.transition.durationMs : 0;
     return Math.max(tr, ...scheduleSlide(s).map((a) => a.endMs)) + 1;
   });
+  const gifAssetIds = new Set(doc.assets.filter((asset) => asset.kind === "image" && asset.mimeType.toLowerCase() === "image/gif").map((asset) => asset.id));
+  const gifProductIds = new Set(doc.products.filter((product) => product.imageAssetIds.some((assetId) => gifAssetIds.has(assetId))).map((product) => product.id));
 
   opts.onProgress?.({ frame: 0, totalFrames, phase: "starting" });
   // Video jobs are already queued one at a time; wait as long as it takes for a Chrome slot.
@@ -84,7 +98,7 @@ export async function renderVideo(opts: VideoOptions): Promise<{ frames: number;
     for (let i = 0; i < totalFrames; i++) {
       if (opts.signal?.aborted) throw new Error("Export cancelled");
       const t = (i / fps) * 1000;
-      const key = staticFrameKey(doc, t, timeline, settledAt);
+      const key = staticFrameKey(doc, t, timeline, settledAt, gifAssetIds, gifProductIds);
       if (key && key === lastKey && lastBuf) {
         await write(lastBuf);
       } else {

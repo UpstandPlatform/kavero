@@ -31,16 +31,51 @@ function blobToDataUrl(blob: Blob): Promise<string> {
   });
 }
 
+function referencedAssetIds(doc: CatalogDocument) {
+  const ids = new Set<string>();
+  const assets = new Set(doc.assets.map((asset) => asset.id));
+  const products = new Map(doc.products.map((product) => [product.id, product]));
+  const visit = (value: unknown): void => {
+    if (typeof value === "string") {
+      if (assets.has(value)) ids.add(value);
+      products.get(value)?.imageAssetIds.forEach((id) => ids.add(id));
+    } else if (Array.isArray(value)) value.forEach(visit);
+    else if (value && typeof value === "object") Object.values(value).forEach(visit);
+  };
+  for (const slide of doc.slides) {
+    if (slide.background.kind === "image") ids.add(slide.background.assetId);
+    for (const element of slide.elements) {
+      visit(element.content);
+    }
+  }
+  return ids;
+}
+
 /** Every stored image and font of the catalog as data: URLs, for exporters. */
-export async function collectAssets(doc: CatalogDocument, kinds: ("image" | "font" | "video")[] = ["image", "font"]): Promise<Record<string, string>> {
+export async function collectAssets(
+  doc: CatalogDocument,
+  kinds: ("image" | "font" | "video")[] = ["image", "font"],
+  options: { includeExternalUrls?: boolean; referencedOnly?: boolean } = {},
+): Promise<Record<string, string>> {
   const out: Record<string, string> = {};
+  const referenced = options.referencedOnly ? referencedAssetIds(doc) : null;
   for (const a of doc.assets) {
     if (!kinds.includes(a.kind)) continue;
+    if (referenced && a.kind !== "font" && !referenced.has(a.id)) continue;
     const stored = await localCatalogs().getAsset(a.id);
     if (stored) out[a.id] = await blobToDataUrl(new Blob([stored.blob], { type: a.mimeType }));
-    else if (a.attribution?.provider !== "GIPHY" && /^https:\/\//i.test(a.uri)) out[a.id] = a.uri;
+    else if (options.includeExternalUrls !== false && a.attribution?.provider !== "GIPHY" && /^https:\/\//i.test(a.uri)) out[a.id] = a.uri;
   }
   return out;
+}
+
+export function missingReferencedMedia(doc: CatalogDocument, assets: Record<string, string>) {
+  const referenced = referencedAssetIds(doc);
+  return doc.assets.filter((asset) => referenced.has(asset.id) && ["image", "video"].includes(asset.kind) && !assets[asset.id]);
+}
+
+export function hasUnstoredVideoUrl(doc: CatalogDocument) {
+  return doc.slides.some((slide) => slide.elements.some((element) => element.type === "video" && !element.content.assetId && !!element.content.url));
 }
 
 export function fileName(doc: CatalogDocument, ext: string) {
@@ -146,9 +181,10 @@ export function ExportMenu({ doc, onVideo, prepareDocument, extensionRenderers }
       const document = prepareDocument ? await prepareDocument("pptx", doc) : doc;
       // Built in the browser, so it also works offline.
       const { exportPptx } = await import("@Kavero/export-pptx");
-      const { data, warnings } = await exportPptx<Blob>(document, { assets: await collectAssets(document, ["image"]), extensionRenderers });
+      const { data, warnings } = await exportPptx<Blob>(document, { assets: await collectAssets(document, ["image", "video"]), extensionRenderers });
       download(data, fileName(document, "pptx"));
-      showWarnings("PowerPoint exported — text, shapes and images stay editable", warnings);
+      const hasVideo = document.slides.some((slide) => slide.elements.some((element) => element.type === "video"));
+      showWarnings(hasVideo ? "PowerPoint exported — video is embedded with its cover image" : "PowerPoint exported — text, shapes and images stay editable", warnings);
     });
 
   const exportHtml = () =>
@@ -163,7 +199,7 @@ export function ExportMenu({ doc, onVideo, prepareDocument, extensionRenderers }
       const mb = blob.size / 1024 / 1024;
       const warnings = [
         ...(mb > 25 ? [`The file is ${mb.toFixed(0)} MB — compress large images or videos for faster loading.`] : []),
-        ...(doc.assets.some((a) => a.kind === "video" && !assets[a.id]) ? ["Some videos aren't stored in this catalog and stay linked."] : []),
+        ...(document.assets.some((a) => a.kind === "video" && !assets[a.id]) ? ["Some videos aren't stored in this catalog and stay linked."] : []),
       ];
       showWarnings("Website exported — one HTML file you can upload anywhere", warnings);
     });

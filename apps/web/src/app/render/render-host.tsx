@@ -43,6 +43,62 @@ async function settle(root: HTMLElement) {
   await nextPaint();
 }
 
+async function seekVideoElements(root: HTMLElement) {
+  const videos = [...root.querySelectorAll<HTMLVideoElement>("video[data-kavero-video-time-ms]")];
+  await Promise.all(videos.map(async (video) => {
+    if (video.error) throw new Error(`Video asset failed to load (code ${video.error.code}).`);
+    if (video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA) {
+      await new Promise<void>((resolve, reject) => {
+        const timer = setTimeout(() => finish(new Error("Timed out loading a video asset for export.")), 20_000);
+        const cleanup = () => {
+          clearTimeout(timer);
+          video.removeEventListener("loadeddata", onLoaded);
+          video.removeEventListener("error", onError);
+        };
+        const finish = (error?: Error) => {
+          cleanup();
+          if (error) reject(error);
+          else resolve();
+        };
+        const onLoaded = () => finish();
+        const onError = () => finish(new Error(`Video asset failed to load (code ${video.error?.code ?? "unknown"}).`));
+        video.addEventListener("loadeddata", onLoaded, { once: true });
+        video.addEventListener("error", onError, { once: true });
+        if (video.readyState >= HTMLMediaElement.HAVE_CURRENT_DATA) finish();
+      });
+    }
+
+    const localMs = Number(video.dataset.kaveroVideoTimeMs);
+    const elapsedSeconds = Number.isFinite(localMs) ? Math.max(0, localMs / 1000) : 0;
+    const duration = video.duration;
+    const target = Number.isFinite(duration) && duration > 0
+      ? video.loop ? elapsedSeconds % duration : Math.min(elapsedSeconds, Math.max(0, duration - 0.001))
+      : 0;
+    video.pause();
+    if (Math.abs(video.currentTime - target) < 0.02) return;
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => finish(new Error("Timed out seeking a video frame for export.")), 10_000);
+      const cleanup = () => {
+        clearTimeout(timer);
+        video.removeEventListener("seeked", onSeeked);
+        video.removeEventListener("error", onError);
+      };
+      const finish = (error?: Error) => {
+        cleanup();
+        if (error) reject(error);
+        else resolve();
+      };
+      const onSeeked = () => finish();
+      const onError = () => finish(new Error(`Video asset failed while seeking (code ${video.error?.code ?? "unknown"}).`));
+      video.addEventListener("seeked", onSeeked, { once: true });
+      video.addEventListener("error", onError, { once: true });
+      video.currentTime = target;
+      if (Math.abs(video.currentTime - target) < 0.001 && !video.seeking) finish();
+    });
+  }));
+  await nextPaint();
+}
+
 /**
  * Exposes window.__kaveroLoad(doc, assets, scale) and window.__kaveroSeek(ms)
  * so a headless browser can step through the timeline frame by frame.
@@ -69,6 +125,7 @@ export function RenderHost() {
     w.__kaveroSeek = async (ms: number) => {
       flushSync(() => setTime(ms));
       await settle(root.current!);
+      await seekVideoElements(root.current!);
     };
   }, []);
 
@@ -104,7 +161,7 @@ html,body,body>div{height:auto!important;min-height:0!important;display:block!im
       {data && (
         <>
           <CatalogFonts doc={data.doc} resolveAsset={(id) => data.assets[id]} />
-          <FrameView doc={data.doc} timeline={data.timeline} timeMs={time} scale={data.scale} resolveAsset={(id) => data.assets[id]} extensionRenderers={builtInExtensionRenderers} extensionEffects={builtInExtensionEffects} />
+          <FrameView doc={data.doc} timeline={data.timeline} timeMs={time} scale={data.scale} resolveAsset={(id) => data.assets[id]} extensionRenderers={builtInExtensionRenderers} extensionEffects={builtInExtensionEffects} videoTimeline />
         </>
       )}
     </div>

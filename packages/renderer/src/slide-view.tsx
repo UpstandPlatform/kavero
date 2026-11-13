@@ -30,6 +30,9 @@ interface RenderContext {
   resolveAsset: AssetResolver;
   /** "edit" shows placeholders for empty content; "present" hides them. */
   mode: "edit" | "present";
+  /** Export playback seeks video elements to the current slide-local timeline time. */
+  videoTimeline?: boolean;
+  videoTimeMs?: number;
   extensionRenderers?: ExtensionRendererRegistry;
   extensionEffects?: ExtensionEffectRegistry;
 }
@@ -129,6 +132,10 @@ export interface SlideViewProps {
   hiddenIds?: Set<string>;
   /** Slide-local time in ms. When set, element animations are applied at that moment. */
   timeMs?: number;
+  /** Slide-local time used by deterministic video export. */
+  videoTimeMs?: number;
+  /** Enables frame-by-frame video playback for rendered video exports. */
+  videoTimeline?: boolean;
   /** Elements shown at rest without their animations, e.g. ones that just arrived by Morph. */
   settledIds?: Set<string>;
   /** Temporarily emphasize an element while it is referenced elsewhere in the editor UI. */
@@ -154,6 +161,8 @@ export const SlideView = memo(function SlideView({
   overrides,
   hiddenIds,
   timeMs,
+  videoTimeMs,
+  videoTimeline = false,
   settledIds,
   highlightedElementId,
   extensionRenderers,
@@ -173,7 +182,7 @@ export const SlideView = memo(function SlideView({
     : { backgroundImage: `url("${resolveCatalogAsset(bg.assetId) ?? ""}")`, backgroundSize: bg.fit, backgroundPosition: "center" };
 
   const elements = useMemo(() => [...slide.elements].sort((a, b) => a.zIndex - b.zIndex), [slide]);
-  const renderContext = useMemo(() => ({ doc, resolveAsset: resolveCatalogAsset, mode, extensionRenderers, extensionEffects }), [doc, resolveAsset, assetUris, mode, extensionRenderers, extensionEffects]);
+  const renderContext = useMemo(() => ({ doc, resolveAsset: resolveCatalogAsset, mode, videoTimeline, videoTimeMs: videoTimeMs ?? timeMs, extensionRenderers, extensionEffects }), [doc, resolveAsset, assetUris, mode, videoTimeline, videoTimeMs, timeMs, extensionRenderers, extensionEffects]);
 
   return (
     <Ctx.Provider value={renderContext}>
@@ -212,6 +221,10 @@ export interface MorphViewProps {
   resolveAsset?: AssetResolver;
   /** Local time of the incoming slide, so its other elements can start their animations. */
   timeMs?: number;
+  /** Local time of the outgoing slide during the transition. */
+  previousTimeMs?: number;
+  /** Enables frame-by-frame video playback for rendered video exports. */
+  videoTimeline?: boolean;
   extensionRenderers?: ExtensionRendererRegistry;
   extensionEffects?: ExtensionEffectRegistry;
 }
@@ -221,7 +234,7 @@ export interface MorphViewProps {
  * the shared elements are drawn once on top, moving from their old geometry and
  * style to the new one (PowerPoint's Morph, Keynote's Magic Move).
  */
-export function MorphView({ doc, from, to, progress, scale = 1, resolveAsset = () => undefined, timeMs, extensionRenderers, extensionEffects }: MorphViewProps) {
+export function MorphView({ doc, from, to, progress, scale = 1, resolveAsset = () => undefined, timeMs, previousTimeMs, videoTimeline = false, extensionRenderers, extensionEffects }: MorphViewProps) {
   const pairs = useMemo(() => matchMorph(from, to), [from, to]);
   const hideFrom = useMemo(() => new Set(pairs.map(([a]) => a.id)), [pairs]);
   const hideTo = useMemo(() => new Set(pairs.map(([, b]) => b.id)), [pairs]);
@@ -230,9 +243,9 @@ export function MorphView({ doc, from, to, progress, scale = 1, resolveAsset = (
   const layer: CSSProperties = { position: "absolute", inset: 0 };
   return (
     <div style={{ position: "relative", width: W * scale, height: H * scale, overflow: "hidden" }}>
-      <div style={layer}><SlideView doc={doc} slide={from} scale={scale} timeMs={SETTLED_MS} hiddenIds={hideFrom} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} /></div>
-      <div style={{ ...layer, opacity: progress }}><SlideView doc={doc} slide={to} scale={scale} timeMs={timeMs} hiddenIds={hideTo} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} /></div>
-      <Ctx.Provider value={{ doc, resolveAsset, mode: "present", extensionRenderers, extensionEffects }}>
+      <div style={layer}><SlideView doc={doc} slide={from} scale={scale} timeMs={SETTLED_MS} videoTimeMs={previousTimeMs} videoTimeline={videoTimeline} hiddenIds={hideFrom} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} /></div>
+      <div style={{ ...layer, opacity: progress }}><SlideView doc={doc} slide={to} scale={scale} timeMs={timeMs} videoTimeMs={timeMs} videoTimeline={videoTimeline} hiddenIds={hideTo} resolveAsset={resolveAsset} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} /></div>
+      <Ctx.Provider value={{ doc, resolveAsset, mode: "present", videoTimeline, videoTimeMs: timeMs, extensionRenderers, extensionEffects }}>
         <div
           dir={documentDirection(doc)}
           lang={doc.metadata.language}
@@ -313,7 +326,7 @@ const ElementFrame = memo(function ElementFrame({ element, position: p, schedule
   && previous.highlighted === next.highlighted);
 
 export const ElementBody = memo(function ElementBody({ element: el, schedule, timeMs }: { element: CatalogElement; schedule?: ScheduledAnimation[] | null; timeMs?: number }) {
-  const { doc, resolveAsset, mode, extensionRenderers } = useRender();
+  const { doc, resolveAsset, mode, videoTimeline, videoTimeMs, extensionRenderers } = useRender();
   const color = (v: string) => resolveToken(doc, v);
   const fill: CSSProperties = { width: "100%", height: "100%" };
 
@@ -433,7 +446,9 @@ export const ElementBody = memo(function ElementBody({ element: el, schedule, ti
       const src = el.content.assetId ? resolveAsset(el.content.assetId) : el.content.url;
       const poster = el.content.posterAssetId ? resolveAsset(el.content.posterAssetId) : undefined;
       if (!src) return <Placeholder label="Video" show={mode === "edit"} />;
-      return <video src={src} poster={poster} autoPlay={mode === "present" && el.style.autoplay} loop={el.style.loop} muted={el.style.muted} controls={mode === "present"} playsInline style={{ ...fill, objectFit: "cover", display: "block" }} />;
+      const entranceStart = schedule?.filter((entry) => entry.elementId === el.id && entry.animation.category === "entrance").reduce((start, entry) => Math.min(start, entry.startMs), Number.POSITIVE_INFINITY) ?? 0;
+      const videoElapsedMs = videoTimeMs === undefined ? undefined : Math.max(0, videoTimeMs - (Number.isFinite(entranceStart) ? entranceStart : 0));
+      return <video src={src} poster={poster} autoPlay={!videoTimeline && mode === "present" && el.style.autoplay} loop={el.style.loop} muted={el.style.muted} controls={!videoTimeline && mode === "present"} preload={videoTimeline ? "auto" : "metadata"} data-kavero-video-time-ms={videoTimeline ? videoElapsedMs : undefined} playsInline style={{ ...fill, objectFit: "cover", display: "block" }} />;
     }
     case "icon": {
       if (!el.content.nodes?.length) return <Placeholder label={el.content.name} show={mode === "edit"} />;

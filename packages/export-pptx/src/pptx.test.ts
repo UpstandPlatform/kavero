@@ -112,3 +112,35 @@ test("paths export as native custom geometry", async () => {
   const { data } = await exportPptx<Uint8Array>(doc, { assets: {}, outputType: "uint8array" });
   expect(data.byteLength).toBeGreaterThan(10_000);
 });
+
+test("video export embeds MP4 media and GIF assets", async () => {
+  const doc = createFromTemplate("tech", { title: "Media deck", page: "16:9" });
+  doc.assets.push(
+    { id: "generated-video", kind: "video", mimeType: "video/mp4", name: "Generated video", uri: "local://generated-video" },
+    { id: "video-cover", kind: "image", mimeType: "image/png", name: "Video cover", uri: "local://video-cover" },
+    { id: "animated-gif", kind: "image", mimeType: "image/gif", name: "Animated GIF", uri: "local://animated-gif" },
+  );
+  doc.slides[0]!.elements.push(
+    catalogElementSchema.parse({
+      id: "media-video", type: "video", content: { assetId: "generated-video", posterAssetId: "video-cover" },
+      position: { x: 100, y: 100, width: 500, height: 280 },
+    }),
+    catalogElementSchema.parse({
+      id: "media-gif", type: "image", content: { assetId: "animated-gif", alt: "Animated GIF" },
+      position: { x: 650, y: 100, width: 300, height: 200 },
+    }),
+  );
+
+  const { data, warnings } = await exportPptx<Uint8Array>(doc, {
+    assets: {
+      "generated-video": "data:video/mp4;base64,AAAAHGZ0eXBpc29tAAABAGlzb20=",
+      "video-cover": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jQ9sAAAAASUVORK5CYII=",
+      "animated-gif": "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7",
+    },
+    outputType: "uint8array",
+  });
+  const zipDirectory = new TextDecoder("latin1").decode(data);
+  expect(zipDirectory).toContain(".mp4");
+  expect(zipDirectory).toContain(".gif");
+  expect(warnings.some((warning) => warning.includes("video is missing"))).toBe(false);
+});

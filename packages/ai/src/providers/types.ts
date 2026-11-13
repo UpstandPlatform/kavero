@@ -22,7 +22,7 @@ export interface GenerateObjectResult<T> {
 
 /** A model that can return JSON matching a schema. Implementations live one per file. */
 export interface LlmProvider {
-  readonly id: "anthropic" | "openai-compatible" | "mock";
+  readonly id: "anthropic" | "openai-compatible" | "google" | "ai-gateway" | "mock";
   readonly model: string;
   generateObject<T>(opts: GenerateObjectOptions<T>): Promise<GenerateObjectResult<T>>;
   /** The same model for the AI SDK (streaming chat with tools), when the provider supports it. */

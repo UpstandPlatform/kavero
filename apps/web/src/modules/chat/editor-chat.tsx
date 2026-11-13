@@ -4,8 +4,7 @@ import { HugeiconsIcon } from "@hugeicons/react";
 import { Loading02Icon, SparklesIcon, Tick01Icon } from "@hugeicons/core-free-icons";
 import { proposalIsStale } from "@Kavero/api/services/chat-message-utils";
 import { Button } from "@Kavero/ui/components/button";
-import { markdownTitle, type CatalogDocument, type CatalogElement } from "@Kavero/catalog-engine";
-import { applyCommand, type Editor, type EditorCommand } from "@Kavero/editor-core";
+import { catalogElementSchema, createId, markdownTitle, type CatalogDocument, type CatalogElement } from "@Kavero/catalog-engine";import { applyCommand, type Editor, type EditorCommand } from "@Kavero/editor-core";
 import { SlideView } from "@Kavero/renderer";
 import { useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -16,6 +15,7 @@ import { useRun } from "@/modules/editor/use-catalog-editor";
 import { builtInExtensionRenderers } from "@/modules/editor/extensions/built-in-renderers";
 import { builtInExtensionEffects } from "@/modules/editor/extensions/built-in-effects";
 import { makeTRPCClient } from "@/utils/trpc";
+import { MediaJobPreview } from "@/modules/ai/media-job-preview";
 
 import { loadDecisions, saveDecision, type ProposalDecision } from "./chat-local-state";
 import { ChatThread, ChatUnavailable, type ChatAnnotationAttachment, type ChatHistoryItem, type ToolPart } from "./chat-thread";
@@ -71,10 +71,12 @@ function annotationKey(ref: EditorChatAnnotationRef) {
  * Chat in the editor: the assistant sees the catalog and the current slide, answers
  * questions, and proposes slide edits that the user previews and applies (one undo step each).
  */
-export function EditorChat({ editor, doc, assetUrls, historyOpen, onHistoryOpenChange, annotations = [], annotationMode = false, hoveredAnnotation = null, onAnnotationModeChange, onHoveredAnnotationChange, onRemoveAnnotation, onAnnotationsSent }: {
+export function EditorChat({ editor, doc, assetUrls, uploadImage, uploadVideo, historyOpen, onHistoryOpenChange, annotations = [], annotationMode = false, hoveredAnnotation = null, onAnnotationModeChange, onHoveredAnnotationChange, onRemoveAnnotation, onAnnotationsSent }: {
   editor: Editor;
   doc: CatalogDocument;
   assetUrls: Record<string, string>;
+  uploadImage: (file: File) => Promise<{ assetId: string; width: number; height: number }>;
+  uploadVideo: (file: File) => Promise<{ assetId: string; width: number; height: number }>;
   historyOpen: boolean;
   onHistoryOpenChange: (open: boolean) => void;
   annotations?: EditorChatAnnotationRef[];
@@ -159,6 +161,34 @@ export function EditorChat({ editor, doc, assetUrls, historyOpen, onHistoryOpenC
   // Proposal previews and staleness follow the document revision; renders for other reasons reuse this callback.
   const revision = doc.revision;
   const renderTool = useCallback((part: ToolPart) => {
+    if (part.type === "tool-generate_media") {
+      if (part.state === "output-error") return <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">Couldn't start media generation: {part.errorText}</p>;
+      if (part.state !== "output-available") return <p className="flex items-center gap-2 rounded-xl border px-3 py-2 text-xs text-muted-foreground"><HugeiconsIcon icon={Loading02Icon} className="size-3.5 animate-spin" /> Starting media generation…</p>;
+      const output = part.output as { jobId?: string; purpose?: "image" | "video"; error?: string };
+      if (output.error || !output.jobId || !output.purpose) return <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">{output.error || "Media generation could not be started."}</p>;
+      return <MediaJobPreview jobId={output.jobId} purpose={output.purpose} onAdd={async (media, poster) => {
+        const activeSlideId = editor.getState().activeSlideId;
+        const activeSlide = editor.getDocument().slides.find((candidate) => candidate.id === activeSlideId);
+        if (!activeSlide) throw new Error("Choose a slide before adding generated media.");
+        const isVideo = media.type.startsWith("video/");
+        const main = isVideo ? await uploadVideo(media) : await uploadImage(media);
+        let width = main.width || doc.settings.width * 0.55;
+        let height = main.height || doc.settings.height * 0.55;
+        const scale = Math.min((doc.settings.width * 0.72) / width, (doc.settings.height * 0.72) / height, 1);
+        width = Math.round(width * scale); height = Math.round(height * scale);
+        const x = Math.round((doc.settings.width - width) / 2);
+        const y = Math.round((doc.settings.height - height) / 2);
+        const posterAssetId = poster ? (await uploadImage(poster)).assetId : undefined;
+        const element = catalogElementSchema.parse({
+          id: createId("el"), type: isVideo ? "video" : "image",
+          content: isVideo ? { assetId: main.assetId, posterAssetId } : { assetId: main.assetId, alt: media.name },
+          position: { x, y, width, height, rotation: 0 },
+          style: isVideo ? { autoplay: false, loop: true, muted: true } : { fit: "contain", borderRadius: 0 },
+        });
+        if (!run({ type: "element.add", slideId: activeSlide.id, element })) throw new Error("The generated media could not be added to the active slide.");
+        toast.success(isVideo ? "Video added to the active slide" : "Image added to the active slide");
+      }} />;
+    }
     if (part.type !== "tool-propose_edit") return null;
     if (part.state === "output-error") return <p className="rounded-xl border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">Couldn't prepare the change: {part.errorText}</p>;
     if (part.state !== "output-available") return <p className="flex items-center gap-2 rounded-xl border px-3 py-2 text-xs text-muted-foreground"><HugeiconsIcon icon={Loading02Icon} className="size-3.5 animate-spin" /> Preparing a change…</p>;
@@ -202,7 +232,7 @@ export function EditorChat({ editor, doc, assetUrls, historyOpen, onHistoryOpenC
         onDismiss={() => setDecided(part.toolCallId, "dismissed")}
       />
     );
-  }, [assetUrls, decided, editor, revision, run, setDecided]);
+  }, [assetUrls, decided, doc, editor, revision, run, setDecided, uploadImage, uploadVideo]);
 
   const context = useCallback(() => {
     const s = editor.getState();

@@ -9,12 +9,37 @@ import { SimpleSelect } from "@Kavero/ui/components/simple-select";
 import { useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
 
-import { collectAssets } from "./export-menu";
+import { resolveGiphyMediaUrl } from "@/modules/media/giphy";
+import { makeTRPCClient } from "@/utils/trpc";
+
+import { collectAssets, hasUnstoredVideoUrl, missingReferencedMedia } from "./export-menu";
 
 type Job = { id: string; status: string; frame: number; totalFrames: number; error?: string; bytes?: number };
 
 
 const HEIGHTS = [720, 1080, 1440, 2160] as const;
+const mediaClient = makeTRPCClient();
+
+async function includeGiphyAssets(doc: CatalogDocument, assets: Record<string, string>) {
+  const missing = missingReferencedMedia(doc, assets);
+  const gifs = missing.filter((asset) => asset.attribution?.provider === "GIPHY" && asset.attribution.providerAssetId);
+  if (!gifs.length) return missing;
+
+  const apiKey = process.env.NEXT_PUBLIC_GIPHY_API_KEY?.trim() ?? "";
+  if (!apiKey) throw new Error("Add a GIPHY API key to include linked GIFs in MP4 export, or upload the GIF into the catalog.");
+  const resolved = await Promise.all(gifs.map(async (asset) => ({ asset, url: await resolveGiphyMediaUrl(asset.attribution!.providerAssetId!, apiKey) })));
+  const unresolved = resolved.find((item) => !item.url);
+  if (unresolved) throw new Error(`Could not resolve ${unresolved.asset.name} from GIPHY. Reconnect the GIF or upload it into the catalog.`);
+
+  for (const item of resolved) {
+    const [result] = await mediaClient.integrations.fetchImages.mutate({ urls: [item.url!], maxBytes: 25 * 1024 * 1024 });
+    if (!result || !("dataUrl" in result) || !result.dataUrl.startsWith("data:image/gif;base64,")) {
+      throw new Error(`Could not download ${item.asset.name} from GIPHY. Upload the GIF into the catalog and retry.`);
+    }
+    assets[item.asset.id] = result.dataUrl;
+  }
+  return missingReferencedMedia(doc, assets);
+}
 
 /** Renders the catalog to MP4 on the Kavero server (headless Chrome + ffmpeg). */
 export function VideoExportButton({ doc, defaultOpen = false, prepareDocument }: {
@@ -36,7 +61,10 @@ export function VideoExportButton({ doc, defaultOpen = false, prepareDocument }:
     setStarting(true);
     try {
       const document = prepareDocument ? await prepareDocument("video", doc) : doc;
-      const assets = await collectAssets(document);
+      if (hasUnstoredVideoUrl(document)) throw new Error("MP4 export needs videos stored in this catalog. Download the linked video and upload it before exporting.");
+      const assets = await collectAssets(document, ["image", "font", "video"], { includeExternalUrls: false, referencedOnly: true });
+      const missingMedia = await includeGiphyAssets(document, assets);
+      if (missingMedia.length) throw new Error(`Some slide media is not stored in this catalog (${missingMedia.slice(0, 3).map((asset) => asset.name).join(", ")}). Re-sync or replace it before exporting.`);
       const res = await fetch("/api/export/video", {
         method: "POST",
         headers: { "Content-Type": "application/json" },

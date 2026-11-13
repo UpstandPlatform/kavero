@@ -1,5 +1,5 @@
-import { defineRelationsPart, sql } from "drizzle-orm";
-import { boolean, index, integer, jsonb, pgTable, primaryKey, text, timestamp, uniqueIndex } from "drizzle-orm/pg-core";
+import { defineRelationsPart } from "drizzle-orm";
+import { foreignKey, index, integer, jsonb, pgTable, primaryKey, text, timestamp } from "drizzle-orm/pg-core";
 
 import { user } from "./auth";
 
@@ -10,6 +10,8 @@ export type ModelCapabilities = {
   structuredOutput: boolean | null;
   maxInputTokens: number | null;
   source: "provider" | "curated" | "unknown";
+  /** Exact ratios reported by a provider's media model catalog. */
+  aspectRatios?: string[];
 };
 
 export const AUDIT_AREAS = ["catalogs", "assets", "exports", "publication", "workspace", "ai", "api_keys", "integrations", "admin", "auth", "account"] as const;
@@ -89,23 +91,35 @@ export const aiJob = pgTable(
   (t) => [index("ai_job_user_created_idx").on(t.userId, t.createdAt)],
 );
 
-/** A user's encrypted provider connection. At most one is active as the default. */
+/** A user's encrypted provider connection. Model choices live in aiModelAssignment. */
 export const aiCredential = pgTable(
   "ai_credential",
   {
     userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
-    provider: text("provider", { enum: ["anthropic", "openrouter", "openai", "openai-compatible"] }).notNull(),
-    model: text("model"),
+    provider: text("provider", { enum: ["anthropic", "openrouter", "openai", "openai-compatible", "google", "ai-gateway"] }).notNull(),
     baseUrl: text("base_url"),
     encryptedKey: text("encrypted_key"),
     keyHint: text("key_hint"),
-    isDefault: boolean("is_default").notNull().default(false),
-    modelCapabilities: jsonb("model_capabilities").$type<ModelCapabilities>(),
+    updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()).notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.userId, t.provider] })],
+);
+
+/** One provider/model selection per user and generation concern. */
+export const aiModelAssignment = pgTable(
+  "ai_model_assignment",
+  {
+    userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+    purpose: text("purpose", { enum: ["text", "image", "video"] }).notNull(),
+    provider: text("provider", { enum: ["anthropic", "openrouter", "openai", "openai-compatible", "google", "ai-gateway"] }).notNull(),
+    model: text("model").notNull(),
+    modelCapabilities: jsonb("model_capabilities").$type<ModelCapabilities>().notNull(),
     updatedAt: timestamp("updated_at").defaultNow().$onUpdate(() => new Date()).notNull(),
   },
   (t) => [
-    primaryKey({ columns: [t.userId, t.provider] }),
-    uniqueIndex("ai_credential_default_user_idx").on(t.userId).where(sql`${t.isDefault}`),
+    primaryKey({ columns: [t.userId, t.purpose] }),
+    index("ai_model_assignment_provider_idx").on(t.userId, t.provider),
+    foreignKey({ name: "ai_model_assignment_provider_fk", columns: [t.userId, t.provider], foreignColumns: [aiCredential.userId, aiCredential.provider] }).onDelete("cascade"),
   ],
 );
 

@@ -8,7 +8,7 @@ export const runtime = "nodejs";
 
 const bodySchema = z.object({
   document: z.unknown(),
-  // Only data: URLs for images and fonts; nothing that makes the server fetch.
+  // Only data: URLs for media and fonts; nothing that makes the server fetch.
   assets: exportAssetsSchema,
   fps: z.union([z.literal(24), z.literal(25), z.literal(30), z.literal(60)]).default(30),
   height: z.union([z.literal(480), z.literal(720), z.literal(1080), z.literal(1440), z.literal(2160)]).default(1080),
@@ -33,6 +33,9 @@ export async function POST(request: Request) {
   if (!doc.ok) return Response.json({ error: "Invalid catalog.", issues: doc.issues.slice(0, 5) }, { status: 400 });
 
   if (!doc.document.slides.length) return Response.json({ error: "This catalog has no slides." }, { status: 400 });
+  if (doc.document.slides.some((slide) => slide.elements.some((element) => element.type === "video" && !element.content.assetId && !!element.content.url))) {
+    return Response.json({ error: "MP4 export needs videos stored in this catalog. Upload linked videos before exporting." }, { status: 400 });
+  }
 
   const { buildTimeline } = await import("@Kavero/animation-engine");
   if (buildTimeline(doc.document).totalMs > MAX_DURATION_MS) {

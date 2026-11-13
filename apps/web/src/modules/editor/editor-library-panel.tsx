@@ -23,7 +23,7 @@ import { PropertiesPanel, type ExtensionDesignPropertyContent } from "./properti
 import type { AddFont } from "./font-picker";
 import { useRun } from "./use-catalog-editor";
 import { usePublicConfig } from "@/lib/public-config";
-
+import { MediaJobPreview } from "@/modules/ai/media-job-preview";
 export type EditorLibraryTab = "design" | "motion" | "templates" | "blocks" | "media" | "uploads";
 
 const client = makeTRPCClient();
@@ -41,6 +41,7 @@ export function EditorLibraryPanel({
   onPlay,
   userId,
   uploadImage,
+  uploadVideo,
   removeUpload,
   setExternalAssetUrl,
 }: {
@@ -56,6 +57,7 @@ export function EditorLibraryPanel({
   onPlay: () => void;
   userId: string | null;
   uploadImage: (file: File, attribution?: NonNullable<CatalogAsset["attribution"]>) => Promise<{ assetId: string; width: number; height: number }>;
+  uploadVideo: (file: File) => Promise<{ assetId: string; width: number; height: number }>;
   removeUpload: (assetId: string) => Promise<void>;
   setExternalAssetUrl: (assetId: string, url: string) => void;
 }) {
@@ -64,7 +66,7 @@ export function EditorLibraryPanel({
   else if (tab === "motion") content = <MotionPropertiesPanel editor={editor} doc={doc} slide={slide} selection={selection} onPlay={onPlay} />;
   else if (tab === "templates") content = <TemplatesLibrary editor={editor} doc={doc} />;
   else if (tab === "blocks") content = <BlocksLibrary editor={editor} doc={doc} />;
-  else if (tab === "media") content = <MediaLibrary editor={editor} doc={doc} slide={slide} assetUrls={assetUrls} uploadImage={uploadImage} userId={userId} setExternalAssetUrl={setExternalAssetUrl} />;
+  else if (tab === "media") content = <MediaLibrary editor={editor} doc={doc} slide={slide} assetUrls={assetUrls} uploadImage={uploadImage} uploadVideo={uploadVideo} userId={userId} setExternalAssetUrl={setExternalAssetUrl} />;
   else content = <UploadsLibrary editor={editor} doc={doc} slide={slide} assetUrls={assetUrls} uploadImage={uploadImage} removeUpload={removeUpload} />;
   return <div className="h-full min-h-0 min-w-0 overflow-x-hidden overflow-y-auto overscroll-contain">{content}</div>;
 }
@@ -144,6 +146,13 @@ function imageElement(assetId: string, alt: string, x: number, y: number, width:
   });
 }
 
+function videoElement(assetId: string, posterAssetId: string | undefined, x: number, y: number, width: number, height: number) {
+  return catalogElementSchema.parse({
+    id: createId("el"), type: "video", content: { assetId, posterAssetId },
+    position: { x, y, width, height, rotation: 0 }, style: { autoplay: false, loop: true, muted: true },
+  });
+}
+
 function BlocksLibrary({ editor, doc }: { editor: Editor; doc: CatalogDocument }) {
   function addBlock(kind: PresentationBlockKind, name: string) {
     try {
@@ -220,12 +229,13 @@ type GiphyImage = {
 };
 const externalHttpUrl = (value: unknown) => typeof value === "string" && /^https?:\/\//i.test(value) ? value : undefined;
 
-function MediaLibrary({ editor, doc, slide, assetUrls, uploadImage, userId, setExternalAssetUrl }: {
+function MediaLibrary({ editor, doc, slide, assetUrls, uploadImage, uploadVideo, userId, setExternalAssetUrl }: {
   editor: Editor;
   doc: CatalogDocument;
   slide: CatalogSlide;
   assetUrls: Record<string, string>;
   uploadImage: (file: File, attribution?: NonNullable<CatalogAsset["attribution"]>) => Promise<{ assetId: string; width: number; height: number }>;
+  uploadVideo: (file: File) => Promise<{ assetId: string; width: number; height: number }>;
   userId: string | null;
   setExternalAssetUrl: (assetId: string, url: string) => void;
 }) {
@@ -241,12 +251,64 @@ function MediaLibrary({ editor, doc, slide, assetUrls, uploadImage, userId, setE
   const { media } = usePublicConfig();
   const giphyKey = media.giphyApiKey;
   const openverseEnabled = media.openverseEnabled;
+  const [generationPurpose, setGenerationPurpose] = useState<"image" | "video">("image");
+  const [generationPrompt, setGenerationPrompt] = useState("");
+  const [generationJobId, setGenerationJobId] = useState<string | null>(null);
+  const [generationJobPurpose, setGenerationJobPurpose] = useState<"image" | "video">("image");
+  const [generating, setGenerating] = useState(false);
   const sources: Array<"stock" | "gifs"> = [
     ...(openverseEnabled ? ["stock" as const] : []),
     ...(giphyKey ? ["gifs" as const] : []),
   ];
   const activeSource = sources.includes(source) ? source : sources[0] ?? null;
   const assets = useMemo(() => ({ ...doc, assets: doc.assets.filter((asset) => asset.name.toLowerCase().includes(query.trim().toLowerCase())) }), [doc, query]);
+
+  useEffect(() => {
+    try {
+      const stored = JSON.parse(localStorage.getItem(`kavero:media-job:${doc.id}`) ?? "null") as { id?: string; purpose?: "image" | "video" } | null;
+      setGenerationJobId(stored?.id ?? null);
+      if (stored?.purpose === "image" || stored?.purpose === "video") setGenerationJobPurpose(stored.purpose);
+    } catch { /* local recovery is optional */ }
+  }, [doc.id]);
+
+  async function startGeneration() {
+    if (!userId) return toast.error("Sign in to generate media.");
+    if (generationPrompt.trim().length < 3) return toast.error("Enter a more detailed visual prompt.");
+    setGenerating(true);
+    try {
+      const divisor = (a: number, b: number): number => b === 0 ? a : divisor(b, a % b);
+      const common = divisor(doc.settings.width, doc.settings.height);
+      const aspectRatio = `${Math.max(1, Math.round(doc.settings.width / common))}:${Math.max(1, Math.round(doc.settings.height / common))}`;
+      const response = await fetch("/api/ai/media/jobs", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose: generationPurpose, prompt: generationPrompt.trim(), aspectRatio }) });
+      const data = await response.json() as { id?: string; error?: string };
+      if (!response.ok || !data.id) throw new Error(data.error || "Could not start media generation.");
+      setGenerationJobId(data.id);
+      setGenerationJobPurpose(generationPurpose);
+      try { localStorage.setItem(`kavero:media-job:${doc.id}`, JSON.stringify({ id: data.id, purpose: generationPurpose })); } catch { /* the job still runs without local recovery */ }
+    } catch (error) {
+      toast.error((error as Error).message);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
+  async function addGeneratedMedia(file: File, poster?: File) {
+    const isVideo = file.type.startsWith("video/");
+    const main = isVideo ? await uploadVideo(file) : await uploadImage(file);
+    let width = main.width || doc.settings.width * 0.55;
+    let height = main.height || doc.settings.height * 0.55;
+    const maxWidth = doc.settings.width * 0.72;
+    const maxHeight = doc.settings.height * 0.72;
+    const scale = Math.min(maxWidth / width, maxHeight / height, 1);
+    width = Math.round(width * scale); height = Math.round(height * scale);
+    const x = Math.round((doc.settings.width - width) / 2);
+    const y = Math.round((doc.settings.height - height) / 2);
+    const posterId = poster ? (await uploadImage(poster)).assetId : undefined;
+    const element = isVideo ? videoElement(main.assetId, posterId, x, y, width, height) : imageElement(main.assetId, file.name, x, y, width, height);
+    const result = run({ type: "element.add", slideId: slide.id, element });
+    if (!result) throw new Error("The generated media could not be added to this slide.");
+    toast.success(isVideo ? "Video added to the active slide" : "Image added to the active slide");
+  }
 
   useEffect(() => {
     if (!activeSource) {
@@ -370,6 +432,16 @@ function MediaLibrary({ editor, doc, slide, assetUrls, uploadImage, userId, setE
         <h2 className="text-sm font-semibold">Media library</h2>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">Manage media for this catalog.</p>
       </div>
+      <section className="grid gap-2 rounded-xl border bg-muted/10 p-2.5">
+        <div><h3 className="text-xs font-semibold">Generate media</h3><p className="mt-0.5 text-[10px] leading-relaxed text-muted-foreground">Preview generated images or videos, then add them to this slide.</p></div>
+        <div className="grid grid-cols-2 gap-1 rounded-lg border bg-background p-1" role="group" aria-label="Media type">
+          {(["image", "video"] as const).map((type) => <button key={type} type="button" aria-pressed={generationPurpose === type} onClick={() => setGenerationPurpose(type)} className="rounded-md px-2 py-1.5 text-xs font-medium capitalize aria-pressed:bg-primary/10 aria-pressed:text-primary">{type}</button>)}
+        </div>
+        <textarea value={generationPrompt} onChange={(event) => setGenerationPrompt(event.target.value)} maxLength={2000} rows={3} placeholder={generationPurpose === "image" ? "Describe the image to create…" : "Describe the video to create…"} className="min-h-20 resize-y rounded-md border bg-background px-2.5 py-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring" />
+        <Button type="button" size="sm" disabled={generating || !userId || generationPrompt.trim().length < 3} onClick={() => void startGeneration()}>{generating ? <Spinner data-icon="inline-start" /> : <HugeiconsIcon icon={ImageAdd01Icon} data-icon="inline-start" />}{generating ? "Starting…" : `Generate ${generationPurpose}`}</Button>
+        {!userId && <p className="text-[10px] text-muted-foreground">Sign in to use configured media providers.</p>}
+        {generationJobId && <MediaJobPreview key={generationJobId} jobId={generationJobId} purpose={generationJobPurpose} onAdd={addGeneratedMedia} />}
+      </section>
       {sources.length > 1 && <div className="grid grid-cols-2 rounded-lg border bg-muted/20 p-1" role="tablist" aria-label="Media sources">
         <button type="button" role="tab" aria-selected={activeSource === "stock"} onClick={() => setSource("stock")} className="rounded-md px-2 py-1.5 text-xs font-medium aria-selected:bg-background aria-selected:shadow-sm">Stock images</button>
         <button type="button" role="tab" aria-selected={activeSource === "gifs"} onClick={() => setSource("gifs")} className="rounded-md px-2 py-1.5 text-xs font-medium aria-selected:bg-background aria-selected:shadow-sm">GIFs</button>

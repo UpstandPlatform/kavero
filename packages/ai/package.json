@@ -12,7 +12,9 @@
   "dependencies": {
     "@Kavero/catalog-engine": "workspace:*",
     "@Kavero/editor-core": "workspace:*",
+    "@ai-sdk/provider": "^4.0.38",
     "@ai-sdk/anthropic": "^4.0.99",
+    "@ai-sdk/google": "^4.0.120",
     "@ai-sdk/openai-compatible": "^3.0.87",
     "@anthropic-ai/sdk": "^1.6.0",
     "ai": "^7.0.166",

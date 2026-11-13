@@ -39,18 +39,18 @@ export function renderOrigin(request: Request): string {
   return new URL(configured || request.url).origin;
 }
 
-/** Export requests carry the document plus its images/fonts as data: URLs. */
+/** Export requests carry the document plus its media/fonts as data: URLs. */
 export const MAX_EXPORT_BODY_BYTES = 60 * 1024 * 1024;
 
-/** Only data: URLs for images and fonts (nothing that makes the server fetch), bounded in total. */
+/** Only data: URLs for supported images, MP4/WebM video and fonts; nothing makes the server fetch. */
 export const exportAssetsSchema = z
-  .record(z.string(), z.string().regex(/^data:(image\/(png|jpe?g|gif|webp|avif|svg\+xml)|font\/(ttf|otf|woff2?));base64,/))
+  .record(z.string(), z.string().regex(/^data:(image\/(png|jpe?g|gif|webp|avif|svg\+xml)|video\/(mp4|webm)|font\/(ttf|otf|woff2?));base64,/))
   .refine((a) => Object.values(a).reduce((n, v) => n + v.length, 0) <= MAX_EXPORT_BODY_BYTES, { message: "Files are too large to export" })
   .default({});
 
 /** The JSON body, or an error Response when it is too large or not JSON. Never buffers past the limit. */
 export async function readExportBody(request: Request): Promise<{ body: unknown } | { error: Response }> {
-  const tooLarge = () => ({ error: Response.json({ error: "This catalog is too large to export here (60 MB limit including images)." }, { status: 413 }) });
+  const tooLarge = () => ({ error: Response.json({ error: "This catalog is too large to export here (60 MB limit including media)." }, { status: 413 }) });
   if (Number(request.headers.get("content-length") ?? 0) > MAX_EXPORT_BODY_BYTES) return tooLarge();
   let bytes: Uint8Array;
   try {

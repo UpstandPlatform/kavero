@@ -19,14 +19,16 @@ const generateInput = z.object({
   currency: z.string().length(3).optional(),
 });
 
+const aiProvider = z.enum(["anthropic", "openrouter", "openai", "openai-compatible", "google", "ai-gateway"]);
+const aiPurpose = z.enum(["text", "image", "video"]);
 const credentialInput = z.object({
-  provider: z.enum(["anthropic", "openrouter", "openai", "openai-compatible"]),
+  provider: aiProvider,
   apiKey: z.string().max(400).optional(),
-  model: z.string().max(160),
   baseUrl: z.string().max(2000).optional(),
 });
 const providerModelInput = z.object({
-  provider: z.enum(["anthropic", "openrouter", "openai", "openai-compatible"]),
+  provider: aiProvider,
+  purpose: aiPurpose,
   apiKey: z.string().max(400).optional(),
   baseUrl: z.string().max(2000).optional(),
 });
@@ -101,6 +103,7 @@ export const aiRouter = router({
   credential: router({
     list: protectedProcedure.query(({ ctx }) => credentials(ctx).list(ctx.session.user.id)),
     models: protectedProcedure.input(providerModelInput).query(({ ctx, input }) => credentials(ctx).models(ctx.session.user.id, input)),
+    assignments: protectedProcedure.query(({ ctx }) => credentials(ctx).assignments(ctx.session.user.id)),
     set: protectedProcedure.input(credentialInput).mutation(async ({ ctx, input }) => {
       try {
         return await credentials(ctx).set(ctx.session.user.id, input);
@@ -109,15 +112,16 @@ export const aiRouter = router({
         throw error;
       }
     }),
-    setDefault: protectedProcedure.input(z.object({ provider: z.enum(["anthropic", "openrouter", "openai", "openai-compatible"]) })).mutation(async ({ ctx, input }) => {
+    setAssignment: protectedProcedure.input(z.object({ purpose: aiPurpose, provider: aiProvider, model: z.string().min(1).max(160) })).mutation(async ({ ctx, input }) => {
       try {
-        return await credentials(ctx).setDefault(ctx.session.user.id, input.provider);
+        return await credentials(ctx).setAssignment(ctx.session.user.id, input);
       } catch (error) {
-        await audit(ctx.db, { userId: ctx.session.user.id, action: "ai:provider_default", target: input.provider, outcome: "error" });
+        await audit(ctx.db, { userId: ctx.session.user.id, action: "ai:model_assignment", target: input.purpose, outcome: "error" });
         throw error;
       }
     }),
-    remove: protectedProcedure.input(z.object({ provider: z.enum(["anthropic", "openrouter", "openai", "openai-compatible"]) })).mutation(async ({ ctx, input }) => {
+    clearAssignment: protectedProcedure.input(z.object({ purpose: aiPurpose })).mutation(({ ctx, input }) => credentials(ctx).clearAssignment(ctx.session.user.id, input.purpose)),
+    remove: protectedProcedure.input(z.object({ provider: aiProvider })).mutation(async ({ ctx, input }) => {
       try {
         return await credentials(ctx).remove(ctx.session.user.id, input.provider);
       } catch (error) {
