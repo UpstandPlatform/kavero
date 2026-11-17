@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.12.3](https://github.com/UpstandPlatform/kavero/compare/v0.12.2...v0.12.3) - 2026-11-17
+
+### Fixes
+
+- **export:** Render large catalogs in batches; allow longer agent turns ([37e9af7](https://github.com/UpstandPlatform/kavero/commit/37e9af79249306d9fcd02e68cfe849ffe06c3e97))
+
 ## [0.12.2](https://github.com/UpstandPlatform/kavero/compare/v0.12.1...v0.12.2) - 2026-11-17
 
 ### Fixes
