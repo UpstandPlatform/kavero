@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.12.5](https://github.com/UpstandPlatform/kavero/compare/v0.12.4...v0.12.5) - 2026-11-17
+
+### Fixes
+
+- **mcp:** Per-key rate limit from admin settings instead of 120/min ([a72a63f](https://github.com/UpstandPlatform/kavero/commit/a72a63f13d903977419376c98f9cbb4086d5ef04))
+
 ## [0.12.4](https://github.com/UpstandPlatform/kavero/compare/v0.12.3...v0.12.4) - 2026-11-17
 
 ### Fixes
