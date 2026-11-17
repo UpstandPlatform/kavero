@@ -41,23 +41,40 @@ export function renderOrigin(request: Request): string {
 }
 
 /**
- * Export requests carry the document plus its media/fonts as data: URLs.
+ * Export requests carry the document plus its media/fonts: as multipart form
+ * data (the editor: raw files, no base64) or JSON with data: URLs (older clients).
  * The cap is Admin → System → Exports → Largest export (KAVERO_MAX_EXPORT_MB):
- * 60 MB by default on servers, 1 GB in the desktop app.
+ * 60 MB by default on servers, 4 GB in the desktop app.
  */
 export function maxExportBytes(): number {
   const mb = runtimeConfig.valuesSync("exports").maxRequestMb;
   return (typeof mb === "number" && mb > 0 ? mb : 60) * 1024 * 1024;
 }
 
-/** Only data: URLs for supported images, MP4/WebM video and fonts; nothing makes the server fetch. */
+const EXPORT_MEDIA_TYPE = /^(image\/(png|jpe?g|gif|webp|avif|svg\+xml)|video\/(mp4|webm)|font\/(ttf|otf|woff2?))$/;
+
+/** An uploaded export file: raw bytes and their media type. */
+export type ExportFile = { data: Uint8Array; type: string };
+
+/**
+ * data: URLs for supported images, MP4/WebM video and fonts, or public https URLs for
+ * linked media. The server never fetches these itself; the export browser loads https
+ * URLs through openRenderPage, which only allows public hosts.
+ */
 export const exportAssetsSchema = z
-  .record(z.string(), z.string().regex(/^data:(image\/(png|jpe?g|gif|webp|avif|svg\+xml)|video\/(mp4|webm)|font\/(ttf|otf|woff2?));base64,/))
+  .record(z.string(), z.union([
+    z.string().regex(/^data:(image\/(png|jpe?g|gif|webp|avif|svg\+xml)|video\/(mp4|webm)|font\/(ttf|otf|woff2?));base64,/),
+    z.string().max(2000).regex(/^https:\/\/[^\s]+$/),
+  ]))
   .refine((a) => Object.values(a).reduce((n, v) => n + v.length, 0) <= maxExportBytes(), { message: "Files are too large to export" })
   .default({});
 
-/** The JSON body, or an error Response when it is too large or not JSON. Never buffers past the limit. */
-export async function readExportBody(request: Request): Promise<{ body: unknown } | { error: Response }> {
+/**
+ * The request body (JSON, or the `payload` field of a multipart form) plus any
+ * uploaded files (`asset:<id>` form fields), or an error Response when it is too
+ * large or malformed. Never buffers past the limit.
+ */
+export async function readExportBody(request: Request): Promise<{ body: unknown; files: Record<string, ExportFile> } | { error: Response }> {
   await runtimeConfig.refresh();
   const limit = maxExportBytes();
   const tooLarge = () => ({ error: Response.json({ error: `This catalog is too large to export here (${Math.round(limit / 1024 / 1024)} MB limit including media).` }, { status: 413 }) });
@@ -68,10 +85,35 @@ export async function readExportBody(request: Request): Promise<{ body: unknown 
   } catch {
     return tooLarge();
   }
+  const contentType = request.headers.get("content-type") ?? "";
+  if (/^multipart\/form-data/i.test(contentType)) {
+    let form: FormData;
+    try {
+      form = await new Response(bytes as BodyInit, { headers: { "content-type": contentType } }).formData();
+    } catch {
+      return { error: Response.json({ error: "Invalid export request." }, { status: 400 }) };
+    }
+    const files: Record<string, ExportFile> = {};
+    let body: unknown = null;
+    for (const [key, value] of form.entries()) {
+      if (key === "payload" && typeof value === "string") {
+        try {
+          body = JSON.parse(value);
+        } catch {
+          body = null;
+        }
+      } else if (key.startsWith("asset:") && typeof value !== "string") {
+        const type = value.type.split(";")[0]!.trim().toLowerCase();
+        if (!EXPORT_MEDIA_TYPE.test(type)) return { error: Response.json({ error: `Unsupported file type for export: ${type || "unknown"}.` }, { status: 415 }) };
+        files[key.slice("asset:".length)] = { data: new Uint8Array(await value.arrayBuffer()), type };
+      }
+    }
+    return { body, files };
+  }
   try {
-    return { body: JSON.parse(new TextDecoder().decode(bytes)) };
+    return { body: JSON.parse(new TextDecoder().decode(bytes)), files: {} };
   } catch {
-    return { body: null };
+    return { body: null, files: {} };
   }
 }
 

@@ -27,7 +27,7 @@ export async function POST(request: Request) {
   if (doc.document.slides.length > 500) return Response.json({ error: "PDFs are limited to 500 pages." }, { status: 400 });
 
   try {
-    const pdf = await renderPdf({ doc: doc.document, assets: parsed.data.assets, baseUrl: renderOrigin(request), pageNumbers: parsed.data.pageNumbers });
+    const pdf = await renderPdf({ doc: doc.document, assets: { ...parsed.data.assets, ...read.files }, baseUrl: renderOrigin(request), pageNumbers: parsed.data.pageNumbers });
     await auditExport(request, "pdf", doc.document.metadata.title, "ok", { slides: doc.document.slides.length });
     return new Response(new Blob([pdf as BlobPart], { type: "application/pdf" }), {
       headers: { "Content-Disposition": attachmentHeader(safeFileName(doc.document.metadata.title, "pdf")), "Cache-Control": "no-store" },

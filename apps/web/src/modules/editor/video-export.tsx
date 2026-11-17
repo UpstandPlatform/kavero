@@ -12,7 +12,7 @@ import { toast } from "sonner";
 import { resolveGiphyMediaUrl } from "@/modules/media/giphy";
 import { makeTRPCClient } from "@/utils/trpc";
 
-import { collectAssets, hasUnstoredVideoUrl, missingReferencedMedia } from "./export-menu";
+import { collectAssetFiles, hasUnstoredVideoUrl, missingReferencedMedia, postExport } from "./export-menu";
 
 type Job = { id: string; status: string; frame: number; totalFrames: number; error?: string; bytes?: number };
 
@@ -62,14 +62,13 @@ export function VideoExportButton({ doc, defaultOpen = false, prepareDocument }:
     try {
       const document = prepareDocument ? await prepareDocument("video", doc) : doc;
       if (hasUnstoredVideoUrl(document)) throw new Error("MP4 export needs videos stored in this catalog. Download the linked video and upload it before exporting.");
-      const assets = await collectAssets(document, ["image", "font", "video"], { includeExternalUrls: false, referencedOnly: true });
-      const missingMedia = await includeGiphyAssets(document, assets);
+      const upload = await collectAssetFiles(document, ["image", "font", "video"], { includeExternalUrls: false });
+      // GIPHY GIFs are linked, not stored: download them as data: URLs alongside the uploaded files.
+      const present: Record<string, string> = { ...upload.urls, ...Object.fromEntries([...upload.files.keys()].map((id) => [id, "file"])) };
+      const missingMedia = await includeGiphyAssets(document, present);
       if (missingMedia.length) throw new Error(`Some slide media is not stored in this catalog (${missingMedia.slice(0, 3).map((asset) => asset.name).join(", ")}). Re-sync or replace it before exporting.`);
-      const res = await fetch("/api/export/video", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document, assets, fps, height }),
-      });
+      for (const [id, value] of Object.entries(present)) if (value.startsWith("data:")) upload.urls[id] = value;
+      const res = await postExport("/api/export/video", { document, fps, height }, upload);
       const body = await res.json();
       if (!res.ok) throw new Error(body.error ?? "Export failed");
       setJob(body);

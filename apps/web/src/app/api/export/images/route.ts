@@ -35,7 +35,7 @@ export async function POST(request: Request) {
   try {
     const images = await renderSlideImages({
       doc: doc.document,
-      assets: parsed.data.assets,
+      assets: { ...parsed.data.assets, ...read.files },
       baseUrl: renderOrigin(request),
       width: parsed.data.width,
       quality: parsed.data.quality,

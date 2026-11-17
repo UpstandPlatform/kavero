@@ -106,7 +106,7 @@ export const SETTINGS: readonly SectionDef[] = [
       {
         key: "maxRequestMb", label: "Largest export (MB)", type: "number", env: "KAVERO_MAX_EXPORT_MB",
         // The desktop app exports on the user's own machine, so big catalogs are fine there.
-        default: (edition) => (edition === "desktop" ? 1024 : 60), min: 10, max: 4096,
+        default: (edition) => (edition === "desktop" ? 4096 : 60), min: 10, max: 8192,
         description: "Biggest catalog, including its images and fonts, that PDF, image and video exports accept. The server holds it in memory while exporting.",
       },
     ],

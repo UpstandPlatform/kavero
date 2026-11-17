@@ -3,14 +3,14 @@ import { spawn } from "node:child_process";
 import { buildTimeline, frameAt, scheduleSlide, slideHasLoopingAnimation } from "@Kavero/animation-engine";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 
-import { createAssetStore } from "./assets";
+import { createAssetStore, type ExportAsset } from "./assets";
 import { ffmpegPath, launchBrowser } from "./browser";
 import { openRenderPage } from "./network";
 
 export interface VideoOptions {
   doc: CatalogDocument;
   /** assetId → data: URL, so the headless page needs no access to the user's storage. */
-  assets: Record<string, string>;
+  assets: Record<string, ExportAsset>;
   /** Origin of the Kavero app serving /render (e.g. http://localhost:3001). */
   baseUrl: string;
   outFile: string;

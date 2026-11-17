@@ -21,6 +21,7 @@ import { toast } from "sonner";
 import { downloadProjectFile, localCatalogs } from "@/modules/catalog/local-catalogs";
 
 import { flushEditorSave } from "./use-catalog-editor";
+import { loadPublicConfig } from "@/lib/public-config";
 
 function blobToDataUrl(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -67,6 +68,54 @@ export async function collectAssets(
     else if (options.includeExternalUrls !== false && a.attribution?.provider !== "GIPHY" && /^https:\/\//i.test(a.uri)) out[a.id] = a.uri;
   }
   return out;
+}
+
+/**
+ * The catalog's stored files for a server export, as raw blobs (no base64): media the
+ * slides use plus every font. Linked https media is passed as URLs instead.
+ */
+export async function collectAssetFiles(
+  doc: CatalogDocument,
+  kinds: ("image" | "font" | "video")[] = ["image", "font"],
+  options: { includeExternalUrls?: boolean } = {},
+): Promise<{ files: Map<string, Blob>; urls: Record<string, string> }> {
+  const files = new Map<string, Blob>();
+  const urls: Record<string, string> = {};
+  const referenced = referencedAssetIds(doc);
+  for (const a of doc.assets) {
+    if (!kinds.includes(a.kind)) continue;
+    if (a.kind !== "font" && !referenced.has(a.id)) continue;
+    const stored = await localCatalogs().getAsset(a.id);
+    if (stored) files.set(a.id, new Blob([stored.blob], { type: a.mimeType }));
+    else if (options.includeExternalUrls !== false && a.attribution?.provider !== "GIPHY" && /^https:\/\//i.test(a.uri)) urls[a.id] = a.uri;
+  }
+  return { files, urls };
+}
+
+const MB = 1024 * 1024;
+
+/**
+ * Sends a server export as multipart form data: a JSON `payload` plus one
+ * `asset:<id>` part per file. Checks the server's size limit first, and turns a
+ * dropped connection into an explanation instead of "Failed to fetch".
+ */
+export async function postExport(url: string, payload: Record<string, unknown>, assets: { files: Map<string, Blob>; urls: Record<string, string> }): Promise<Response> {
+  const form = new FormData();
+  form.append("payload", JSON.stringify({ ...payload, assets: assets.urls }));
+  let bytes = 0;
+  for (const [id, blob] of assets.files) {
+    form.append(`asset:${id}`, blob, id);
+    bytes += blob.size;
+  }
+  const limitMb = (await loadPublicConfig()).exports?.maxRequestMb;
+  if (limitMb && bytes > limitMb * MB) {
+    throw new Error(`This catalog's images and fonts add up to ${Math.ceil(bytes / MB)} MB, over this server's ${limitMb} MB export limit. Use smaller images, or raise "Largest export" in Admin → System → Exports.`);
+  }
+  try {
+    return await fetch(url, { method: "POST", body: form });
+  } catch (error) {
+    throw new Error(`Couldn't reach the export service (${(error as Error).message}). The upload was ${Math.ceil(bytes / MB)} MB; if the server stopped or restarted, try again.`);
+  }
 }
 
 export function missingReferencedMedia(doc: CatalogDocument, assets: Record<string, string>) {
@@ -153,11 +202,7 @@ export function ExportMenu({ doc, onVideo, prepareDocument, extensionRenderers }
   const exportPdf = (pageNumbers: boolean) =>
     run("pdf", async () => {
       const document = prepareDocument ? await prepareDocument("pdf", doc) : doc;
-      const res = await fetch("/api/export/pdf", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document, assets: await collectAssets(document), pageNumbers }),
-      });
+      const res = await postExport("/api/export/pdf", { document, pageNumbers }, await collectAssetFiles(document));
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "PDF export failed");
       download(await res.blob(), fileName(document, "pdf"));
       showWarnings("PDF exported", checkExportCompatibility(document, "pdf").map((w) => w.message));
@@ -166,11 +211,7 @@ export function ExportMenu({ doc, onVideo, prepareDocument, extensionRenderers }
   const exportImages = (width: 1920 | 3840) =>
     run("jpg", async () => {
       const document = prepareDocument ? await prepareDocument("images", doc) : doc;
-      const res = await fetch("/api/export/images", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ document, assets: await collectAssets(document), width, quality: 90 }),
-      });
+      const res = await postExport("/api/export/images", { document, width, quality: 90 }, await collectAssetFiles(document));
       if (!res.ok) throw new Error((await res.json().catch(() => null))?.error ?? "Image export failed");
       download(await res.blob(), fileName(document, "zip"));
       showWarnings(`${document.slides.length} slide image${document.slides.length === 1 ? "" : "s"} exported`, checkExportCompatibility(document, "pdf").map((w) => w.message.replace("PDF is static", "Images are static")));

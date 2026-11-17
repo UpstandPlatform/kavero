@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   const baseUrl = renderOrigin(request);
   let job;
   try {
-    job = await startVideoJob({ doc: doc.document, assets: parsed.data.assets, baseUrl, fps: parsed.data.fps, height: parsed.data.height });
+    job = await startVideoJob({ doc: doc.document, assets: { ...parsed.data.assets, ...read.files }, baseUrl, fps: parsed.data.fps, height: parsed.data.height });
     await auditExport(request, "video", doc.document.metadata.title, "ok", { jobId: job.id, fps: parsed.data.fps, height: parsed.data.height });
   } catch (error) {
     await auditExport(request, "video", doc.document.metadata.title, "error", { fps: parsed.data.fps, height: parsed.data.height });

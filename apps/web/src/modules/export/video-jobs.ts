@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import type { CatalogDocument } from "@Kavero/catalog-engine";
-import { renderVideo } from "@Kavero/export-chromium";
+import { renderVideo, type ExportAsset } from "@Kavero/export-chromium";
 
 export interface VideoJob {
   id: string;
@@ -46,7 +46,7 @@ export function activeJobs() {
 }
 
 /** Queue a render. Jobs run one at a time: each one drives a full Chrome instance. */
-export async function startVideoJob(input: { doc: CatalogDocument; assets: Record<string, string>; baseUrl: string; fps: number; height: number }): Promise<VideoJob> {
+export async function startVideoJob(input: { doc: CatalogDocument; assets: Record<string, ExportAsset>; baseUrl: string; fps: number; height: number }): Promise<VideoJob> {
   cleanup();
   await mkdir(DIR, { recursive: true });
   const id = randomUUID();

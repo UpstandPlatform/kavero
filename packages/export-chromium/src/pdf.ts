@@ -1,14 +1,14 @@
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { PDFDocument } from "pdf-lib";
 
-import { createAssetStore } from "./assets";
+import { createAssetStore, type ExportAsset } from "./assets";
 import { launchBrowser } from "./browser";
 import { openRenderPage } from "./network";
 
 export interface PdfOptions {
   doc: CatalogDocument;
   /** assetId → data: URL. */
-  assets: Record<string, string>;
+  assets: Record<string, ExportAsset>;
   /** Origin of the Kavero app serving /render. */
   baseUrl: string;
   pageNumbers?: boolean;

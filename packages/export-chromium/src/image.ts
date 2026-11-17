@@ -1,11 +1,11 @@
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 
-import { createAssetStore } from "./assets";
+import { createAssetStore, type ExportAsset } from "./assets";
 import { launchBrowser } from "./browser";
 import { openRenderPage } from "./network";
 
 /** PNG of one slide in its finished state, e.g. for social previews. */
-export async function renderSlideImage(opts: { doc: CatalogDocument; assets: Record<string, string>; baseUrl: string; slideIndex?: number; width?: number }): Promise<Uint8Array> {
+export async function renderSlideImage(opts: { doc: CatalogDocument; assets: Record<string, ExportAsset>; baseUrl: string; slideIndex?: number; width?: number }): Promise<Uint8Array> {
   const slide = opts.doc.slides[opts.slideIndex ?? 0];
   if (!slide) throw new Error("Slide not found");
   const doc: CatalogDocument = { ...opts.doc, slides: [{ ...slide, transition: undefined }] };
@@ -36,7 +36,7 @@ const SLIDES_PER_PAGE = 8;
  */
 export async function renderSlideImages(opts: {
   doc: CatalogDocument;
-  assets: Record<string, string>;
+  assets: Record<string, ExportAsset>;
   baseUrl: string;
   width?: number;
   format?: "jpeg" | "png";
