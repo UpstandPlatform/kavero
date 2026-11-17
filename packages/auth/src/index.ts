@@ -92,7 +92,9 @@ export function createAuth(env: AuthConfig, database: Database) {
           minExpiresIn: 1,
           maxExpiresIn: 365,
         },
-        rateLimit: { enabled: true, timeWindow: 60_000, maxRequests: 120 },
+        // Off here (this also covers keys created earlier, which store their own limit):
+        // /api/mcp applies its own per-key limit from Admin → System → MCP (agents).
+        rateLimit: { enabled: false, timeWindow: 60_000, maxRequests: 600 },
         permissions: { defaultPermissions: { catalogs: ["read"] } },
       }),
       // Must stay last so cookies set by earlier plugins reach Next.js.

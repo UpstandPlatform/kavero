@@ -20,7 +20,8 @@ Most runtime settings don't need environment variables: an admin sets them in **
 - **AI model**: the server-wide provider, model, API keys and base URL.
 - **Media library**: Openverse and GIPHY.
 - **Network and security**: private network access, reverse proxy hops.
-- **Exports**: parallel Chrome exports.
+- **Exports**: parallel Chrome exports and the largest export.
+- **MCP (agents)**: requests per minute per API key (600 on servers, 6000 in the desktop app; `KAVERO_MCP_RATE_LIMIT`).
 - **Plan limits** (cloud only).
 
 Credentials are encrypted (AES-256-GCM) before they're stored in the database, and never sent back to the browser. A matching environment variable still works: when it's set, it wins and the field shows as locked in the admin panel. That suits infrastructure-as-code setups and keeps existing deployments working unchanged.

@@ -112,6 +112,19 @@ export const SETTINGS: readonly SectionDef[] = [
     ],
   },
   {
+    id: "mcp",
+    title: "MCP (agents)",
+    description: "Limits for AI agents that use Kavero over MCP with an API key.",
+    fields: [
+      {
+        key: "requestsPerMinute", label: "Requests per minute per API key", type: "number", env: "KAVERO_MCP_RATE_LIMIT",
+        // On the desktop the only agents are the user's own, so the limit just guards against runaway loops.
+        default: (edition) => (edition === "desktop" ? 6000 : 600), min: 10, max: 100_000,
+        description: "Each MCP tool call is one request. Agents building large catalogs can make hundreds of calls a minute.",
+      },
+    ],
+  },
+  {
     id: "plans",
     title: "Plan limits",
     description: "Default limits for every account. Leave a field empty for no limit.",

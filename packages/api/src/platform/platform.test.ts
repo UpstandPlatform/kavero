@@ -131,6 +131,12 @@ describe("RuntimeConfig", () => {
     expect((await desktop.values("network")).allowPrivateUrls).toBe(true);
   });
 
+  test("MCP rate limit: 6000/min on desktop, 600/min on servers, env override wins", async () => {
+    expect((await new RuntimeConfig(memoryStore(), box, "desktop", {}, 0).values("mcp")).requestsPerMinute).toBe(6000);
+    expect((await new RuntimeConfig(memoryStore(), box, "cloud", {}, 0).values("mcp")).requestsPerMinute).toBe(600);
+    expect((await new RuntimeConfig(memoryStore(), box, "self-hosted", { KAVERO_MCP_RATE_LIMIT: "50" }, 0).values("mcp")).requestsPerMinute).toBe(50);
+  });
+
   test("export size limit: 4 GB on desktop, 60 MB on servers, env override wins", async () => {
     expect((await new RuntimeConfig(memoryStore(), box, "desktop", {}, 0).values("exports")).maxRequestMb).toBe(4096);
     expect((await new RuntimeConfig(memoryStore(), box, "self-hosted", {}, 0).values("exports")).maxRequestMb).toBe(60);

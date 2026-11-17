@@ -12,15 +12,27 @@ import type { CatalogDocument } from "@Kavero/catalog-engine";
 import { renderPdf, renderSlideImage } from "@Kavero/export-chromium";
 import { createKaveroMcpServer } from "@Kavero/mcp-server";
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
+import { createResilientRateLimiter, type ResilientRateLimiter } from "@Kavero/redis";
 
 import { renderOrigin } from "@/modules/export/access";
 import { objectStorage } from "@/modules/storage/object-storage";
 import { ENV } from "@/env.server";
-import { allowPrivateUrls, platform, secretBox, serverAiProvider } from "@/platform";
+import { allowPrivateUrls, platform, runtimeConfig, secretBox, serverAiProvider } from "@/platform";
 import { auth, db } from "@/services";
 
 export const runtime = "nodejs";
 
+
+// Per-API-key request limit (Admin → System → MCP). One limiter per configured value.
+const limiters = new Map<number, ResilientRateLimiter>();
+function mcpLimiter(perMinute: number) {
+  let limiter = limiters.get(perMinute);
+  if (!limiter) {
+    limiter = createResilientRateLimiter({ namespace: `mcp-${perMinute}`, maxRequests: perMinute, windowMs: 60_000 });
+    limiters.set(perMinute, limiter);
+  }
+  return limiter;
+}
 
 const unauthorized = (message: string) =>
   Response.json({ jsonrpc: "2.0", error: { code: -32001, message }, id: null }, { status: 401, headers: { "WWW-Authenticate": 'Bearer realm="kavero"' } });
@@ -36,6 +48,15 @@ export async function POST(request: Request) {
   if (!verified?.valid || !verified.key) return unauthorized("Invalid, expired or revoked API key.");
   const [owner] = await db.select({ banned: user.banned, banExpires: user.banExpires }).from(user).where(eq(user.id, verified.key.referenceId)).limit(1);
   if (!owner || isBanned(owner)) return unauthorized("Invalid, expired or revoked API key.");
+  const perMinute = Number((await runtimeConfig.values("mcp")).requestsPerMinute) || 600;
+  const decision = await mcpLimiter(perMinute).limit(verified.key.id);
+  if (!decision.allowed) {
+    const retry = Math.max(1, Math.ceil((decision.resetAt.getTime() - Date.now()) / 1000));
+    return Response.json(
+      { jsonrpc: "2.0", error: { code: -32029, message: `Rate limit: this API key may make ${perMinute} requests per minute. Try again in ${retry} s (an admin can raise it in Admin → System → MCP).` }, id: null },
+      { status: 429, headers: { "Retry-After": String(retry) } },
+    );
+  }
   const principal: ApiKeyPrincipal = {
     userId: verified.key.referenceId,
     apiKeyId: verified.key.id,
