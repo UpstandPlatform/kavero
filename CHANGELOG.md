@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.12.4](https://github.com/UpstandPlatform/kavero/compare/v0.12.3...v0.12.4) - 2026-11-17
+
+### Fixes
+
+- **export:** Upload export media as files to stop "Failed to fetch" ([aea05c0](https://github.com/UpstandPlatform/kavero/commit/aea05c0a5538afb4640ddf0f176fc9d1dd01cbeb))
+
 ## [0.12.3](https://github.com/UpstandPlatform/kavero/compare/v0.12.2...v0.12.3) - 2026-11-17
 
 ### Fixes
