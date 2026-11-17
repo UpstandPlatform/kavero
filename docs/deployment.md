@@ -99,9 +99,9 @@ Create new migrations in development with `bun run db:generate` after changing `
 | `TRUST_PROXY` | unset | Set to `true` (or the number of proxy hops) behind a reverse proxy, so password-protected sites can rate-limit wrong passwords per visitor. Without it only a per-site limit applies. Also in Admin → System. |
 | `KAVERO_ALLOW_PRIVATE_URLS` | on for desktop and development | Lets MCP connections, AI servers and imports reach localhost/LAN addresses. Also in Admin → System. |
 
-`KAVERO_MAX_BROWSERS`, `TRUST_PROXY`, the `S3_*`, `STORAGE_DRIVER`, `AI_*`, `*_API_KEY` and `NEXT_PUBLIC_*` media variables can all be managed in Admin → System instead.
+`KAVERO_MAX_BROWSERS`, `KAVERO_MAX_EXPORT_MB`, `TRUST_PROXY`, the `S3_*`, `STORAGE_DRIVER`, `AI_*`, `*_API_KEY` and `NEXT_PUBLIC_*` media variables can all be managed in Admin → System instead.
 
-Export requests are capped at 60 MB and page sizes at 10000 px. Export browsers can only load the app itself, Google Fonts and public HTTPS addresses.
+Export requests are capped at 60 MB by default (1 GB in the desktop app; change it with `KAVERO_MAX_EXPORT_MB` or Admin → System → Exports) and page sizes at 10000 px. Export browsers can only load the app itself, Google Fonts and public HTTPS addresses.
 
 ## Admin accounts
 

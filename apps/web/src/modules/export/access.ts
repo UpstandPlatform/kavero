@@ -3,6 +3,7 @@ import { audit } from "@Kavero/api/services/audit-service";
 import { BrowserBusyError } from "@Kavero/export-chromium";
 import { z } from "zod";
 
+import { runtimeConfig } from "@/platform";
 import { auth, db } from "@/services";
 
 const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -39,22 +40,31 @@ export function renderOrigin(request: Request): string {
   return new URL(configured || request.url).origin;
 }
 
-/** Export requests carry the document plus its images/fonts as data: URLs. */
-export const MAX_EXPORT_BODY_BYTES = 60 * 1024 * 1024;
+/**
+ * Export requests carry the document plus its images/fonts as data: URLs.
+ * The cap is Admin → System → Exports → Largest export (KAVERO_MAX_EXPORT_MB):
+ * 60 MB by default on servers, 1 GB in the desktop app.
+ */
+export function maxExportBytes(): number {
+  const mb = runtimeConfig.valuesSync("exports").maxRequestMb;
+  return (typeof mb === "number" && mb > 0 ? mb : 60) * 1024 * 1024;
+}
 
 /** Only data: URLs for images and fonts (nothing that makes the server fetch), bounded in total. */
 export const exportAssetsSchema = z
   .record(z.string(), z.string().regex(/^data:(image\/(png|jpe?g|gif|webp|avif|svg\+xml)|font\/(ttf|otf|woff2?));base64,/))
-  .refine((a) => Object.values(a).reduce((n, v) => n + v.length, 0) <= MAX_EXPORT_BODY_BYTES, { message: "Files are too large to export" })
+  .refine((a) => Object.values(a).reduce((n, v) => n + v.length, 0) <= maxExportBytes(), { message: "Files are too large to export" })
   .default({});
 
 /** The JSON body, or an error Response when it is too large or not JSON. Never buffers past the limit. */
 export async function readExportBody(request: Request): Promise<{ body: unknown } | { error: Response }> {
-  const tooLarge = () => ({ error: Response.json({ error: "This catalog is too large to export here (60 MB limit including images)." }, { status: 413 }) });
-  if (Number(request.headers.get("content-length") ?? 0) > MAX_EXPORT_BODY_BYTES) return tooLarge();
+  await runtimeConfig.refresh();
+  const limit = maxExportBytes();
+  const tooLarge = () => ({ error: Response.json({ error: `This catalog is too large to export here (${Math.round(limit / 1024 / 1024)} MB limit including images).` }, { status: 413 }) });
+  if (Number(request.headers.get("content-length") ?? 0) > limit) return tooLarge();
   let bytes: Uint8Array;
   try {
-    bytes = await readLimited(request.body, MAX_EXPORT_BODY_BYTES);
+    bytes = await readLimited(request.body, limit);
   } catch {
     return tooLarge();
   }

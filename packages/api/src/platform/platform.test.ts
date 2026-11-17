@@ -130,4 +130,10 @@ describe("RuntimeConfig", () => {
     const desktop = new RuntimeConfig(memoryStore(), box, "desktop", { NODE_ENV: "production" }, 0);
     expect((await desktop.values("network")).allowPrivateUrls).toBe(true);
   });
+
+  test("export size limit: 1 GB on desktop, 60 MB on servers, env override wins", async () => {
+    expect((await new RuntimeConfig(memoryStore(), box, "desktop", {}, 0).values("exports")).maxRequestMb).toBe(1024);
+    expect((await new RuntimeConfig(memoryStore(), box, "self-hosted", {}, 0).values("exports")).maxRequestMb).toBe(60);
+    expect((await new RuntimeConfig(memoryStore(), box, "desktop", { KAVERO_MAX_EXPORT_MB: "200" }, 0).values("exports")).maxRequestMb).toBe(200);
+  });
 });
