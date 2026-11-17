@@ -37,10 +37,16 @@ import { auth, db } from "@/services";
 import { startMediaJob } from "@/modules/ai/media-jobs";
 
 export const runtime = "nodejs";
-export const maxDuration = 300;
+// Long agent turns (many tool calls) are allowed outside the cloud edition; see turnBudgetMs.
+export const maxDuration = 1800;
 
 /** Model + tools must finish inside this budget, leaving time to save the turn before the function is stopped. */
-const TURN_BUDGET_MS = 270_000;
+const CLOUD_TURN_BUDGET_MS = 270_000;
+/** Self-hosted and desktop servers have no function time limit, so a turn may run long. */
+const LOCAL_TURN_BUDGET_MS = 25 * 60_000;
+/** Model steps per turn; each step can call tools, so long multi-slide jobs fit in one message. */
+const MAX_STEPS = 80;
+const turnBudgetMs = () => (platform.edition === "cloud" ? CLOUD_TURN_BUDGET_MS : LOCAL_TURN_BUDGET_MS);
 /** A tool call is cancelled when less than this is left, so the model can still answer. */
 const TOOL_RESERVE_MS = 20_000;
 const MAX_OUTPUT_TOKENS = 4_096;
@@ -252,7 +258,7 @@ export async function POST(request: Request) {
   }
   const ai = new AiService(db, provider);
 
-  const turnDeadline = Date.now() + TURN_BUDGET_MS;
+  const turnDeadline = Date.now() + turnBudgetMs();
   const tools: ToolSet = mode === "landing"
     ? landingTools(ai, userId, turnDeadline)
     : editorTools(ai, userId, doc!, context?.document, context?.slideId, turnDeadline);
@@ -295,11 +301,11 @@ export async function POST(request: Request) {
     instructions,
     messages: modelMessages,
     tools,
-    stopWhen: isStepCount(4),
+    stopWhen: isStepCount(MAX_STEPS),
     maxOutputTokens: MAX_OUTPUT_TOKENS,
     // Stop button / closed tab cancels the model and tools; the partial answer is still saved in onEnd.
     abortSignal: request.signal,
-    timeout: { totalMs: TURN_BUDGET_MS },
+    timeout: { totalMs: turnBudgetMs() },
     toolCallConcurrency: 2,
   });
 
@@ -410,7 +416,7 @@ function landingTools(ai: AiService, userId: string, turnDeadline: number) {
 // ---------------------------------------------------------------------------
 
 /** Proposals per message: each one is a separate model call. */
-const MAX_PROPOSALS_PER_TURN = 6;
+const MAX_PROPOSALS_PER_TURN = 64;
 
 const EDITOR_STABLE = `You are Kavero's editing assistant inside the catalog editor. Be concise.
 This conversation is the open catalog's own thread: earlier messages are your memory of what the user wants for it. Each message also carries the catalog as it is right now, so if it differs from what was discussed, the user changed it by hand; go by the current state.

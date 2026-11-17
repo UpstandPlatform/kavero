@@ -106,7 +106,7 @@ async function seekVideoElements(root: HTMLElement) {
 export function RenderHost() {
   const [data, setData] = useState<Loaded | null>(null);
   const [time, setTime] = useState(0);
-  const [print, setPrint] = useState<{ doc: CatalogDocument; assets: Record<string, string>; pageNumbers: boolean } | null>(null);
+  const [print, setPrint] = useState<{ doc: CatalogDocument; assets: Record<string, string>; pageNumbers: boolean; offset: number; total: number } | null>(null);
   const root = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -116,9 +116,10 @@ export function RenderHost() {
       await loadFonts(doc);
       await settle(root.current!);
     };
-    // Print mode: every slide in its finished state, one per PDF page.
-    w.__kaveroPrint = async (doc: CatalogDocument, assets: Record<string, string>, pageNumbers: boolean) => {
-      flushSync(() => setPrint({ doc, assets, pageNumbers }));
+    // Print mode: every slide in its finished state, one per PDF page. Large catalogs
+    // arrive in batches; `pages` says where this batch sits for the page numbers.
+    w.__kaveroPrint = async (doc: CatalogDocument, assets: Record<string, string>, pageNumbers: boolean, pages?: { offset: number; total: number }) => {
+      flushSync(() => setPrint({ doc, assets, pageNumbers, offset: pages?.offset ?? 0, total: pages?.total ?? doc.slides.length }));
       await loadFonts(doc);
       await settle(document.body);
     };
@@ -145,7 +146,7 @@ html,body,body>div{height:auto!important;min-height:0!important;display:block!im
             <SlideView doc={print.doc} slide={slide} resolveAsset={resolve} extensionRenderers={builtInExtensionRenderers} extensionEffects={builtInExtensionEffects} />
             {print.pageNumbers && (
               <span style={{ position: "absolute", right: 24, bottom: 16, fontSize: 14, opacity: 0.6, fontFamily: "system-ui, sans-serif", mixBlendMode: "difference", color: "#fff" }}>
-                {i + 1} / {print.doc.slides.length}
+                {print.offset + i + 1} / {print.total}
               </span>
             )}
           </div>

@@ -77,6 +77,11 @@ async function acquireSlot(timeoutMs: number): Promise<() => void> {
  * `queueTimeoutMs` for a free slot, then throws BrowserBusyError. The slot is
  * released when the browser closes or disconnects.
  */
+/** True when Chrome or the page went away mid-export (usually out of memory on a very large catalog). */
+export function isBrowserClosedError(error: unknown): boolean {
+  return error instanceof Error && /Target (page|closed)|has been closed|Browser closed|crashed|Page crashed/i.test(error.message);
+}
+
 export async function launchBrowser(opts: { queueTimeoutMs?: number } = {}): Promise<Browser> {
   const executablePath = CHROME_CANDIDATES.find((p) => p && existsSync(p));
   if (!executablePath) {
@@ -84,7 +89,7 @@ export async function launchBrowser(opts: { queueTimeoutMs?: number } = {}): Pro
   }
   const release = await acquireSlot(opts.queueTimeoutMs ?? 30_000);
   try {
-    const browser = await chromium.launch({ executablePath, headless: true, args: ["--disable-gpu", "--font-render-hinting=none", "--dns-prefetch-disable"] });
+    const browser = await chromium.launch({ executablePath, headless: true, args: ["--disable-gpu", "--font-render-hinting=none", "--dns-prefetch-disable", "--disable-dev-shm-usage"] });
     browser.on("disconnected", release);
     return browser;
   } catch (e) {

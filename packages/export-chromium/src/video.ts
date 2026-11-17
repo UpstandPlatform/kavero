@@ -3,6 +3,7 @@ import { spawn } from "node:child_process";
 import { buildTimeline, frameAt, scheduleSlide, slideHasLoopingAnimation } from "@Kavero/animation-engine";
 import type { CatalogDocument } from "@Kavero/catalog-engine";
 
+import { createAssetStore } from "./assets";
 import { ffmpegPath, launchBrowser } from "./browser";
 import { openRenderPage } from "./network";
 
@@ -83,14 +84,15 @@ export async function renderVideo(opts: VideoOptions): Promise<{ frames: number;
     new Promise<void>((resolve, reject) => (ffmpeg.stdin.write(buf, (e) => (e ? reject(e) : resolve()))));
 
   try {
-    const page = await openRenderPage(browser, opts.baseUrl, { viewport: { width, height }, deviceScaleFactor: 1 });
+    const store = createAssetStore(opts.assets, opts.baseUrl);
+    const page = await openRenderPage(browser, opts.baseUrl, { viewport: { width, height }, deviceScaleFactor: 1 }, store);
     await page.waitForFunction(() => typeof (window as unknown as { __kaveroLoad?: unknown }).__kaveroLoad === "function", null, { timeout: 30_000 });
     await page.evaluate(
       async ({ doc, assets, scale }) => {
         const w = window as unknown as { __kaveroLoad: (d: unknown, a: unknown, s: number) => Promise<void> };
         await w.__kaveroLoad(doc, assets, scale);
       },
-      { doc, assets: opts.assets, scale: width / doc.settings.width },
+      { doc, assets: store.urls, scale: width / doc.settings.width },
     );
 
     let lastKey: string | null = null;

@@ -3,3 +3,4 @@ export * from "./video";
 export * from "./pdf";
 export * from "./image";
 export * from "./network";
+export * from "./assets";

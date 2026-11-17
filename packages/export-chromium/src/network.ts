@@ -4,6 +4,8 @@ import { isIP } from "node:net";
 import { isPrivateAddress } from "@Kavero/catalog-engine";
 import type { Browser, BrowserContextOptions, Page } from "playwright-core";
 
+import type { AssetStore } from "./assets";
+
 const FONT_HOSTS = new Set(["fonts.googleapis.com", "fonts.gstatic.com"]);
 
 async function isPublicHost(hostname: string): Promise<boolean> {
@@ -20,7 +22,7 @@ async function isPublicHost(hostname: string): Promise<boolean> {
  * Chrome on the server could be pointed at internal services.
  * (Chrome resolves hosts again itself, so this narrows rather than fully closes DNS rebinding.)
  */
-export async function openRenderPage(browser: Browser, appUrl: string, options: BrowserContextOptions = {}): Promise<Page> {
+export async function openRenderPage(browser: Browser, appUrl: string, options: BrowserContextOptions = {}, assets?: AssetStore): Promise<Page> {
   const app = new URL(appUrl).origin;
   const page = await browser.newPage(options);
   const verdicts = new Map<string, Promise<boolean>>();
@@ -30,6 +32,15 @@ export async function openRenderPage(browser: Browser, appUrl: string, options: 
       url = new URL(route.request().url());
     } catch {
       return route.abort("blockedbyclient").catch(() => undefined);
+    }
+    // Catalog assets for this export, served from memory (see assets.ts).
+    if (assets && url.origin === app && url.pathname.startsWith(assets.prefix)) {
+      const file = assets.files.get(url.pathname.slice(assets.prefix.length));
+      await (file
+        ? route.fulfill({ status: 200, body: file.body, contentType: file.contentType, headers: { "Cache-Control": "max-age=3600" } })
+        : route.fulfill({ status: 404, body: "" })
+      ).catch(() => undefined);
+      return;
     }
     let allowed = url.origin === app || url.protocol === "data:" || url.protocol === "blob:";
     if (!allowed && url.protocol === "https:") {

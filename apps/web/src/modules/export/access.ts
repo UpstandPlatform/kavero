@@ -1,6 +1,6 @@
 import { readLimited } from "@Kavero/api/services/safe-fetch";
 import { audit } from "@Kavero/api/services/audit-service";
-import { BrowserBusyError } from "@Kavero/export-chromium";
+import { BrowserBusyError, isBrowserClosedError } from "@Kavero/export-chromium";
 import { z } from "zod";
 
 import { runtimeConfig } from "@/platform";
@@ -79,5 +79,9 @@ export async function readExportBody(request: Request): Promise<{ body: unknown 
 export function exportFailed(e: unknown, what: string): Response {
   // By name too: route bundles may each load their own copy of the class.
   if (e instanceof BrowserBusyError || (e as Error)?.name === "BrowserBusyError") return Response.json({ error: (e as Error).message }, { status: 503, headers: { "Retry-After": "30" } });
+  if (isBrowserClosedError(e)) {
+    console.error(`[kavero] ${what}: Chrome closed during export`, (e as Error).message);
+    return Response.json({ error: `${what} failed: Chrome ran out of memory or closed while rendering. Try exporting fewer slides at a time, or use smaller images.` }, { status: 500 });
+  }
   return Response.json({ error: `${what} failed: ${(e as Error).message}` }, { status: 500 });
 }

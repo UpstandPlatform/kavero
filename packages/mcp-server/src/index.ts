@@ -292,7 +292,7 @@ export function createKaveroMcpServer({ db, principal, host }: Ctx) {
 
   server.registerTool("slide_add_element", {
     title: "Add element", description: `Add one or more elements to a slide.\n${ELEMENT_HELP}`,
-    inputSchema: { catalogId: id, slideId: id, elements: z.array(z.object({ type: z.string(), position: positionShape }).passthrough()).min(1).max(50) },
+    inputSchema: { catalogId: id, slideId: id, elements: z.array(z.object({ type: z.string(), position: positionShape }).passthrough()).min(1).max(200) },
   }, guard("slide_add_element", "catalogs:write", async ({ catalogId, slideId, elements }) =>
     ok(await edit(catalogId, elements.map((element) => ({ type: "element.add" as const, slideId, element: { rotation: 0, ...element, position: { rotation: 0, ...element.position } } as unknown as NewElement }))))));
 

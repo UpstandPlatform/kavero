@@ -8,7 +8,8 @@ import { createResilientRateLimiter } from "@Kavero/redis";
 import { TRPCError } from "@trpc/server";
 import { desc, eq } from "drizzle-orm";
 
-const PER_MINUTE = 6;
+// High enough for a chat turn that prepares an edit for every slide of a large catalog.
+const PER_MINUTE = 60;
 const aiRateLimiter = createResilientRateLimiter({ namespace: "ai", maxRequests: PER_MINUTE, windowMs: 60_000 });
 
 async function rateLimit(userId: string) {
