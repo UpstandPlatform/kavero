@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.12.2](https://github.com/UpstandPlatform/kavero/compare/v0.12.1...v0.12.2) - 2026-11-17
+
+### Fixes
+
+- **export:** Configurable export size limit, 1 GB by default in the desktop app ([fdb4d0d](https://github.com/UpstandPlatform/kavero/commit/fdb4d0d73216ca000f54f0c65af4cab3ed9d94da))
+
 ## [0.12.1](https://github.com/UpstandPlatform/kavero/compare/v0.12.0...v0.12.1) - 2026-11-13
 
 ### Features
