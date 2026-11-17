@@ -103,6 +103,12 @@ export const SETTINGS: readonly SectionDef[] = [
     description: "PDF, image and video rendering with headless Chrome.",
     fields: [
       { key: "maxBrowsers", label: "Parallel exports", type: "number", env: "KAVERO_MAX_BROWSERS", default: 2, min: 1, max: 16, description: "How many Chrome exports may run at once. Each needs about 300 MB of memory." },
+      {
+        key: "maxRequestMb", label: "Largest export (MB)", type: "number", env: "KAVERO_MAX_EXPORT_MB",
+        // The desktop app exports on the user's own machine, so big catalogs are fine there.
+        default: (edition) => (edition === "desktop" ? 1024 : 60), min: 10, max: 4096,
+        description: "Biggest catalog, including its images and fonts, that PDF, image and video exports accept. The server holds it in memory while exporting.",
+      },
     ],
   },
   {
