@@ -5,3 +5,4 @@ export * from "./presentation";
 export * from "./markdown-view";
 export * from "./table-view";
 export * from "./path-view";
+export * from "./flipbook";

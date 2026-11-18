@@ -214,7 +214,9 @@ const HISTORYLESS_COMMANDS = new Set<EditorCommand["type"]>([
 ]);
 
 function coalesceKey(cmd: EditorCommand): string | null {
-  if (cmd.type === "element.move") return `move:${cmd.elementId}`;
+  // Include which position fields changed so a drag (x,y), a resize (x,y,width,height)
+  // and a rotate (rotation) stay separate undo steps instead of merging into one.
+  if (cmd.type === "element.move") return `move:${cmd.elementId}:${Object.keys(cmd.position).sort().join(",")}`;
   if (cmd.type === "element.update") return `update:${cmd.elementId}:${Object.keys(cmd.changes).sort().join(",")}`;
   if (cmd.type === "slide.update") return `slide:${cmd.slideId}:${Object.keys(cmd.changes).sort().join(",")}`;
   if (cmd.type === "catalog.updateTheme") return `theme:${Object.keys(cmd.theme.colors ?? {}).join(",")}:${Object.keys(cmd.theme.fonts ?? {}).join(",")}`;

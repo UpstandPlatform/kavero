@@ -174,7 +174,8 @@ export function createActions({ editor, run, uploadImage }: ActionDeps) {
             const width = r0.width || FALLBACK_IMAGE_SIZE.width, height = r0.height || FALLBACK_IMAGE_SIZE.height;
             const k = Math.min((W * 0.5) / width, (H * 0.6) / height, 1);
             const w = Math.round(width * k), h = Math.round(height * k);
-            const pos = at ?? { x: Math.round((W - w) / 2), y: Math.round((H - h) / 2) };
+            // Centre the image on the cursor (paste-here), or on the slide when there's no point.
+            const pos = at ? { x: Math.round(at.x - w / 2), y: Math.round(at.y - h / 2) } : { x: Math.round((W - w) / 2), y: Math.round((H - h) / 2) };
             const r = run({ type: "element.add", slideId: slide().id, element: { type: "image", position: { ...pos, width: w, height: h, rotation: 0 }, content: { assetId, alt: file.name.replace(/\.[^.]+$/, "") } } as unknown as NewElement });
             if (r) editor.select(r.createdIds);
           } catch (e) {

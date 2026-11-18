@@ -1,7 +1,7 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { Add01Icon, ArrowLeft01Icon, CircleIcon, Clock01Icon, CodeIcon, Copy01Icon, Delete02Icon, DragDropVerticalIcon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PenTool01Icon, PlayIcon, Presentation01Icon, PuzzleIcon, Redo02Icon, SquareIcon, TextIcon, Undo02Icon, Upload01Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
+import { Add01Icon, BookOpen01Icon, ArrowLeft01Icon, CircleIcon, Clock01Icon, CodeIcon, Copy01Icon, Delete02Icon, DragDropVerticalIcon, GlobeIcon, Heading01Icon, ImageAdd01Icon, KeyboardIcon, LayoutGridIcon, MessageMultiple01Icon, MinusSignIcon, PenTool01Icon, PlayIcon, Presentation01Icon, PuzzleIcon, Redo02Icon, SquareIcon, TextIcon, Undo02Icon, Upload01Icon, ZoomInIcon, ZoomOutIcon } from "@hugeicons/core-free-icons";
 import { createBlankSlide, createId, parseCatalogDocument, productCardStyleSchema, productGridStyleSchema, PRODUCTS_EXTENSION_ID, type CatalogDocument, type CatalogElement, type CatalogSlide } from "@Kavero/catalog-engine";
 import type { Editor, EditorCommand, NewElement } from "@Kavero/editor-core";
 import type { ExtensionInstalledState, JsonValue } from "@Kavero/extensions";
@@ -19,6 +19,7 @@ import { ContextMenuProvider, useContextMenu, type MenuItem } from "./context-me
 import { createActions, kbd } from "./editor-actions";
 import { slideMenu } from "./editor-menus";
 import { ExportMenu } from "./export-menu";
+import { FlipbookOverlay } from "./flipbook-overlay";
 import { LayersPanel } from "./layers-panel";
 import { ShortcutsDialog } from "./shortcuts-dialog";
 import { useEditorKeyboard } from "./use-editor-keyboard";
@@ -145,6 +146,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
   const { width: W, height: H } = doc.settings;
 
   const [previewing, setPreviewing] = useState<false | "play" | "export">(false);
+  const [flipbookOpen, setFlipbookOpen] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [importing, setImporting] = useState(false);
   const [picking, setPicking] = useState<PickOptions | null>(null);
@@ -468,6 +470,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
         <TooltipHint content="Chat with your AI model about this catalog"><Button variant={workspace.isOpen("chat") ? "secondary" : "ghost"} size="icon-sm" aria-label="Chat" aria-pressed={workspace.isOpen("chat")} onClick={() => workspace.toggle("chat")}><HugeiconsIcon icon={MessageMultiple01Icon} /></Button></TooltipHint>
         <ExportMenu doc={doc} onVideo={() => setPreviewing("export")} prepareDocument={prepareDocumentForExport} extensionRenderers={extensionPptxRenderers} />
         <TooltipHint content="Publish as a website"><Button variant="outline" size="icon-sm" aria-label="Publish" onClick={() => setPublishing(true)}><HugeiconsIcon icon={GlobeIcon} /></Button></TooltipHint>
+        <TooltipHint content="Flipbook preview"><Button variant="outline" size="icon-sm" className="ml-1" aria-label="Flipbook preview" onClick={() => setFlipbookOpen(true)}><HugeiconsIcon icon={BookOpen01Icon} /></Button></TooltipHint>
         <TooltipHint content="Preview from this slide"><Button size="icon-sm" className="ml-1" aria-label="Preview" onClick={() => setPreviewing("play")}><HugeiconsIcon icon={PlayIcon} /></Button></TooltipHint>
       </header>
 
@@ -801,6 +804,7 @@ function EditorShell({ editor, userId, assetUrls, saveStatus, cloudLabel, upload
         />
       )}
       {publishing && <PublishDialog doc={doc} onClose={() => setPublishing(false)} />}
+      {flipbookOpen && <FlipbookOverlay doc={doc} startSlide={slideIndex} assetUrls={assetUrls} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} onClose={() => setFlipbookOpen(false)} />}
       {previewing && <PreviewPlayer doc={doc} startSlide={previewing === "export" ? 0 : slideIndex} openExport={previewing === "export"} assetUrls={assetUrls} extensionRenderers={extensionRenderers} extensionEffects={extensionEffects} prepareDocument={(format, document) => prepareDocumentForExport(format, document)} onClose={() => setPreviewing(false)} />}
       {extensionStoreOpen && <ExtensionStoreDialog extensions={extensionStoreEntries} selectedElementCount={state.selection.length} onAction={actOnExtension} onRun={runExtension} onApply={applyExtensionEffect} onClose={() => setExtensionStoreOpen(false)} />}
     </div>

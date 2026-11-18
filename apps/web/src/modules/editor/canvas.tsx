@@ -21,6 +21,17 @@ const HANDLES: Record<Handle, [number, number]> = {
 const CURSORS: Record<Handle, string> = { n: "ns-resize", s: "ns-resize", e: "ew-resize", w: "ew-resize", ne: "nesw-resize", sw: "nesw-resize", nw: "nwse-resize", se: "nwse-resize" };
 const SNAP_PX = 6;
 
+/** Axis-aligned bounding box of an element after its rotation, so hit-testing matches what's on screen. */
+function rotatedBounds(p: ElementPosition): { x: number; y: number; width: number; height: number } {
+  if (!p.rotation) return { x: p.x, y: p.y, width: p.width, height: p.height };
+  const th = (p.rotation * Math.PI) / 180;
+  const hw = p.width / 2, hh = p.height / 2;
+  const cos = Math.abs(Math.cos(th)), sin = Math.abs(Math.sin(th));
+  const ew = hw * cos + hh * sin, eh = hw * sin + hh * cos;
+  const cx = p.x + hw, cy = p.y + hh;
+  return { x: cx - ew, y: cy - eh, width: ew * 2, height: eh * 2 };
+}
+
 type Gesture =
   | { kind: "move"; startX: number; startY: number; starts: Record<string, ElementPosition>; moved: boolean }
   | { kind: "resize"; id: string; handle: Handle; startX: number; startY: number; start: ElementPosition }
@@ -258,6 +269,9 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZo
       return;
     }
     if (e.button !== 0 || editingId === el.id) return;
+    // A locked element that isn't part of a group shouldn't grab the pointer: let the
+    // click fall through so you can rubber-band across it (unlock it from the Layers panel).
+    if (el.locked && !el.groupId) return;
     e.stopPropagation();
     // While editing a path's points, its body doesn't move; only the anchors and handles respond.
     if (pathEditId === el.id) return;
@@ -305,6 +319,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZo
 
   function onBackgroundDown(e: RPointerEvent) {
     if (e.button !== 0) return;
+    if (penActive) return; // the pen tool owns clicks while drawing; don't clear the selection
     if (annotationMode) {
       e.preventDefault();
       return;
@@ -320,6 +335,7 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZo
   }
 
   function onHandleDown(e: RPointerEvent, el: CatalogElement, handle: Handle | "rotate") {
+    if (e.button !== 0) return; // only the left button resizes/rotates; otherwise the gesture gets stuck
     e.stopPropagation();
     (e.currentTarget as Element).setPointerCapture(e.pointerId);
     const p = toDoc(e);
@@ -377,7 +393,9 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZo
         let w = Math.max(8, s.width + hx * ldx);
         let h = Math.max(8, s.height + hy * ldy);
         const el = slide.elements.find((x) => x.id === activeGesture.id);
-        const keepRatio = hx !== 0 && hy !== 0 && (sample.shiftKey || el?.type === "image");
+        // Corner handles keep the aspect ratio: by default for images (hold Shift to free/crop),
+        // and on Shift for everything else.
+        const keepRatio = hx !== 0 && hy !== 0 && (el?.type === "image" ? !sample.shiftKey : sample.shiftKey);
         if (keepRatio && s.width > 0 && s.height > 0) {
           const r = s.width / s.height;
           if (w / h > r) h = w / r; else w = h * r;
@@ -405,7 +423,11 @@ export function Canvas({ editor, state, slide, assetUrls, zoom, onFitScale, onZo
         const [ax, bx] = [Math.min(g.x0, g.x1), Math.max(g.x0, g.x1)];
         const [ay, by] = [Math.min(g.y0, g.y1), Math.max(g.y0, g.y1)];
         const hit = slide.elements
-          .filter((el) => !el.hidden && el.position.x < bx && el.position.x + el.position.width > ax && el.position.y < by && el.position.y + el.position.height > ay)
+          .filter((el) => {
+            if (el.hidden || el.locked) return false;
+            const b = rotatedBounds(el.position);
+            return b.x < bx && b.x + b.width > ax && b.y < by && b.y + b.height > ay;
+          })
           .map((el) => el.id);
         editor.select([...new Set([...g.additive, ...hit])]);
         break;

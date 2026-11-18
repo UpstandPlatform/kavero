@@ -1,7 +1,7 @@
 "use client";
 
 import { HugeiconsIcon } from "@hugeicons/react";
-import { FileAttachmentIcon, FileDownloadIcon, FileScriptIcon, Film01Icon, Image01Icon, Loading02Icon, PackageIcon, Presentation01Icon } from "@hugeicons/core-free-icons";
+import { BookOpen01Icon, FileAttachmentIcon, FileDownloadIcon, FileScriptIcon, Film01Icon, Image01Icon, Loading02Icon, PackageIcon, Presentation01Icon } from "@hugeicons/core-free-icons";
 import { checkExportCompatibility, documentDirection, parseCatalogDocument, safeFileName, type CatalogDocument } from "@Kavero/catalog-engine";
 import type { PptxExtensionRendererRegistry } from "@Kavero/export-pptx";
 import { Button } from "@Kavero/ui/components/button";
@@ -15,6 +15,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@Kavero/ui/components/dropdown-menu";
+import { zipSync } from "fflate";
 import { useState } from "react";
 import { toast } from "sonner";
 
@@ -174,6 +175,83 @@ ${description}
 `;
 }
 
+const MIME_EXT: Record<string, string> = {
+  "image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp", "image/avif": "avif", "image/svg+xml": "svg",
+  "video/mp4": "mp4", "video/webm": "webm", "font/ttf": "ttf", "font/otf": "otf", "font/woff": "woff", "font/woff2": "woff2",
+};
+
+/** Bytes and a file extension for a data: URL. */
+function dataUrlToBytes(dataUrl: string): { bytes: Uint8Array; ext: string } {
+  const comma = dataUrl.indexOf(",");
+  const header = dataUrl.slice(5, comma);
+  const isBase64 = /;base64$/i.test(header);
+  const mime = header.replace(/;base64$/i, "").split(";")[0]!.toLowerCase();
+  const ext = MIME_EXT[mime] ?? (mime.split("/")[1] || "bin").replace(/[^a-z0-9]/g, "");
+  const raw = dataUrl.slice(comma + 1);
+  if (isBase64) {
+    const bin = atob(raw);
+    const bytes = new Uint8Array(bin.length);
+    for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+    return { bytes, ext };
+  }
+  return { bytes: new TextEncoder().encode(decodeURIComponent(raw)), ext };
+}
+
+function flipbookHtml(doc: CatalogDocument, assets: Record<string, string>) {
+  const lang = doc.metadata.language.replace(/[^\w-]/g, "") || "en";
+  const title = escapeHtml(doc.metadata.title || "Catalog");
+  const description = doc.metadata.description ? `<meta name="description" content="${escapeHtml(doc.metadata.description)}">` : "";
+  const data = JSON.stringify({ doc, assets }).split("<").join("\\u003c");
+  return `<!doctype html>
+<html lang="${lang}" dir="${documentDirection(doc)}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${title}</title>
+${description}
+<meta name="generator" content="Kavero">
+<style>html,body{margin:0;height:100%;background:#1b1b22}#kavero{position:fixed;inset:0}noscript{color:#fff;font:16px system-ui,sans-serif;display:block;padding:2rem}</style>
+</head>
+<body>
+<div id="kavero"></div>
+<noscript>This flipbook needs JavaScript to open.</noscript>
+<script id="kavero-data" type="application/json">${data}</script>
+<script src="./kavero-flipbook.js"></script>
+</body>
+</html>
+`;
+}
+
+/**
+ * A .zip holding a standalone flipbook: index.html, the flipbook script, and an
+ * assets/ folder with the images, fonts and videos as separate files. Opens in
+ * any browser by double-clicking index.html — no server needed.
+ */
+export function buildFlipbookZip(doc: CatalogDocument, assets: Record<string, string>, player: string): { blob: Blob; bytes: number } {
+  const files: Record<string, Uint8Array> = {};
+  const assetMap: Record<string, string> = {};
+  for (const [id, value] of Object.entries(assets)) {
+    if (/^https?:\/\//i.test(value)) { assetMap[id] = value; continue; } // keep already-linked media
+    if (!value.startsWith("data:")) continue;
+    const { bytes, ext } = dataUrlToBytes(value);
+    const path = `assets/${id}.${ext}`;
+    files[path] = bytes;
+    assetMap[id] = `./${path}`;
+  }
+  files["kavero-flipbook.js"] = new TextEncoder().encode(player);
+  files["index.html"] = new TextEncoder().encode(flipbookHtml(doc, assetMap));
+  files["README.txt"] = new TextEncoder().encode(
+    `${doc.metadata.title || "Catalog"} — flipbook
+
+Double-click index.html to open it in any web browser. Keep this folder together: the assets folder and kavero-flipbook.js must sit next to index.html.
+Made with Kavero.
+`,
+  );
+  // Media is already compressed; store it, and only deflate the text files.
+  const zipped = zipSync(files, { level: 0 });
+  return { blob: new Blob([zipped as BlobPart], { type: "application/zip" }), bytes: zipped.length };
+}
+
 function showWarnings(title: string, warnings: string[]) {
   const unique = [...new Set(warnings)];
   if (!unique.length) return toast.success(title);
@@ -245,6 +323,18 @@ export function ExportMenu({ doc, onVideo, prepareDocument, extensionRenderers }
       showWarnings("Website exported — one HTML file you can upload anywhere", warnings);
     });
 
+  const exportFlipbook = () =>
+    run("flipbook", async () => {
+      const document = prepareDocument ? await prepareDocument("html", doc) : doc;
+      const res = await fetch("/kavero-flipbook.js");
+      if (!res.ok) throw new Error("The flipbook player is missing. Run `bun run build:player` in apps/web.");
+      const assets = await collectAssets(document, ["image", "font", "video"]);
+      const { blob, bytes } = buildFlipbookZip(document, assets, await res.text());
+      download(blob, fileName(document, "zip"));
+      const mb = bytes / 1024 / 1024;
+      showWarnings("Flipbook exported — a .zip you can open in any browser", mb > 50 ? [`The zip is ${mb.toFixed(0)} MB; compress large media for easier sharing.`] : []);
+    });
+
   return (
     <Tooltip>
       <DropdownMenu>
@@ -261,6 +351,7 @@ export function ExportMenu({ doc, onVideo, prepareDocument, extensionRenderers }
           <DropdownMenuItem onClick={exportPowerPoint}><HugeiconsIcon icon={Presentation01Icon} /> PowerPoint (.pptx)</DropdownMenuItem>
           <DropdownMenuItem onClick={onVideo}><HugeiconsIcon icon={Film01Icon} /> Video (MP4)…</DropdownMenuItem>
           <DropdownMenuItem onClick={exportHtml}><HugeiconsIcon icon={FileScriptIcon} /> Website (single HTML file)</DropdownMenuItem>
+          <DropdownMenuItem onClick={exportFlipbook}><HugeiconsIcon icon={BookOpen01Icon} /> Flipbook (.zip)</DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => run("file", () => flushEditorSave(doc.id).then(() => downloadProjectFile(doc.id, doc.metadata.title)))}><HugeiconsIcon icon={PackageIcon} /> Kavero project file</DropdownMenuItem>

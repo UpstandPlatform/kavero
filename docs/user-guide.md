@@ -210,12 +210,14 @@ Elements are matched when one is a copy of the other (duplicated slides, or copy
 ## Preview and export
 
 - **Preview** plays the catalog from the current slide (Space pauses, arrows change slides, Esc closes).
+- **Flipbook preview** opens the catalog as a page-turn book. Click a page half, drag a page, use the arrow keys, or the on-screen buttons to turn pages; wide slides show one page at a time, narrow ones two side by side.
 - **Export**:
   - **PDF** (optionally with page numbers) — one page per slide, selectable text.
   - **PowerPoint** — text, shapes and images stay editable; you're told what can't be carried over (transitions, HTML styling, embedded fonts).
   - **Video (MP4)** — 720p to 4K at 24/30/60 fps, rendered frame by frame on the server.
   - **Website (single HTML file)** — one `.html` file with the catalog, its images, fonts and videos built in, plus the player (animations, transitions, Morph, keyboard/touch navigation, full screen, `#3` slide links). Upload it to any web host or your own site, attach it to an email, or open it straight from disk — no Kavero server needed. Google Fonts load from the internet when online; embedded fonts always work.
   - **JPG images (.zip)** — every slide as a JPEG (1920 px wide, or 3840 px for 4K) in one zip, named in slide order (`01-cover.jpg`, `02-…`). Slides show their finished state; good for social posts, marketplaces and email.
+  - **Flipbook (.zip)** — a page-turn flipbook as a small website: a zip holding `index.html`, the flipbook script and an `assets/` folder with the images and fonts. Unzip it and double-click `index.html` to open it in any browser — no Kavero server needed.
   - **Kavero project file** — the whole catalog with its images and fonts, for backup or moving between browsers.
 - PDF, JPG and video need Chrome (or Chromium) on the machine running the Kavero server. PowerPoint and the HTML file are built in your browser and work offline.
 
