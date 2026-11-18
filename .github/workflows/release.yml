@@ -28,6 +28,10 @@ on:
         description: Prerelease label (e.g. beta → 1.4.0-beta.1). Leave empty for a normal release.
         type: string
         default: ""
+      tag:
+        description: Publish an existing release instead (e.g. v0.13.1) — builds the installer and GitHub release for a version whose release commit is already on master. Leave empty for a normal run.
+        type: string
+        default: ""
 
 # One release at a time, never cancelled half-way (a tag may already be pushed).
 concurrency:
@@ -55,10 +59,10 @@ jobs:
     permissions:
       contents: write
     outputs:
-      release: ${{ steps.plan.outputs.release }}
-      version: ${{ steps.plan.outputs.version }}
-      tag: ${{ steps.plan.outputs.tag }}
-      prerelease: ${{ steps.plan.outputs.prerelease }}
+      release: ${{ steps.plan.outputs.release || steps.existing.outputs.release }}
+      version: ${{ steps.plan.outputs.version || steps.existing.outputs.version }}
+      tag: ${{ steps.plan.outputs.tag || steps.existing.outputs.tag }}
+      prerelease: ${{ steps.plan.outputs.prerelease || steps.existing.outputs.prerelease }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -71,17 +75,48 @@ jobs:
         with:
           bun-version: 1.4.2
 
+      # Publishing an existing release: tag its release commit if needed and reuse its changelog section.
+      - name: Use an existing release
+        id: existing
+        if: inputs.tag != ''
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          [[ "$TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]] || { echo "::error::tag must look like v1.2.3"; exit 1; }
+          VERSION="${TAG#v}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+            SHA=$(git log origin/${{ github.ref_name }} --format=%H --grep="^chore(release): $TAG \[skip ci\]$" -1)
+            [ -n "$SHA" ] || { echo "::error::no release commit for $TAG on ${{ github.ref_name }}"; exit 1; }
+            git tag -a "$TAG" -m "Kavero $TAG" "$SHA"
+            for i in 1 2 3 4; do git push origin "$TAG" && break; echo "tag push failed, retrying"; sleep $((i * 15)); done
+            git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null
+          fi
+          # The changelog section for this version, as the release notes.
+          git show "$TAG:CHANGELOG.md" | awk -v h="## [$VERSION]" 'index($0, h) == 1 {on=1; next} on && /^## \[/ {exit} on' > release-notes.md
+          [ -s release-notes.md ] || echo "Kavero $TAG" > release-notes.md
+          {
+            echo "release=true"
+            echo "version=$VERSION"
+            echo "tag=$TAG"
+            [[ "$VERSION" == *-* ]] && echo "prerelease=true" || echo "prerelease=false"
+          } >> "$GITHUB_OUTPUT"
+
       # Never tag a commit that doesn't pass the same checks as CI.
       - name: Install
+        if: inputs.tag == ''
         run: bun install --frozen-lockfile
 
       - name: Type check and unit tests
+        if: inputs.tag == ''
         run: |
           bun run check-types
           bun run test
 
       - name: Work out the next version
         id: plan
+        if: inputs.tag == ''
         run: |
           args=(--write)
           [ "${{ inputs.bump }}" != "" ] && args+=(--bump "${{ inputs.bump }}")
@@ -92,17 +127,32 @@ jobs:
         if: steps.plan.outputs.release == 'true'
         env:
           TAG: ${{ steps.plan.outputs.tag }}
+          BRANCH: ${{ github.ref_name }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add CHANGELOG.md apps/desktop/package.json apps/web/package.json
-          git commit -m "chore(release): $TAG [skip ci]"
-          git tag -a "$TAG" -m "Kavero $TAG"
-          git push origin HEAD:${{ github.ref_name }}
-          git push origin "$TAG"
+          git fetch -q origin "$BRANCH"
+          # A re-run after a failed tag push: the release commit is already on the branch, so tag that one.
+          EXISTING=$(git log "origin/$BRANCH" --format=%H --grep="^chore(release): $TAG \[skip ci\]$" -1)
+          if [ -n "$EXISTING" ]; then
+            echo "Release commit for $TAG is already on $BRANCH ($EXISTING); tagging it."
+            git tag -a "$TAG" -m "Kavero $TAG" "$EXISTING"
+          else
+            git add CHANGELOG.md apps/desktop/package.json apps/web/package.json
+            git commit -m "chore(release): $TAG [skip ci]"
+            git tag -a "$TAG" -m "Kavero $TAG"
+            git push origin "HEAD:$BRANCH"
+          fi
+          # GitHub occasionally rejects a push with a transient server error; retry the tag.
+          for i in 1 2 3 4; do
+            git push origin "$TAG" && break
+            echo "Tag push failed (attempt $i); retrying"
+            sleep $((i * 15))
+          done
+          git ls-remote --exit-code --tags origin "refs/tags/$TAG" >/dev/null
 
       - name: Keep the release notes for the publish job
-        if: steps.plan.outputs.release == 'true'
+        if: steps.plan.outputs.release == 'true' || steps.existing.outputs.release == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: release-notes
@@ -111,8 +161,8 @@ jobs:
 
       - name: Summary
         run: |
-          if [ "${{ steps.plan.outputs.release }}" = "true" ]; then
-            echo "### Releasing ${{ steps.plan.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
+          if [ "${{ steps.plan.outputs.release || steps.existing.outputs.release }}" = "true" ]; then
+            echo "### Releasing ${{ steps.plan.outputs.tag || steps.existing.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"
             cat release-notes.md >> "$GITHUB_STEP_SUMMARY"
           else
             echo "No release: nothing but docs/chore/ci changes since the last tag." >> "$GITHUB_STEP_SUMMARY"
