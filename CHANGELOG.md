@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.13.0](https://github.com/UpstandPlatform/kavero/compare/v0.12.5...v0.13.0) - 2026-11-18
+
+### Features
+
+- Flipbook preview and standalone flipbook zip export; editor canvas fixes ([e0112af](https://github.com/UpstandPlatform/kavero/commit/e0112af1569926578363601d2386d826e8779238))
+
 ## [0.12.5](https://github.com/UpstandPlatform/kavero/compare/v0.12.4...v0.12.5) - 2026-11-17
 
 ### Fixes
