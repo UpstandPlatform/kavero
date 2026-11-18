@@ -3,6 +3,12 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.13.1](https://github.com/UpstandPlatform/kavero/compare/v0.13.0...v0.13.1) - 2026-11-18
+
+### Fixes
+
+- **flipbook:** Use StPageFlip (page-flip) for a realistic page-turn ([d91c15c](https://github.com/UpstandPlatform/kavero/commit/d91c15ccbde0ce9a8d8d9572ad53378f47ad5e9d))
+
 ## [0.13.0](https://github.com/UpstandPlatform/kavero/compare/v0.12.5...v0.13.0) - 2026-11-18
 
 ### Features
