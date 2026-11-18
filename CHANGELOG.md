@@ -3,6 +3,16 @@
 All notable changes to Kavero are listed here. Versions follow [Semantic Versioning](https://semver.org/).
 This file is updated automatically by the release workflow from [Conventional Commits](https://www.conventionalcommits.org/) — see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## [0.13.2](https://github.com/UpstandPlatform/kavero/compare/v0.13.1...v0.13.2) - 2026-11-18
+
+### Fixes
+
+- **flipbook:** Fit the book inside the window, with covers ([70ae1f3](https://github.com/UpstandPlatform/kavero/commit/70ae1f39841cb550fd561d7ffefae5b990908701))
+
+### Other changes
+
+- **release:** Retry tag pushes and recover a half-finished release ([a422a4b](https://github.com/UpstandPlatform/kavero/commit/a422a4bfeb34bcbf64893c8dc8bc9c821a381717))
+
 ## [0.13.1](https://github.com/UpstandPlatform/kavero/compare/v0.13.0...v0.13.1) - 2026-11-18
 
 ### Fixes
